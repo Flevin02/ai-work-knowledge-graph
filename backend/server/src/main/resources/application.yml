@@ -1,0 +1,39 @@
+server:
+  port: ${SERVER_PORT:4010}
+  servlet:
+    context-path: ${SERVER_CONTEXT_PATH:/api}
+
+spring:
+  application:
+    name: ai-work-knowledge-graph-backend
+  profiles:
+    active: @profile.active@
+  jackson:
+    default-property-inclusion: non_null
+
+app:
+  frontend-origin: ${FRONTEND_ORIGIN:http://localhost:3010}
+  database-path: ${DATABASE_PATH:./data/knowledge-graph.sqlite}
+  upload-dir: ${UPLOAD_DIR:./data/uploads}
+
+ai:
+  provider: ${AI_PROVIDER:gemini}
+  model: ${AI_MODEL:gemini-2.5-flash}
+  api-key: ${GEMINI_API_KEY:}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+  group-configs:
+    - group: default
+      paths-to-match: /**
+      packages-to-scan: com.flevin.knowgraph.server.controller
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
