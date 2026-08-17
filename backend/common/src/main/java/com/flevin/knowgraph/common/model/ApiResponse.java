@@ -2,6 +2,7 @@ package com.flevin.knowgraph.common.model;
 
 import com.flevin.knowgraph.common.context.TraceContext;
 import com.flevin.knowgraph.common.enums.ErrorCode;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -14,15 +15,27 @@ import java.io.Serializable;
  */
 @Data
 @NoArgsConstructor
+@Schema(description = "知脉统一 API 响应包装对象")
 public class ApiResponse<T> implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
+    @Schema(description = "是否发生错误", example = "false")
     private boolean error;
+
+    @Schema(description = "业务响应码", example = "200")
     private int code;
+
+    @Schema(description = "响应消息", example = "操作成功")
     private String msg;
+
+    @Schema(description = "响应时间戳，单位为毫秒", example = "1786956926812")
     private Long timestamp;
+
+    @Schema(description = "请求链路标识，可用于关联后端日志", example = "2089274896406102016")
     private String traceId;
+
+    @Schema(description = "业务响应数据")
     private T data;
 
     /**

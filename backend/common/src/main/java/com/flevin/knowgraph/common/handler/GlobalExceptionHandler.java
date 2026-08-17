@@ -11,6 +11,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.stream.Collectors;
 
@@ -20,6 +21,8 @@ import java.util.stream.Collectors;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final String FAVICON_RESOURCE_PATH = "favicon.ico";
 
     /**
      * 处理可直接展示给用户的提示异常。
@@ -62,6 +65,23 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.joining("; "));
         log.warn("参数校验失败: {}", message);
         return ApiResponse.error(ErrorCode.PARAM_VALID_ERROR, message);
+    }
+
+    /**
+     * 处理静态资源或接口路径不存在异常。
+     *
+     * @param exception 资源不存在异常
+     * @return 资源不存在响应
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiResponse<Void> handleNoResourceFoundException(NoResourceFoundException exception) {
+        if (FAVICON_RESOURCE_PATH.equals(exception.getResourcePath())) {
+            log.debug("浏览器请求 favicon.ico，但当前服务未配置站点图标");
+        } else {
+            log.warn("请求资源不存在: {}", exception.getResourcePath());
+        }
+        return ApiResponse.error(ErrorCode.NOT_FOUND);
     }
 
     /**

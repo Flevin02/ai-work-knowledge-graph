@@ -1,6 +1,6 @@
 ---
 title: AI 工作知识图谱维护助手 PRD
-version: v0.2
+version: v0.3
 status: 开发中
 created: 2026-08-17
 updated: 2026-08-17
@@ -554,6 +554,12 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 接口已返回统一响应结构和 `X-Trace-Id` 响应头。
 - 已使用 Java 21 执行根 Reactor `mvn test`，测试通过。
 - 已使用 Java 21 完成 Maven install，并验证两个接口返回 HTTP 200。
+- 已增加 Knife4j/OpenAPI 基础信息配置，接口按“健康检查”和“知识图谱”分组展示。
+- 已为 Controller 增加 `@Tag`、`@Operation`，并为统一响应和具体响应字段增加 `@Schema` 描述与示例。
+- 未使用逐接口 `@ApiResponses`；响应结构由 SpringDoc 根据真实泛型返回类型自动推导。
+- 已验证 OpenAPI 生成 `ApiResponseHealthStatusResponse`、`ApiResponseGraphSummaryResponse`、`HealthStatusResponse` 和 `GraphSummaryResponse` 模型。
+- 已单独处理 `NoResourceFoundException`：缺失的 `favicon.ico` 仅记录 debug，其他缺失资源记录 warn，并统一返回 404。
+- 已增加缺失 favicon 的 MockMvc 测试，验证 `error=true`、业务码 404 和“请求的资源不存在”消息。
 
 ## 18.2 当前验证边界
 
@@ -565,6 +571,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - AI 供应商和模型已经配置化，但 `AiExtractionClient`、Gemini 调用和结构化输出校验尚未实现。
 - 未进行真实公司资料、真实 Gemini API、生产部署和浏览器端到端验证。
 - 本机默认 Maven 运行时可能使用 Java 25；本项目必须显式使用 Java 21，避免 Lombok 注解处理失败。
+- OpenAPI 文档已在本地临时端口验证结构和字段描述，但尚未进行独立部署后的 Knife4j 页面人工验收。
 
 # 19. 下一步代办与新会话入口
 
