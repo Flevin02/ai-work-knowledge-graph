@@ -49,6 +49,7 @@ export type SourceDocument = {
   contentHash: string;
   excerpt: string;
   status: 'active' | 'changed' | 'missing' | 'parse_failed';
+  fileSize?: number;
   importedAt: string;
   updatedAt: string;
 };

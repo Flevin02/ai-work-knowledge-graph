@@ -49,6 +49,7 @@
                     <include>**/*.yml</include>
                     <include>**/*.yaml</include>
                     <include>**/*.properties</include>
+                    <include>**/*.sql</include>
                 </includes>
             </resource>
         </resources>

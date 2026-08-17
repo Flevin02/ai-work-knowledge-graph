@@ -32,8 +32,30 @@ JAVA_HOME="$kg_java_home" PATH="$kg_java_home/bin:$PATH" mvn spring-boot:run
 
 - `GET /api/health`
 - `GET /api/v1/graph/summary`
+- `GET /api/v1/documents`
+- `POST /api/v1/documents/import`
 
 Controller 内部不重复声明 `/api`，后续切换部署前缀只修改 `SERVER_CONTEXT_PATH`。
+
+## SQLite 与来源资料目录
+
+默认数据库和上传目录由以下环境变量控制：
+
+```properties
+DATABASE_PATH=./data/knowledge-graph.sqlite
+UPLOAD_DIR=./data/uploads
+FRONTEND_ORIGIN=http://localhost:3010
+```
+
+启动时会自动创建目录，并执行项目内的幂等建表脚本：
+
+```text
+server/src/main/resources/db/schema.sql
+```
+
+当前脚本包含 `import_batches`、`source_documents` 表及索引，并使用中文 SQL 行注释说明表、字段和约束。SQLite 不支持 MySQL 风格的持久化表/字段 COMMENT，因此表结构说明以该 SQL 文件为事实源。
+
+当前导入接口只支持 UTF-8 Markdown/TXT。服务端会保存原始文件、解析文本和 SHA-256 内容指纹；完全相同的字节内容不会重复落库。DOCX/PDF 解析仍在后续计划中。
 
 ## AI 模型配置
 

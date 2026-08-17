@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Archive,
@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import GraphCanvas from './graph-canvas';
+import { importSourceDocuments, listSourceDocuments } from '@/lib/api/documents';
 import {
   nodeTypeColors,
   nodeTypeLabels,
@@ -33,6 +34,7 @@ import {
 
 type GraphWorkspaceProps = { initialGraph: GraphData };
 type View = 'graph' | 'review' | 'health';
+type NoticeTone = 'success' | 'warning' | 'error' | 'loading';
 
 const allTypes: Array<NodeType | 'all'> = ['all', 'project', 'department', 'person', 'task', 'document', 'meeting', 'risk', 'decision'];
 
@@ -48,14 +50,47 @@ function issueCount(graph: GraphData) {
     + graph.edges.filter((edge) => edge.status === 'suggested').length;
 }
 
+function mergeDocuments(current: SourceDocument[], incoming: SourceDocument[]) {
+  const documentsById = new Map(current.map((document) => [document.id, document]));
+  incoming.forEach((document) => documentsById.set(document.id, document));
+  return Array.from(documentsById.values());
+}
+
 export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
   const [graph, setGraph] = useState(initialGraph);
   const [view, setView] = useState<View>('graph');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>('project-annual-party');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<NodeType | 'all'>('all');
-  const [notice, setNotice] = useState('演示资料已加载，关系来源可点击查看。');
+  const [notice, setNotice] = useState('演示图谱已加载，正在连接后端来源资料服务。');
+  const [noticeTone, setNoticeTone] = useState<NoticeTone>('loading');
+  const [persistedDocuments, setPersistedDocuments] = useState<SourceDocument[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadPersistedDocuments = async () => {
+      try {
+        const documents = await listSourceDocuments();
+        if (cancelled) return;
+        setPersistedDocuments(documents);
+        setGraph((current) => ({ ...current, documents: mergeDocuments(current.documents, documents) }));
+        setNotice(documents.length
+          ? `后端已连接，已加载 ${documents.length} 份真实来源资料；图谱节点仍为虚构演示数据。`
+          : '后端已连接，当前还没有真实来源资料；图谱节点仍为虚构演示数据。');
+        setNoticeTone('success');
+      } catch (error) {
+        if (cancelled) return;
+        setNotice(`后端来源资料服务未连接，真实导入暂不可用：${error instanceof Error ? error.message : '未知错误'}`);
+        setNoticeTone('error');
+      }
+    };
+
+    void loadPersistedDocuments();
+    return () => { cancelled = true; };
+  }, []);
 
   const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId) ?? null;
   const selectedEdges = graph.edges.filter((edge) => edge.source === selectedNodeId || edge.target === selectedNodeId);
@@ -80,35 +115,44 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
       edges: current.edges.map((edge) => edge.id === edgeId ? { ...edge, status, updatedAt: new Date().toISOString() } : edge),
     }));
     setNotice(status === 'confirmed' ? '关系已确认，图谱已更新。' : '关系已拒绝，并保留在审核记录中。');
+    setNoticeTone('success');
   };
 
   const importFiles = async (files: FileList | null) => {
     if (!files?.length) return;
-    const imported: SourceDocument[] = [];
-    for (const file of Array.from(files)) {
-      const kind = file.name.endsWith('.md') ? 'markdown' : file.name.endsWith('.txt') ? 'txt' : file.name.endsWith('.docx') ? 'docx' : 'pdf';
-      const text = kind === 'markdown' || kind === 'txt' ? await file.text() : '该文件已进入导入队列，等待服务端解析。';
-      imported.push({
-        id: `uploaded-${Date.now()}-${file.name}`,
-        name: file.name,
-        kind,
-        contentHash: `local-${file.size}-${file.lastModified}`,
-        excerpt: text.slice(0, 160) || '文件为空。',
-        status: 'active',
-        importedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
+    setIsImporting(true);
+    setNotice(`正在向后端导入 ${files.length} 份来源资料…`);
+    setNoticeTone('loading');
+
+    try {
+      const response = await importSourceDocuments(Array.from(files));
+      const returnedDocuments = response.results.flatMap((result) => result.document ? [result.document] : []);
+      setPersistedDocuments((current) => mergeDocuments(current, returnedDocuments));
+      setGraph((current) => ({ ...current, documents: mergeDocuments(current.documents, returnedDocuments) }));
+
+      const summary = `导入完成：新增 ${response.importedCount} 份，重复 ${response.duplicateCount} 份，失败 ${response.failedCount} 份。`;
+      const failureDetails = response.results
+        .filter((result) => result.status === 'failed')
+        .map((result) => `${result.originalName}：${result.message}`)
+        .join('；');
+      setNotice(failureDetails ? `${summary} ${failureDetails}` : summary);
+      setNoticeTone(response.failedCount ? 'warning' : 'success');
+    } catch (error) {
+      setNotice(`真实导入失败，未使用浏览器本地数据兜底：${error instanceof Error ? error.message : '未知错误'}`);
+      setNoticeTone('error');
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
-    setGraph((current) => ({ ...current, documents: [...imported, ...current.documents] }));
-    setNotice(`已接收 ${imported.length} 份资料；当前仅对 Markdown/TXT 做即时预览，AI 抽取将在服务端导入流程接入。`);
   };
 
   const resetDemo = () => {
-    setGraph(initialGraph);
+    setGraph({ ...initialGraph, documents: mergeDocuments(initialGraph.documents, persistedDocuments) });
     setSelectedNodeId('project-annual-party');
     setSearch('');
     setTypeFilter('all');
-    setNotice('演示资料已恢复。');
+    setNotice('虚构演示图谱已恢复，后端持久化的真实来源资料仍保留。');
+    setNoticeTone('success');
   };
 
   return (
@@ -121,8 +165,8 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
         <div className="topbar-actions">
           <span className="local-badge"><span className="status-dot" /> 本地演示模式</span>
           <button className="ghost-button" onClick={resetDemo}>恢复演示资料</button>
-          <button className="primary-button" onClick={() => fileInputRef.current?.click()}><Upload size={16} /> 导入资料</button>
-          <input ref={fileInputRef} className="hidden-input" type="file" multiple accept=".md,.txt,.docx,.pdf" onChange={(event) => importFiles(event.target.files)} />
+          <button className="primary-button" disabled={isImporting} onClick={() => fileInputRef.current?.click()}>{isImporting ? <LoaderCircle className="spin" size={16} /> : <Upload size={16} />} {isImporting ? '正在导入' : '导入资料'}</button>
+          <input ref={fileInputRef} className="hidden-input" type="file" multiple accept=".md,.markdown,.txt" onChange={(event) => void importFiles(event.target.files)} />
         </div>
       </header>
 
@@ -153,6 +197,14 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
             </div>
           </section>
 
+          <section className="sidebar-section persisted-sources">
+            <div className="section-heading">真实来源资料</div>
+            {persistedDocuments.length ? <div className="persisted-source-list">
+              {persistedDocuments.slice(0, 4).map((document) => <div className="persisted-source" key={document.id} title={document.name}><FileText size={14} /><span>{document.name}</span><em>{document.kind === 'markdown' ? 'MD' : 'TXT'}</em></div>)}
+              {persistedDocuments.length > 4 && <div className="persisted-source-more">另有 {persistedDocuments.length - 4} 份已持久化资料</div>}
+            </div> : <div className="persisted-source-empty">尚未导入真实资料</div>}
+          </section>
+
           <div className="sidebar-footer"><CircleHelp size={15} /> 关系必须有证据，AI 建议需人工确认</div>
         </aside>
 
@@ -162,7 +214,7 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
             <div className="page-stats"><div><strong>{graph.nodes.length}</strong><span>节点</span></div><div><strong>{confirmedEdgeCount}</strong><span>已确认关系</span></div><div><strong>{graph.documents.length}</strong><span>来源资料</span></div></div>
           </div>
 
-          {notice && <div className="notice"><Check size={16} /> {notice}<button onClick={() => setNotice('')} aria-label="关闭提示"><X size={15} /></button></div>}
+          {notice && <div className={`notice ${noticeTone}`}>{noticeTone === 'loading' ? <LoaderCircle className="spin" size={16} /> : noticeTone === 'error' ? <AlertTriangle size={16} /> : <Check size={16} />} {notice}<button onClick={() => setNotice('')} aria-label="关闭提示"><X size={15} /></button></div>}
 
           {view === 'graph' && <>
             <div className="toolbar-card">
