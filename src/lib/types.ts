@@ -44,6 +44,7 @@ export type GraphEdge = {
 
 export type SourceDocument = {
   id: string;
+  spaceId?: string;
   name: string;
   kind: 'markdown' | 'txt' | 'docx' | 'pdf';
   contentHash: string;
@@ -51,6 +52,15 @@ export type SourceDocument = {
   status: 'active' | 'changed' | 'missing' | 'parse_failed';
   fileSize?: number;
   importedAt: string;
+  updatedAt: string;
+};
+
+export type KnowledgeSpace = {
+  id: string;
+  name: string;
+  description?: string;
+  status: 'active';
+  createdAt: string;
   updatedAt: string;
 };
 

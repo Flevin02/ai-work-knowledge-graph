@@ -14,9 +14,9 @@ public class ImportBatchRepository {
 
     private static final String INSERT_SQL = """
             INSERT INTO import_batches (
-                id, status, total_count, imported_count, duplicate_count,
+                id, space_id, status, total_count, imported_count, duplicate_count,
                 failed_count, created_at, completed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
     private static final String COMPLETE_SQL = """
@@ -41,6 +41,7 @@ public class ImportBatchRepository {
         jdbcTemplate.update(
                 INSERT_SQL,
                 batch.id(),
+                batch.spaceId(),
                 batch.status(),
                 batch.totalCount(),
                 batch.importedCount(),

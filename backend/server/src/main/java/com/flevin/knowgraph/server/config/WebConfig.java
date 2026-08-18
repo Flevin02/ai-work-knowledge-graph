@@ -27,7 +27,7 @@ public class WebConfig implements WebMvcConfigurer {
         // 仅允许配置中的前端来源访问当前 API，并限制为实际使用的方法
         registry.addMapping("/**")
                 .allowedOrigins(storageProperties.getFrontendOrigin())
-                .allowedMethods("GET", "POST", "OPTIONS")
+                .allowedMethods("GET", "POST", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .exposedHeaders("X-Trace-Id");
     }

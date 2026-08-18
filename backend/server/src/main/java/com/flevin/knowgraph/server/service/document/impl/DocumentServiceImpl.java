@@ -2,7 +2,6 @@ package com.flevin.knowgraph.server.service.document.impl;
 
 import com.flevin.knowgraph.common.enums.ErrorCode;
 import com.flevin.knowgraph.common.exception.TipsException;
-import com.flevin.knowgraph.server.config.properties.AppStorageProperties;
 import com.flevin.knowgraph.server.model.document.DocumentImportBatchStatus;
 import com.flevin.knowgraph.server.model.document.DocumentImportFileResult;
 import com.flevin.knowgraph.server.model.document.DocumentImportFileStatus;
@@ -13,6 +12,8 @@ import com.flevin.knowgraph.server.model.document.SourceDocumentResponse;
 import com.flevin.knowgraph.server.repository.document.ImportBatchRepository;
 import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
 import com.flevin.knowgraph.server.service.document.DocumentService;
+import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
+import com.flevin.knowgraph.server.storage.LocalFileStorage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -22,9 +23,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
@@ -46,26 +45,36 @@ public class DocumentServiceImpl implements DocumentService {
 
     private final SourceDocumentRepository sourceDocumentRepository;
     private final ImportBatchRepository importBatchRepository;
-    private final AppStorageProperties storageProperties;
+    private final KnowledgeSpaceService knowledgeSpaceService;
+    private final LocalFileStorage localFileStorage;
 
     public DocumentServiceImpl(
             SourceDocumentRepository sourceDocumentRepository,
             ImportBatchRepository importBatchRepository,
-            AppStorageProperties storageProperties
+            KnowledgeSpaceService knowledgeSpaceService,
+            LocalFileStorage localFileStorage
     ) {
         this.sourceDocumentRepository = sourceDocumentRepository;
         this.importBatchRepository = importBatchRepository;
-        this.storageProperties = storageProperties;
+        this.knowledgeSpaceService = knowledgeSpaceService;
+        this.localFileStorage = localFileStorage;
     }
 
     /**
      * 导入一批 Markdown/TXT 来源资料，逐文件返回成功、重复或失败结果。
      *
+     * @param spaceId 知识空间标识
      * @param files 用户上传的来源资料；为空时返回参数提示
      * @return 带批次统计和逐文件结果的导入响应
      */
     @Override
-    public DocumentImportResponse importDocuments(List<MultipartFile> files) {
+    public DocumentImportResponse importDocuments(
+            String spaceId,
+            List<MultipartFile> files
+    ) {
+        // 校验来源资料所属知识空间当前有效
+        knowledgeSpaceService.requireActive(spaceId);
+
         if (files == null || files.isEmpty()) {
             throw new TipsException(ErrorCode.PARAM_ERROR, "请选择需要导入的 Markdown 或 TXT 文件");
         }
@@ -78,6 +87,7 @@ public class DocumentServiceImpl implements DocumentService {
 
         ImportBatch initialBatch = new ImportBatch(
                 batchId,
+                spaceId,
                 DocumentImportBatchStatus.PROCESSING.getValue(),
                 files.size(),
                 0,
@@ -92,7 +102,7 @@ public class DocumentServiceImpl implements DocumentService {
 
         // 逐文件完成解析、重复识别、原始文件落盘和来源记录持久化
         List<DocumentImportFileResult> results = files.stream()
-                .map(file -> importFile(batchId, file))
+                .map(file -> importFile(spaceId, batchId, file))
                 .toList();
 
         // 汇总成功导入数量
@@ -137,12 +147,16 @@ public class DocumentServiceImpl implements DocumentService {
     /**
      * 查询当前数据库中已成功持久化的来源资料摘要。
      *
+     * @param spaceId 知识空间标识
      * @return 按首次导入时间倒序排列的来源资料列表
      */
     @Override
-    public List<SourceDocumentResponse> listDocuments() {
-        // 查询全部来源资料并转换为不暴露存储路径和完整文本的接口响应
-        return sourceDocumentRepository.findAll().stream()
+    public List<SourceDocumentResponse> listDocuments(String spaceId) {
+        // 校验来源资料所属知识空间当前有效
+        knowledgeSpaceService.requireActive(spaceId);
+
+        // 查询指定空间来源资料并转换为不暴露存储路径和完整文本的接口响应
+        return sourceDocumentRepository.findAll(spaceId).stream()
                 .map(this::toResponse)
                 .toList();
     }
@@ -150,11 +164,13 @@ public class DocumentServiceImpl implements DocumentService {
     /**
      * 导入单份来源资料，并把可预期的文件问题转换为文件级失败结果。
      *
+     * @param spaceId 当前知识空间标识
      * @param batchId 当前导入批次标识
      * @param file 当前上传文件
      * @return 单文件导入结果
      */
     private DocumentImportFileResult importFile(
+            String spaceId,
             String batchId,
             MultipartFile file
     ) {
@@ -172,7 +188,10 @@ public class DocumentServiceImpl implements DocumentService {
             String contentHash = calculateSha256(contentBytes);
 
             // 查询相同内容是否已经导入，避免重复落盘和重复来源记录
-            Optional<SourceDocument> existingDocument = sourceDocumentRepository.findByContentHash(contentHash);
+            Optional<SourceDocument> existingDocument = sourceDocumentRepository.findByContentHash(
+                    spaceId,
+                    contentHash
+            );
             if (existingDocument.isPresent()) {
                 return new DocumentImportFileResult(
                         originalName,
@@ -183,13 +202,18 @@ public class DocumentServiceImpl implements DocumentService {
             }
 
             // 将原始文件保存到服务端上传目录，文件名使用 UUID 避免路径注入和名称冲突
-            Path storedFile = storeOriginalFile(parsedDocument.extension(), contentBytes);
+            Path storedFile = localFileStorage.storeSourceDocument(
+                    spaceId,
+                    parsedDocument.extension(),
+                    contentBytes
+            );
 
             // 获取来源资料的统一创建和更新时间
             Instant importedAt = Instant.now();
 
             SourceDocument document = new SourceDocument(
                     UUID.randomUUID().toString(),
+                    spaceId,
                     batchId,
                     originalName,
                     parsedDocument.kind(),
@@ -208,7 +232,7 @@ public class DocumentServiceImpl implements DocumentService {
                 sourceDocumentRepository.save(document);
             } catch (RuntimeException exception) {
                 // 数据库保存失败时清理本次新落盘文件，避免形成无来源记录的孤儿文件
-                deleteStoredFile(storedFile);
+                localFileStorage.deleteOrphanFile(storedFile);
                 throw exception;
             }
 
@@ -281,52 +305,6 @@ public class DocumentServiceImpl implements DocumentService {
             return new ParsedDocument(kind, extension, normalizedContent);
         } catch (CharacterCodingException exception) {
             throw new DocumentParseException("文件不是有效的 UTF-8 文本", exception);
-        }
-    }
-
-    /**
-     * 将原始文件写入配置的上传目录。
-     *
-     * @param extension 已校验的文件扩展名
-     * @param contentBytes 原始文件字节
-     * @return 已保存文件的规范化路径
-     * @throws IOException 创建目录或写入文件失败时抛出
-     */
-    private Path storeOriginalFile(
-            String extension,
-            byte[] contentBytes
-    ) throws IOException {
-        // 解析并规范化来源资料上传目录
-        Path uploadDirectory = Path.of(storageProperties.getUploadDir()).toAbsolutePath().normalize();
-
-        // 确保运行中配置切换或目录被移除后仍能恢复保存目录
-        Files.createDirectories(uploadDirectory);
-
-        // 使用服务端生成的 UUID 文件名，绝不使用用户文件名拼接本地路径
-        Path targetFile = uploadDirectory.resolve(UUID.randomUUID() + "." + extension).normalize();
-
-        try {
-            // 以新建模式写入原始文件，避免覆盖已有事实源
-            Files.write(targetFile, contentBytes, StandardOpenOption.CREATE_NEW);
-            return targetFile;
-        } catch (IOException exception) {
-            // 写入中断时清理可能产生的不完整文件
-            Files.deleteIfExists(targetFile);
-            throw exception;
-        }
-    }
-
-    /**
-     * 删除数据库写入失败时产生的孤儿原始文件。
-     *
-     * @param storedFile 本次新保存的文件路径
-     */
-    private void deleteStoredFile(Path storedFile) {
-        try {
-            // 仅删除本次服务端刚生成且尚未形成数据库记录的文件
-            Files.deleteIfExists(storedFile);
-        } catch (IOException exception) {
-            log.warn("数据库保存失败后无法清理来源文件: path={}", storedFile, exception);
         }
     }
 
@@ -442,6 +420,7 @@ public class DocumentServiceImpl implements DocumentService {
     private SourceDocumentResponse toResponse(SourceDocument document) {
         return new SourceDocumentResponse(
                 document.id(),
+                document.spaceId(),
                 document.name(),
                 document.kind(),
                 document.contentHash(),

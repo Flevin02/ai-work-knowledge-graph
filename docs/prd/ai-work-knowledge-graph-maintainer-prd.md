@@ -1,9 +1,9 @@
 ---
 title: AI 工作知识图谱维护助手 PRD
-version: v0.5
+version: v0.6
 status: 开发中
 created: 2026-08-17
-updated: 2026-08-17
+updated: 2026-08-18
 scope: 参赛项目 / 独立轻量应用
 ---
 
@@ -521,7 +521,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 
 # 18. 当前实施状态
 
-更新时间：2026-08-17。
+更新时间：2026-08-18。
 
 ## 18.1 已完成
 
@@ -543,6 +543,8 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 已实现健康检查页面，可展示待确认关系、孤立节点和冲突节点。
 - 已将“导入资料”入口接入 Java 后端 multipart API，当前只允许选择 Markdown/TXT。
 - 已在工作台加载后端持久化的真实来源资料，显示真实资料数量、最近文件和逐批新增/重复/失败结果。
+- 已增加独立“来源资料”列表视图，展示文件类型、解析状态、文本预览、文件大小和 SHA-256 前缀。
+- 已增加知识空间选择器、创建表单和软删除操作；空间删除会保留历史来源资料和图谱事实。
 - 后端不可用或导入失败时会明确显示错误，不再使用浏览器本地数据静默伪造导入成功。
 - 已通过 `npm run typecheck` 和 `npm run build`。
 
@@ -553,7 +555,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - `server` 已提供 Spring Boot 启动类、健康服务和图谱摘要服务。
 - 已通过 `server.servlet.context-path` 将统一前缀配置为 `/api`。
 - 已配置 local/prod profile、Knife4j/SpringDoc 扫描路径和 AI 供应商环境变量。
-- 已提供 `GET /api/health` 和 `GET /api/v1/graph/summary`。
+- 已提供 `GET /api/health`、`GET /api/v1/spaces`、`POST /api/v1/spaces`、`DELETE /api/v1/spaces/{spaceId}`、`GET /api/v1/documents`、`POST /api/v1/documents/import`、`GET /api/v1/graph` 和 `GET /api/v1/graph/summary`。
 - 接口已返回统一响应结构和 `X-Trace-Id` 响应头。
 - 已使用 Java 21 执行根 Reactor `mvn test`，测试通过。
 - 已使用 Java 21 完成 Maven install，并验证两个接口返回 HTTP 200。
@@ -564,28 +566,32 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 已单独处理 `NoResourceFoundException`：缺失的 `favicon.ico` 仅记录 debug，其他缺失资源记录 warn，并统一返回 404。
 - 已增加缺失 favicon 的 MockMvc 测试，验证 `error=true`、业务码 404 和“请求的资源不存在”消息。
 
-### SQLite 与来源资料导入
+### SQLite、知识空间与来源资料导入
 
 - 已增加 SQLite 数据源配置，启动时自动创建数据库目录和来源资料上传目录，并启用外键约束和忙等待。
-- 已将幂等建表脚本放在 `backend/server/src/main/resources/db/schema.sql`，创建 `import_batches`、`source_documents` 表及重复指纹、导入时间索引。
+- 已将幂等建表脚本放在 `backend/server/src/main/resources/db/schema.sql`，创建 `knowledge_spaces`、`source_documents`、`import_batches`、`graph_nodes`、`graph_edges`、`evidences`、`review_actions` 七张业务表。
 - 建表 SQL 已为表、字段、外键和索引补充中文注释；SQLite 不支持持久化的 `COMMENT ON TABLE/COLUMN` 元数据，因此注释随项目 SQL 源码维护。
-- 已建立来源资料 Model、Repository、Service 和 Controller 分层，并提供 `GET /api/v1/documents` 与 `POST /api/v1/documents/import`。
+- 已建立知识空间和来源资料 Model、Repository、Service、Controller 分层，并通过 `space_id` 将资料、导入批次和后续图谱数据隔离到具体空间。
+- 已建立图谱节点、关系和证据 Model/Repository/Service 查询链路，并将图谱摘要改为按空间读取 SQLite 实时统计；空空间返回零统计，不再返回固定脚手架文案。
+- 已提供 `GET /api/v1/documents?spaceId=...`、`POST /api/v1/documents/import`、`GET /api/v1/spaces`、`POST /api/v1/spaces` 和 `DELETE /api/v1/spaces/{spaceId}`。
 - 已实现 Markdown/TXT 严格 UTF-8 解析、空内容校验、原始文件落盘、SHA-256 内容指纹和按内容去重。
 - 已实现导入批次统计和逐文件 `imported`、`duplicate`、`failed` 结果；单个解析失败不会阻断同批其他文件。
-- 已限制服务端保存路径使用 UUID 文件名，不使用客户端文件名拼接本地路径；数据库写入失败时会清理本次孤儿文件。
-- 已配置本地前端来源的 CORS 规则和 10 MB 单文件、50 MB 单批次上传上限。
-- 已增加 Service、Repository、Controller 集成测试，覆盖成功导入、重复识别、非法 UTF-8 和空请求。
-- 已使用 Java 21 执行根 Reactor 测试，共 7 项测试通过；已验证本地 HTTP 上传、来源列表和 OpenAPI 的“来源资料”标签、路径及具体响应模型。
+- 已限制服务端保存路径使用 UUID 文件名，并按 `uploads/<spaceId>/documents` 建立独立目录；不使用客户端文件名拼接本地路径，数据库写入失败时会清理本次孤儿文件。
+- 已增加旧数据库 `space_id` 兼容迁移，并将原有资料归入默认知识空间；空间内内容指纹改为复合唯一约束。
+- 已配置本地前端来源的 CORS 规则和 10 MB 单文件、50 MB 单批次上传上限，并覆盖 DELETE 预检。
+- 已增加知识空间、文档导入、图谱查询和 CORS 集成测试，覆盖空间创建/软删除、空间隔离、表存在性、关系证据和资料导入边界。
+- 已使用 Java 21 执行根 Reactor 测试，共 13 项测试通过；已使用真实临时 HTTP 服务导入 7 份虚构年会资料，并验证重复批次、SQLite 记录、独立上传目录、OpenAPI 路径和 CORS。
 
 ## 18.2 当前验证边界
 
 - 前端图谱节点、关系审核和健康检查数据仍来自 `src/lib/demo-data.ts`；只有来源资料列表和导入结果已经读取 Java 后端。
 - 新导入资料已经写入 SQLite 和服务端上传目录，但尚未触发 AI 抽取，也不会自动生成图谱节点、关系或证据。
-- Java 图谱摘要接口当前返回零值，只证明 API、分层、统一响应和 TraceId 链路可用。
+- 图谱节点、关系和证据的持久化查询链路已完成，但当前真实空间没有 AI 写入的正式图谱数据；手工关系写入仅在集成测试中验证。
 - 当前重复识别基于原始文件字节的 SHA-256 完全一致；尚未实现同一文档不同版本的内容差异预览。
 - 当前后端只解析 UTF-8 Markdown/TXT；Apache POI 和 PDFBox 依赖已经进入 Maven 管理，但 DOCX/PDF 解析器尚未实现。
 - AI 供应商和模型已经配置化，但 `AiExtractionClient`、Gemini 调用和结构化输出校验尚未实现。
-- 本轮本地 HTTP 验证使用仓库内虚构说明文件，未进行真实公司资料、真实 Gemini API、生产部署和浏览器自动化端到端验证。
+- 本轮本地 HTTP 验证使用 `fixtures/annual-party/` 下 7 份虚构资料，未进行真实公司资料、真实 Gemini API、生产部署和浏览器自动化端到端验证。
+- Chrome 控制连接在本会话未暴露 Node REPL 工具，因此浏览器点击/文件选择尚未作为独立证据；前端类型检查、生产构建、SSR 控件输出和带 Origin 的 HTTP/CORS 链路已完成验证。
 - 本机默认 Maven 运行时可能使用 Java 25；本项目必须显式使用 Java 21，避免 Lombok 注解处理失败。
 - OpenAPI JSON 已在本地临时端口验证路径、标签和响应模型，但尚未进行独立部署后的 Knife4j 页面人工验收。
 
@@ -593,22 +599,19 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 
 新会话开始时，先阅读本节和 `docs/roadmap.md`，然后从以下第一项继续，不重新搭建前后端脚手架。
 
-## 19.1 下一优先级：图谱基础表和持久化查询
+## 19.1 下一优先级：AI 抽取和关系审核
 
-1. 在项目 SQL 中新增 `graph_nodes`、`graph_edges`、`evidences`、`review_actions` 表，并为表、字段、外键和索引补充中文注释。
-2. 明确来源资料、证据、候选关系和正式关系之间的外键与删除/失效边界，不直接删除事实来源。
-3. 建立图谱节点、关系和证据的 Model、Repository、Service，并为批量写入和查询增加针对性测试。
-4. 将 `GET /api/v1/graph/summary` 从固定零值改为读取 SQLite 真实统计。
-5. 增加后端图谱查询契约，为后续 AI 抽取结果持久化和前端替换演示图谱做好准备。
+1. 定义 `AiExtractionClient`、结构化抽取 DTO 和供应商适配层。
+2. 对导入后的 Markdown/TXT 文本调用默认模型，校验实体、关系、证据和冲突结构化输出。
+3. 将 AI 候选节点、候选关系和证据保存到当前知识空间，关系默认保持 `suggested`，不直接生成正式关系。
+4. 增加待审核关系接口和前端真实审核列表，支持接受、拒绝和修改，并记录 `review_actions`。
+5. 保持当前来源资料、图谱查询和空间隔离边界，补充模型不可用、结构化输出非法和重试错误态。
 
 ## 19.2 后续主线
 
-1. 定义 `AiExtractionClient`、结构化抽取 DTO 和供应商适配层。
-2. 接入默认模型并保存待确认关系，不直接生成正式关系。
-3. 将前端演示图谱替换为后端图谱查询结果。
-4. 持久化关系接受、拒绝和修改操作。
-5. 实现孤立、失效来源、缺字段和冲突检查。
-6. 增加 DOCX/PDF 解析、增量导入和 Markdown/JSON/PNG 导出。
+1. 将前端演示图谱替换为后端图谱查询结果。
+2. 实现孤立、失效来源、缺字段和冲突检查。
+3. 增加 DOCX/PDF 解析、增量导入和 Markdown/JSON/PNG 导出。
 
 ## 19.3 提交约定
 

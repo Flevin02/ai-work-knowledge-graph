@@ -9,6 +9,7 @@ import {
   CircleHelp,
   FileText,
   Filter,
+  FolderPlus,
   GitBranch,
   Inbox,
   LayoutDashboard,
@@ -16,11 +17,13 @@ import {
   LoaderCircle,
   Search,
   ShieldCheck,
+  Trash2,
   Upload,
   X,
 } from 'lucide-react';
 import GraphCanvas from './graph-canvas';
 import { importSourceDocuments, listSourceDocuments } from '@/lib/api/documents';
+import { createKnowledgeSpace, deleteKnowledgeSpace, listKnowledgeSpaces } from '@/lib/api/spaces';
 import {
   nodeTypeColors,
   nodeTypeLabels,
@@ -28,18 +31,19 @@ import {
   type GraphData,
   type GraphEdge,
   type GraphNode,
+  type KnowledgeSpace,
   type NodeType,
   type SourceDocument,
 } from '@/lib/types';
 
 type GraphWorkspaceProps = { initialGraph: GraphData };
-type View = 'graph' | 'review' | 'health';
+type View = 'graph' | 'documents' | 'review' | 'health';
 type NoticeTone = 'success' | 'warning' | 'error' | 'loading';
 
 const allTypes: Array<NodeType | 'all'> = ['all', 'project', 'department', 'person', 'task', 'document', 'meeting', 'risk', 'decision'];
 
 function formatStatus(status: EdgeStatus) {
-  return { suggested: '待确认', confirmed: '已确认', rejected: '已拒绝', stale: '已失效' }[status];
+  return { suggested: '待审核', confirmed: '已采纳', rejected: '已拒绝', stale: '已失效' }[status];
 }
 
 function issueCount(graph: GraphData) {
@@ -64,33 +68,73 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
   const [typeFilter, setTypeFilter] = useState<NodeType | 'all'>('all');
   const [notice, setNotice] = useState('演示图谱已加载，正在连接后端来源资料服务。');
   const [noticeTone, setNoticeTone] = useState<NoticeTone>('loading');
+  const [spaces, setSpaces] = useState<KnowledgeSpace[]>([]);
+  const [currentSpaceId, setCurrentSpaceId] = useState<string | null>(null);
   const [persistedDocuments, setPersistedDocuments] = useState<SourceDocument[]>([]);
+  const [isSpaceFormOpen, setIsSpaceFormOpen] = useState(false);
+  const [newSpaceName, setNewSpaceName] = useState('');
+  const [newSpaceDescription, setNewSpaceDescription] = useState('');
+  const [isManagingSpace, setIsManagingSpace] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
 
-    const loadPersistedDocuments = async () => {
+    const loadSpaces = async () => {
       try {
-        const documents = await listSourceDocuments();
+        const loadedSpaces = await listKnowledgeSpaces();
+        if (cancelled) return;
+        setSpaces(loadedSpaces);
+        setCurrentSpaceId((current) => current && loadedSpaces.some((space) => space.id === current)
+          ? current
+          : loadedSpaces[0]?.id ?? null);
+      } catch (error) {
+        if (cancelled) return;
+        setNotice(`后端知识空间服务未连接，真实数据功能暂不可用：${error instanceof Error ? error.message : '未知错误'}`);
+        setNoticeTone('error');
+      }
+    };
+
+    void loadSpaces();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!currentSpaceId) return;
+    let cancelled = false;
+
+    const loadPersistedDocuments = async () => {
+      setNotice('正在加载当前知识空间的真实来源资料。');
+      setNoticeTone('loading');
+      try {
+        const documents = await listSourceDocuments(currentSpaceId);
         if (cancelled) return;
         setPersistedDocuments(documents);
-        setGraph((current) => ({ ...current, documents: mergeDocuments(current.documents, documents) }));
+        setGraph((current) => ({
+          ...current,
+          documents: mergeDocuments(
+            current.documents.filter((document) => !document.spaceId),
+            documents,
+          ),
+        }));
         setNotice(documents.length
-          ? `后端已连接，已加载 ${documents.length} 份真实来源资料；图谱节点仍为虚构演示数据。`
-          : '后端已连接，当前还没有真实来源资料；图谱节点仍为虚构演示数据。');
+          ? `已加载当前空间的 ${documents.length} 份真实来源资料；图谱节点仍为虚构演示数据。`
+          : '当前知识空间尚未导入真实来源资料；图谱节点仍为虚构演示数据。');
         setNoticeTone('success');
       } catch (error) {
         if (cancelled) return;
-        setNotice(`后端来源资料服务未连接，真实导入暂不可用：${error instanceof Error ? error.message : '未知错误'}`);
+        setPersistedDocuments([]);
+        setNotice(`来源资料加载失败：${error instanceof Error ? error.message : '未知错误'}`);
         setNoticeTone('error');
       }
     };
 
     void loadPersistedDocuments();
     return () => { cancelled = true; };
-  }, []);
+  }, [currentSpaceId]);
+
+  const currentSpace = spaces.find((space) => space.id === currentSpaceId) ?? null;
 
   const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId) ?? null;
   const selectedEdges = graph.edges.filter((edge) => edge.source === selectedNodeId || edge.target === selectedNodeId);
@@ -104,8 +148,10 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
     });
   }, [graph.nodes, search, typeFilter]);
 
-  const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
-  const visibleEdges = graph.edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target) && edge.status !== 'rejected');
+  const visibleEdges = useMemo(() => {
+    const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
+    return graph.edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target) && edge.status !== 'rejected');
+  }, [graph.edges, visibleNodes]);
   const pendingEdges = graph.edges.filter((edge) => edge.status === 'suggested');
   const confirmedEdgeCount = graph.edges.filter((edge) => edge.status === 'confirmed').length;
 
@@ -114,18 +160,78 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
       ...current,
       edges: current.edges.map((edge) => edge.id === edgeId ? { ...edge, status, updatedAt: new Date().toISOString() } : edge),
     }));
-    setNotice(status === 'confirmed' ? '关系已确认，图谱已更新。' : '关系已拒绝，并保留在审核记录中。');
+    setNotice(status === 'confirmed' ? '关联已采纳，图谱已更新。' : '关联建议已拒绝，并保留在审核记录中。');
     setNoticeTone('success');
+  };
+
+  const submitNewSpace = async () => {
+    const name = newSpaceName.trim();
+    if (!name) {
+      setNotice('请输入知识空间名称。');
+      setNoticeTone('warning');
+      return;
+    }
+
+    setIsManagingSpace(true);
+    try {
+      const createdSpace = await createKnowledgeSpace({
+        name,
+        description: newSpaceDescription.trim() || undefined,
+      });
+      setSpaces((current) => [...current, createdSpace]);
+      setCurrentSpaceId(createdSpace.id);
+      setNewSpaceName('');
+      setNewSpaceDescription('');
+      setIsSpaceFormOpen(false);
+      setNotice(`知识空间“${createdSpace.name}”已创建，并已准备独立本地目录。`);
+      setNoticeTone('success');
+    } catch (error) {
+      setNotice(`创建知识空间失败：${error instanceof Error ? error.message : '未知错误'}`);
+      setNoticeTone('error');
+    } finally {
+      setIsManagingSpace(false);
+    }
+  };
+
+  const removeCurrentSpace = async () => {
+    if (!currentSpace || spaces.length <= 1) {
+      setNotice('至少保留一个有效知识空间。');
+      setNoticeTone('warning');
+      return;
+    }
+    if (!window.confirm(`确认移除知识空间“${currentSpace.name}”吗？来源资料和图谱事实会保留在本地数据库中。`)) {
+      return;
+    }
+
+    setIsManagingSpace(true);
+    try {
+      await deleteKnowledgeSpace(currentSpace.id);
+      const remainingSpaces = spaces.filter((space) => space.id !== currentSpace.id);
+      setSpaces(remainingSpaces);
+      setCurrentSpaceId(remainingSpaces[0]?.id ?? null);
+      setNotice(`知识空间“${currentSpace.name}”已移除，历史事实仍保留。`);
+      setNoticeTone('success');
+    } catch (error) {
+      setNotice(`移除知识空间失败：${error instanceof Error ? error.message : '未知错误'}`);
+      setNoticeTone('error');
+    } finally {
+      setIsManagingSpace(false);
+    }
   };
 
   const importFiles = async (files: FileList | null) => {
     if (!files?.length) return;
+    if (!currentSpaceId) {
+      setNotice('请先连接或创建知识空间。');
+      setNoticeTone('warning');
+      return;
+    }
     setIsImporting(true);
     setNotice(`正在向后端导入 ${files.length} 份来源资料…`);
     setNoticeTone('loading');
 
     try {
-      const response = await importSourceDocuments(Array.from(files));
+      const response = await importSourceDocuments(currentSpaceId, Array.from(files));
       const returnedDocuments = response.results.flatMap((result) => result.document ? [result.document] : []);
       setPersistedDocuments((current) => mergeDocuments(current, returnedDocuments));
       setGraph((current) => ({ ...current, documents: mergeDocuments(current.documents, returnedDocuments) }));
@@ -155,6 +261,21 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
     setNoticeTone('success');
   };
 
+  const pageTitle = view === 'graph'
+    ? '工作图谱'
+    : view === 'documents'
+      ? '来源资料'
+      : view === 'review'
+        ? '关系审核'
+        : '知识健康检查';
+  const pageDescription = view === 'graph'
+    ? '从项目、任务、人员和资料之间的关系中找到工作上下文。'
+    : view === 'documents'
+      ? '查看当前知识空间中真实持久化的来源文件、解析状态和文本预览。'
+      : view === 'review'
+        ? '采纳 AI 建议前，先查看它引用的原文依据。'
+        : '先处理会影响知识可信度的问题，再继续扩展图谱。';
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -163,9 +284,9 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
           <div><div className="brand-name">知脉</div><div className="brand-subtitle">AI 工作知识图谱维护助手</div></div>
         </div>
         <div className="topbar-actions">
-          <span className="local-badge"><span className="status-dot" /> 本地演示模式</span>
+          <span className="local-badge"><span className="status-dot" /> 本地数据模式</span>
           <button className="ghost-button" onClick={resetDemo}>恢复演示资料</button>
-          <button className="primary-button" disabled={isImporting} onClick={() => fileInputRef.current?.click()}>{isImporting ? <LoaderCircle className="spin" size={16} /> : <Upload size={16} />} {isImporting ? '正在导入' : '导入资料'}</button>
+          <button className="primary-button" disabled={isImporting || !currentSpaceId} onClick={() => fileInputRef.current?.click()}>{isImporting ? <LoaderCircle className="spin" size={16} /> : <Upload size={16} />} {isImporting ? '正在导入' : '导入资料'}</button>
           <input ref={fileInputRef} className="hidden-input" type="file" multiple accept=".md,.markdown,.txt" onChange={(event) => void importFiles(event.target.files)} />
         </div>
       </header>
@@ -174,12 +295,26 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
         <aside className="sidebar">
           <section className="space-card">
             <div className="eyebrow">当前知识空间</div>
-            <div className="space-title"><span className="space-icon"><Archive size={17} /></span>公司年会筹备</div>
-            <p>虚构演示空间 · 最近同步 2 分钟前</p>
+            <div className="space-switcher">
+              <select aria-label="选择知识空间" value={currentSpaceId ?? ''} onChange={(event) => setCurrentSpaceId(event.target.value)} disabled={!spaces.length || isManagingSpace}>
+                {!spaces.length && <option value="">后端未连接</option>}
+                {spaces.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
+              </select>
+              <button className="space-icon-button" aria-label="新建知识空间" title="新建知识空间" onClick={() => setIsSpaceFormOpen((current) => !current)}><FolderPlus size={15} /></button>
+              <button className="space-icon-button danger" aria-label="删除当前知识空间" title="删除当前知识空间" disabled={!currentSpace || spaces.length <= 1 || isManagingSpace} onClick={() => void removeCurrentSpace()}><Trash2 size={15} /></button>
+            </div>
+            <div className="space-title"><span className="space-icon"><Archive size={17} /></span>{currentSpace?.name ?? '等待后端连接'}</div>
+            <p>{currentSpace?.description ?? '每个知识空间使用独立目录保存来源资料。'}</p>
+            {isSpaceFormOpen && <div className="space-form">
+              <input aria-label="知识空间名称" value={newSpaceName} onChange={(event) => setNewSpaceName(event.target.value)} placeholder="知识空间名称" maxLength={40} />
+              <input aria-label="知识空间说明" value={newSpaceDescription} onChange={(event) => setNewSpaceDescription(event.target.value)} placeholder="用途说明（可选）" maxLength={200} />
+              <div className="space-form-actions"><button className="ghost-button" onClick={() => setIsSpaceFormOpen(false)}>取消</button><button className="primary-button" disabled={isManagingSpace} onClick={() => void submitNewSpace()}>{isManagingSpace ? '创建中' : '创建'}</button></div>
+            </div>}
           </section>
 
           <nav className="side-nav" aria-label="主导航">
             <button className={view === 'graph' ? 'nav-item active' : 'nav-item'} onClick={() => setView('graph')}><LayoutDashboard size={17} /> 工作图谱 <span>{graph.nodes.length}</span></button>
+            <button className={view === 'documents' ? 'nav-item active' : 'nav-item'} onClick={() => setView('documents')}><FileText size={17} /> 来源资料 <span>{persistedDocuments.length}</span></button>
             <button className={view === 'review' ? 'nav-item active' : 'nav-item'} onClick={() => setView('review')}><Inbox size={17} /> 关系审核 <span className="warning-count">{pendingEdges.length}</span></button>
             <button className={view === 'health' ? 'nav-item active' : 'nav-item'} onClick={() => setView('health')}><ShieldCheck size={17} /> 知识健康 <span className="warning-count">{issueCount(graph)}</span></button>
           </nav>
@@ -200,18 +335,18 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
           <section className="sidebar-section persisted-sources">
             <div className="section-heading">真实来源资料</div>
             {persistedDocuments.length ? <div className="persisted-source-list">
-              {persistedDocuments.slice(0, 4).map((document) => <div className="persisted-source" key={document.id} title={document.name}><FileText size={14} /><span>{document.name}</span><em>{document.kind === 'markdown' ? 'MD' : 'TXT'}</em></div>)}
+              {persistedDocuments.slice(0, 4).map((document) => <button className="persisted-source" key={document.id} title={document.name} onClick={() => setView('documents')}><FileText size={14} /><span>{document.name}</span><em>{document.kind === 'markdown' ? 'MD' : 'TXT'}</em></button>)}
               {persistedDocuments.length > 4 && <div className="persisted-source-more">另有 {persistedDocuments.length - 4} 份已持久化资料</div>}
             </div> : <div className="persisted-source-empty">尚未导入真实资料</div>}
           </section>
 
-          <div className="sidebar-footer"><CircleHelp size={15} /> 关系必须有证据，AI 建议需人工确认</div>
+          <div className="sidebar-footer"><CircleHelp size={15} /> 关联建议必须有证据，并经过人工审核</div>
         </aside>
 
         <section className="content-area">
           <div className="page-heading">
-            <div><div className="eyebrow">工作台 / 公司年会筹备</div><h1>{view === 'graph' ? '工作图谱' : view === 'review' ? '关系审核' : '知识健康检查'}</h1><p>{view === 'graph' ? '从项目、任务、人员和资料之间的关系中找到工作上下文。' : view === 'review' ? '确认 AI 建议前，先查看它引用的原文依据。' : '先处理会影响知识可信度的问题，再继续扩展图谱。'}</p></div>
-            <div className="page-stats"><div><strong>{graph.nodes.length}</strong><span>节点</span></div><div><strong>{confirmedEdgeCount}</strong><span>已确认关系</span></div><div><strong>{graph.documents.length}</strong><span>来源资料</span></div></div>
+            <div><div className="eyebrow">工作台 / {currentSpace?.name ?? '未连接知识空间'}</div><h1>{pageTitle}</h1><p>{pageDescription}</p></div>
+            <div className="page-stats"><div><strong>{graph.nodes.length}</strong><span>演示节点</span></div><div><strong>{confirmedEdgeCount}</strong><span>演示关系</span></div><div><strong>{persistedDocuments.length}</strong><span>真实资料</span></div></div>
           </div>
 
           {notice && <div className={`notice ${noticeTone}`}>{noticeTone === 'loading' ? <LoaderCircle className="spin" size={16} /> : noticeTone === 'error' ? <AlertTriangle size={16} /> : <Check size={16} />} {notice}<button onClick={() => setNotice('')} aria-label="关闭提示"><X size={15} /></button></div>}
@@ -221,21 +356,71 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
               <div className="search-box"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索项目、任务、人员或资料" /></div>
               <div className="toolbar-divider" />
               <div className="filter-label"><Filter size={15} /> {typeFilter === 'all' ? '全部类型' : nodeTypeLabels[typeFilter]}</div>
-              <span className="toolbar-hint">实线：已确认　虚线：待审核　红框：需关注</span>
+              <span className="toolbar-hint">实线：已采纳　虚线：待审核　红框：需关注</span>
             </div>
             <div className="graph-card"><GraphCanvas nodes={visibleNodes} edges={visibleEdges} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} /><div className="graph-footnote">当前视图 {visibleNodes.length} 个节点 / {visibleEdges.length} 条关系 · 点击节点查看证据</div></div>
           </>}
 
+          {view === 'documents' && <DocumentPanel documents={persistedDocuments} />}
           {view === 'review' && <ReviewPanel graph={graph} pendingEdges={pendingEdges} onUpdateEdge={updateEdge} />}
           {view === 'health' && <HealthPanel graph={graph} onSelectNode={(id) => { setSelectedNodeId(id); setView('graph'); }} />}
         </section>
 
         <aside className="detail-panel">
-          {selectedNode ? <NodeDetail node={selectedNode} edges={selectedEdges} graph={graph} onSelectNode={setSelectedNodeId} /> : <div className="empty-detail"><Link2 size={28} /><p>选择一个节点查看它的上下文</p></div>}
+          {view === 'documents'
+            ? <DocumentSidebar documents={persistedDocuments} space={currentSpace} />
+            : selectedNode
+              ? <NodeDetail node={selectedNode} edges={selectedEdges} graph={graph} onSelectNode={setSelectedNodeId} />
+              : <div className="empty-detail"><Link2 size={28} /><p>选择一个节点查看它的上下文</p></div>}
         </aside>
       </div>
     </main>
   );
+}
+
+function formatFileSize(fileSize?: number) {
+  if (fileSize == null) return '演示数据';
+  if (fileSize < 1024) return `${fileSize} B`;
+  return `${(fileSize / 1024).toFixed(1)} KB`;
+}
+
+function formatImportedAt(importedAt: string) {
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(importedAt));
+}
+
+function DocumentPanel({ documents }: { documents: SourceDocument[] }) {
+  if (!documents.length) {
+    return <div className="state-card document-empty"><FileText size={28} /><h3>尚未导入来源资料</h3><p>点击右上角“导入资料”，选择 UTF-8 Markdown 或 TXT 文件。</p></div>;
+  }
+
+  return <div className="document-grid">
+    {documents.map((document) => <article className="document-card" key={document.id}>
+      <div className="document-card-head"><span className="document-kind"><FileText size={16} />{document.kind === 'markdown' ? 'Markdown' : 'TXT'}</span><span className="document-status">已解析</span></div>
+      <h3 title={document.name}>{document.name}</h3>
+      <p>{document.excerpt}</p>
+      <div className="document-meta"><span>{formatFileSize(document.fileSize)}</span><span>{formatImportedAt(document.importedAt)}</span></div>
+      <div className="document-hash" title={document.contentHash}>SHA-256 · {document.contentHash.slice(0, 16)}…</div>
+    </article>)}
+  </div>;
+}
+
+function DocumentSidebar({ documents, space }: { documents: SourceDocument[]; space: KnowledgeSpace | null }) {
+  const markdownCount = documents.filter((document) => document.kind === 'markdown').length;
+  const textCount = documents.filter((document) => document.kind === 'txt').length;
+  const totalSize = documents.reduce((sum, document) => sum + (document.fileSize ?? 0), 0);
+
+  return <div className="detail-content document-sidebar">
+    <div className="detail-kicker"><span className="type-dot" style={{ background: '#94a3b8' }} />来源资料<span className="status-pill active">本地持久化</span></div>
+    <h2>{space?.name ?? '未连接空间'}</h2>
+    <p className="detail-summary">原始文件保存在当前知识空间独立目录中，SQLite 只保存结构化索引、解析文本和证据定位。</p>
+    <div className="document-summary-grid"><div><strong>{documents.length}</strong><span>全部资料</span></div><div><strong>{markdownCount}</strong><span>Markdown</span></div><div><strong>{textCount}</strong><span>TXT</span></div><div><strong>{formatFileSize(totalSize)}</strong><span>文件总量</span></div></div>
+    <div className="detail-block"><div className="detail-label">当前阶段边界</div><div className="boundary-list"><span>✓ UTF-8 文本解析</span><span>✓ SHA-256 空间内去重</span><span>✓ 原始文件独立落盘</span><span>○ AI 抽取将在下一阶段接入</span></div></div>
+  </div>;
 }
 
 function NodeDetail({ node, edges, graph, onSelectNode }: { node: GraphNode; edges: GraphEdge[]; graph: GraphData; onSelectNode: (id: string) => void }) {
@@ -250,7 +435,7 @@ function NodeDetail({ node, edges, graph, onSelectNode }: { node: GraphNode; edg
 
 function ReviewPanel({ graph, pendingEdges, onUpdateEdge }: { graph: GraphData; pendingEdges: GraphEdge[]; onUpdateEdge: (id: string, status: EdgeStatus) => void }) {
   if (!pendingEdges.length) return <div className="state-card"><Check size={28} /><h3>没有待审核关系</h3><p>当前图谱的关系建议都已处理。</p></div>;
-  return <div className="review-list">{pendingEdges.map((edge) => { const source = graph.nodes.find((node) => node.id === edge.source); const target = graph.nodes.find((node) => node.id === edge.target); const evidence = edge.evidence[0]; return <article className="review-card" key={edge.id}><div className="review-head"><span className="review-badge">AI 建议</span><span>置信度 {Math.round(edge.confidence * 100)}%</span></div><div className="review-relation"><strong>{source?.label}</strong><span>{edge.type}</span><strong>{target?.label}</strong></div><div className="review-evidence"><div><ShieldCheck size={15} /> 关联依据 · {evidence.sourceDocumentName}</div><p>“{evidence.quote}”</p><span>{evidence.locator}</span></div><div className="review-actions"><button className="secondary-button" onClick={() => onUpdateEdge(edge.id, 'rejected')}><X size={15} /> 拒绝</button><button className="primary-button" onClick={() => onUpdateEdge(edge.id, 'confirmed')}><Check size={15} /> 确认关系</button></div></article>; })}</div>;
+  return <div className="review-list">{pendingEdges.map((edge) => { const source = graph.nodes.find((node) => node.id === edge.source); const target = graph.nodes.find((node) => node.id === edge.target); const evidence = edge.evidence[0]; return <article className="review-card" key={edge.id}><div className="review-head"><span className="review-badge">AI 建议</span><span>置信度 {Math.round(edge.confidence * 100)}%</span></div><div className="review-relation"><strong>{source?.label}</strong><span>{edge.type}</span><strong>{target?.label}</strong></div><div className="review-evidence"><div><ShieldCheck size={15} /> 关联依据 · {evidence.sourceDocumentName}</div><p>“{evidence.quote}”</p><span>{evidence.locator}</span></div><div className="review-actions"><button className="secondary-button" onClick={() => onUpdateEdge(edge.id, 'rejected')}><X size={15} /> 拒绝</button><button className="primary-button" onClick={() => onUpdateEdge(edge.id, 'confirmed')}><Check size={15} /> 采纳关联</button></div></article>; })}</div>;
 }
 
 function HealthPanel({ graph, onSelectNode }: { graph: GraphData; onSelectNode: (id: string) => void }) {
@@ -259,6 +444,6 @@ function HealthPanel({ graph, onSelectNode }: { graph: GraphData; onSelectNode: 
   const orphanNodes = graph.nodes.filter((node) => node.status === 'orphan' || !connected.has(node.id));
   const conflictNodes = graph.nodes.filter((node) => node.status === 'conflict');
   const suggested = graph.edges.filter((edge) => edge.status === 'suggested');
-  const issues = [{ title: '待确认关系', count: suggested.length, tone: 'warning', icon: Inbox, items: suggested.map((edge) => ({ id: edge.source, label: `${graph.nodes.find((node) => node.id === edge.source)?.label} → ${graph.nodes.find((node) => node.id === edge.target)?.label}` })) }, { title: '孤立或未归档节点', count: orphanNodes.length, tone: 'danger', icon: Link2, items: orphanNodes.map((node) => ({ id: node.id, label: node.label })) }, { title: '可能存在冲突', count: conflictNodes.length, tone: 'danger', icon: AlertTriangle, items: conflictNodes.map((node) => ({ id: node.id, label: node.label })) }];
+  const issues = [{ title: '待审核关联', count: suggested.length, tone: 'warning', icon: Inbox, items: suggested.map((edge) => ({ id: edge.source, label: `${graph.nodes.find((node) => node.id === edge.source)?.label} → ${graph.nodes.find((node) => node.id === edge.target)?.label}` })) }, { title: '孤立或未归档节点', count: orphanNodes.length, tone: 'danger', icon: Link2, items: orphanNodes.map((node) => ({ id: node.id, label: node.label })) }, { title: '可能存在冲突', count: conflictNodes.length, tone: 'danger', icon: AlertTriangle, items: conflictNodes.map((node) => ({ id: node.id, label: node.label })) }];
   return <div className="health-grid">{issues.map((issue) => <article className="health-card" key={issue.title}><div className={`health-icon ${issue.tone}`}><issue.icon size={18} /></div><div className="health-card-heading"><div><h3>{issue.title}</h3><p>{issue.count ? '建议现在处理' : '当前没有发现问题'}</p></div><strong>{issue.count}</strong></div>{issue.items.length > 0 && <div className="health-items">{issue.items.map((item) => <button key={item.id + item.label} onClick={() => onSelectNode(item.id)}>{item.label}<ChevronRight size={15} /></button>)}</div>}</article>)}</div>;
 }

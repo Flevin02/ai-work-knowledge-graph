@@ -35,6 +35,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class DocumentImportIntegrationTests {
 
+    private static final String DEFAULT_SPACE_ID = "default-space";
+
     @Autowired
     private DocumentService documentService;
 
@@ -75,7 +77,10 @@ class DocumentImportIntegrationTests {
         );
 
         // 首次导入 Markdown 来源资料
-        DocumentImportResponse firstResponse = documentService.importDocuments(List.of(firstFile));
+        DocumentImportResponse firstResponse = documentService.importDocuments(
+                DEFAULT_SPACE_ID,
+                List.of(firstFile)
+        );
 
         assertThat(firstResponse.importedCount()).isEqualTo(1);
         assertThat(firstResponse.duplicateCount()).isZero();
@@ -83,7 +88,7 @@ class DocumentImportIntegrationTests {
         assertThat(firstResponse.results().getFirst().status()).isEqualTo(DocumentImportFileStatus.IMPORTED);
 
         // 通过 Repository 查询首次导入的来源资料
-        List<SourceDocument> savedDocuments = sourceDocumentRepository.findAll();
+        List<SourceDocument> savedDocuments = sourceDocumentRepository.findAll(DEFAULT_SPACE_ID);
 
         assertThat(savedDocuments).hasSize(1);
         assertThat(savedDocuments.getFirst().contentHash()).hasSize(64);
@@ -99,14 +104,17 @@ class DocumentImportIntegrationTests {
         );
 
         // 再次导入相同字节内容，验证 SHA-256 重复识别
-        DocumentImportResponse duplicateResponse = documentService.importDocuments(List.of(duplicateFile));
+        DocumentImportResponse duplicateResponse = documentService.importDocuments(
+                DEFAULT_SPACE_ID,
+                List.of(duplicateFile)
+        );
 
         assertThat(duplicateResponse.importedCount()).isZero();
         assertThat(duplicateResponse.duplicateCount()).isEqualTo(1);
         assertThat(duplicateResponse.results().getFirst().status()).isEqualTo(DocumentImportFileStatus.DUPLICATE);
 
         // 再次查询 Repository，确认重复内容未新增来源记录
-        assertThat(sourceDocumentRepository.findAll()).hasSize(1);
+        assertThat(sourceDocumentRepository.findAll(DEFAULT_SPACE_ID)).hasSize(1);
     }
 
     @Test
@@ -118,8 +126,15 @@ class DocumentImportIntegrationTests {
                 "行政部负责统筹，张三负责场地。".getBytes(StandardCharsets.UTF_8)
         );
 
+        MockMultipartFile spaceId = new MockMultipartFile(
+                "spaceId",
+                "",
+                "text/plain",
+                DEFAULT_SPACE_ID.getBytes(StandardCharsets.UTF_8)
+        );
+
         // 通过 multipart 接口导入 TXT 来源资料
-        mockMvc.perform(multipart("/v1/documents/import").file(textFile))
+        mockMvc.perform(multipart("/v1/documents/import").file(spaceId).file(textFile))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.error").value(false))
                 .andExpect(jsonPath("$.data.status").value("completed"))
@@ -129,7 +144,7 @@ class DocumentImportIntegrationTests {
                 .andExpect(jsonPath("$.data.results[0].document.contentHash").isString());
 
         // 查询来源资料列表，验证 Controller 返回真实持久化结果
-        mockMvc.perform(get("/v1/documents"))
+        mockMvc.perform(get("/v1/documents").param("spaceId", DEFAULT_SPACE_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].name").value("人员分工.txt"))
@@ -145,8 +160,15 @@ class DocumentImportIntegrationTests {
                 new byte[]{(byte) 0xC3, 0x28}
         );
 
+        MockMultipartFile spaceId = new MockMultipartFile(
+                "spaceId",
+                "",
+                "text/plain",
+                DEFAULT_SPACE_ID.getBytes(StandardCharsets.UTF_8)
+        );
+
         // 导入包含非法 UTF-8 字节的 TXT 文件
-        mockMvc.perform(multipart("/v1/documents/import").file(malformedFile))
+        mockMvc.perform(multipart("/v1/documents/import").file(spaceId).file(malformedFile))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("failed"))
                 .andExpect(jsonPath("$.data.failedCount").value(1))
@@ -155,13 +177,20 @@ class DocumentImportIntegrationTests {
                 .andExpect(jsonPath("$.data.results[0].document").doesNotExist());
 
         // 验证解析失败不会创建来源资料记录
-        assertThat(sourceDocumentRepository.findAll()).isEmpty();
+        assertThat(sourceDocumentRepository.findAll(DEFAULT_SPACE_ID)).isEmpty();
     }
 
     @Test
     void controllerRejectsRequestWithoutFiles() throws Exception {
+        MockMultipartFile spaceId = new MockMultipartFile(
+                "spaceId",
+                "",
+                "text/plain",
+                DEFAULT_SPACE_ID.getBytes(StandardCharsets.UTF_8)
+        );
+
         // 提交不包含 files 部件的 multipart 请求
-        mockMvc.perform(multipart("/v1/documents/import"))
+        mockMvc.perform(multipart("/v1/documents/import").file(spaceId))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value(true))
                 .andExpect(jsonPath("$.code").value(400))
@@ -176,6 +205,17 @@ class DocumentImportIntegrationTests {
                         .header("Access-Control-Request-Method", "GET"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:3010"));
+    }
+
+    @Test
+    void corsAllowsConfiguredFrontendDelete() throws Exception {
+        // 模拟前端删除知识空间前发起的 DELETE 跨域预检请求
+        mockMvc.perform(options("/v1/spaces/default-space")
+                        .header("Origin", "http://localhost:3010")
+                        .header("Access-Control-Request-Method", "DELETE"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:3010"))
+                .andExpect(header().string("Access-Control-Allow-Methods", org.hamcrest.Matchers.containsString("DELETE")));
     }
 
     /**

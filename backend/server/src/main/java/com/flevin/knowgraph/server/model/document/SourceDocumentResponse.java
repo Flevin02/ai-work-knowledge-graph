@@ -8,6 +8,7 @@ import java.time.Instant;
  * 来源资料接口响应，不暴露服务端原始文件路径和完整文本。
  *
  * @param id 来源资料标识
+ * @param spaceId 所属知识空间标识
  * @param name 原始文件名
  * @param kind 文件类型
  * @param contentHash SHA-256 内容指纹
@@ -21,6 +22,8 @@ import java.time.Instant;
 public record SourceDocumentResponse(
         @Schema(description = "来源资料标识", example = "7ff1d617-997b-46cb-8127-7c99834e57ef")
         String id,
+        @Schema(description = "所属知识空间标识", example = "default-space")
+        String spaceId,
         @Schema(description = "原始文件名", example = "第一次筹备会议纪要.md")
         String name,
         @Schema(description = "文件类型", allowableValues = {"markdown", "txt"}, example = "markdown")

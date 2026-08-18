@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -30,9 +31,12 @@ public class DocumentController {
 
     @GetMapping(value = "", name = "查询来源资料列表")
     @Operation(summary = "查询来源资料列表", description = "返回已经成功解析并持久化的来源资料摘要。")
-    public ApiResponse<List<SourceDocumentResponse>> listDocuments() {
-        // 查询已持久化的来源资料摘要
-        List<SourceDocumentResponse> documents = documentService.listDocuments();
+    public ApiResponse<List<SourceDocumentResponse>> listDocuments(
+            @Parameter(description = "知识空间标识", example = "default-space")
+            @RequestParam String spaceId
+    ) {
+        // 查询指定知识空间已持久化的来源资料摘要
+        List<SourceDocumentResponse> documents = documentService.listDocuments(spaceId);
 
         // 使用统一响应结构返回来源资料列表
         return ApiResponse.success(documents);
@@ -48,11 +52,13 @@ public class DocumentController {
             description = "逐文件读取 UTF-8 文本、计算 SHA-256 内容指纹，并返回成功、重复或失败结果。"
     )
     public ApiResponse<DocumentImportResponse> importDocuments(
+            @Parameter(description = "知识空间标识", example = "default-space")
+            @RequestPart("spaceId") String spaceId,
             @Parameter(description = "待导入的 Markdown/TXT 文件，可一次选择多份")
             @RequestPart(value = "files", required = false) List<MultipartFile> files
     ) {
-        // 执行来源资料批量导入和重复内容识别
-        DocumentImportResponse response = documentService.importDocuments(files);
+        // 在指定知识空间执行来源资料批量导入和重复内容识别
+        DocumentImportResponse response = documentService.importDocuments(spaceId, files);
 
         // 使用统一响应结构返回批次和逐文件处理结果
         return ApiResponse.success(response);

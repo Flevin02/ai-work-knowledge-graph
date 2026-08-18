@@ -6,6 +6,7 @@ import java.time.Instant;
  * 已持久化的来源资料模型，包含原始文件定位和解析后的文本内容。
  *
  * @param id 来源资料标识
+ * @param spaceId 所属知识空间标识
  * @param batchId 首次导入批次标识
  * @param name 原始文件名
  * @param kind 文件类型
@@ -20,6 +21,7 @@ import java.time.Instant;
  */
 public record SourceDocument(
         String id,
+        String spaceId,
         String batchId,
         String name,
         String kind,

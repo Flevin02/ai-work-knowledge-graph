@@ -31,9 +31,13 @@ JAVA_HOME="$kg_java_home" PATH="$kg_java_home/bin:$PATH" mvn spring-boot:run
 统一前缀由 `server.servlet.context-path` 配置，默认值为 `/api`：
 
 - `GET /api/health`
-- `GET /api/v1/graph/summary`
-- `GET /api/v1/documents`
-- `POST /api/v1/documents/import`
+- `GET /api/v1/spaces`
+- `POST /api/v1/spaces`
+- `DELETE /api/v1/spaces/{spaceId}`
+- `GET /api/v1/documents?spaceId={spaceId}`
+- `POST /api/v1/documents/import`（multipart 字段：`spaceId`、`files`）
+- `GET /api/v1/graph?spaceId={spaceId}`
+- `GET /api/v1/graph/summary?spaceId={spaceId}`
 
 Controller 内部不重复声明 `/api`，后续切换部署前缀只修改 `SERVER_CONTEXT_PATH`。
 
@@ -55,7 +59,9 @@ server/src/main/resources/db/schema.sql
 
 当前脚本包含 `import_batches`、`source_documents` 表及索引，并使用中文 SQL 行注释说明表、字段和约束。SQLite 不支持 MySQL 风格的持久化表/字段 COMMENT，因此表结构说明以该 SQL 文件为事实源。
 
-当前导入接口只支持 UTF-8 Markdown/TXT。服务端会保存原始文件、解析文本和 SHA-256 内容指纹；完全相同的字节内容不会重复落库。DOCX/PDF 解析仍在后续计划中。
+当前脚本同时包含 `knowledge_spaces`、`graph_nodes`、`graph_edges`、`evidences`、`review_actions`，所有来源资料、导入批次和后续图谱数据通过 `space_id` 隔离。旧版本数据库启动时会自动补充 `space_id` 并归入 `default-space`。
+
+当前导入接口只支持 UTF-8 Markdown/TXT。服务端会将原始文件保存到 `data/uploads/<spaceId>/documents`，并保存解析文本和 SHA-256 内容指纹；同一空间内完全相同的字节内容不会重复落库。DOCX/PDF 解析仍在后续计划中。
 
 ## AI 模型配置
 

@@ -1,12 +1,5 @@
 import type { SourceDocument } from '@/lib/types';
-
-type ApiResponse<T> = {
-  error: boolean;
-  code: number;
-  msg: string;
-  traceId?: string;
-  data: T;
-};
+import { backendApiUrl, readApiResponse } from '@/lib/api/client';
 
 export type DocumentImportFileResult = {
   originalName: string;
@@ -25,27 +18,18 @@ export type DocumentImportResponse = {
   results: DocumentImportFileResult[];
 };
 
-const backendApiUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL ?? 'http://localhost:4010/api';
-
-async function readApiResponse<T>(response: Response): Promise<T> {
-  const payload = await response.json() as ApiResponse<T>;
-  if (!response.ok || payload.error) {
-    const traceMessage = payload.traceId ? `（TraceId: ${payload.traceId}）` : '';
-    throw new Error(`${payload.msg || '后端请求失败'}${traceMessage}`);
-  }
-  return payload.data;
-}
-
-export async function listSourceDocuments(): Promise<SourceDocument[]> {
-  const response = await fetch(`${backendApiUrl}/v1/documents`, {
+export async function listSourceDocuments(spaceId: string): Promise<SourceDocument[]> {
+  const query = new URLSearchParams({ spaceId });
+  const response = await fetch(`${backendApiUrl}/v1/documents?${query}`, {
     method: 'GET',
     cache: 'no-store',
   });
   return readApiResponse<SourceDocument[]>(response);
 }
 
-export async function importSourceDocuments(files: File[]): Promise<DocumentImportResponse> {
+export async function importSourceDocuments(spaceId: string, files: File[]): Promise<DocumentImportResponse> {
   const formData = new FormData();
+  formData.append('spaceId', spaceId);
   files.forEach((file) => formData.append('files', file));
 
   const response = await fetch(`${backendApiUrl}/v1/documents/import`, {

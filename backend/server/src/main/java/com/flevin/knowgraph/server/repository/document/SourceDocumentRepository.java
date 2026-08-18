@@ -18,22 +18,23 @@ public class SourceDocumentRepository {
 
     private static final String INSERT_SQL = """
             INSERT INTO source_documents (
-                id, batch_id, name, kind, content_hash, storage_path, content_text,
+                id, space_id, batch_id, name, kind, content_hash, storage_path, content_text,
                 excerpt, status, file_size, imported_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
     private static final String FIND_BY_CONTENT_HASH_SQL = """
-            SELECT id, batch_id, name, kind, content_hash, storage_path, content_text,
+            SELECT id, space_id, batch_id, name, kind, content_hash, storage_path, content_text,
                    excerpt, status, file_size, imported_at, updated_at
             FROM source_documents
-            WHERE content_hash = ?
+            WHERE space_id = ? AND content_hash = ?
             """;
 
     private static final String FIND_ALL_SQL = """
-            SELECT id, batch_id, name, kind, content_hash, storage_path, content_text,
+            SELECT id, space_id, batch_id, name, kind, content_hash, storage_path, content_text,
                    excerpt, status, file_size, imported_at, updated_at
             FROM source_documents
+            WHERE space_id = ?
             ORDER BY imported_at DESC, id DESC
             """;
 
@@ -53,6 +54,7 @@ public class SourceDocumentRepository {
         jdbcTemplate.update(
                 INSERT_SQL,
                 document.id(),
+                document.spaceId(),
                 document.batchId(),
                 document.name(),
                 document.kind(),
@@ -70,12 +72,16 @@ public class SourceDocumentRepository {
     /**
      * 按 SHA-256 内容指纹查询已导入的来源资料。
      *
+     * @param spaceId 知识空间标识
      * @param contentHash SHA-256 内容指纹
      * @return 已存在的来源资料；不存在时返回空
      */
-    public Optional<SourceDocument> findByContentHash(String contentHash) {
-        // 查询相同内容指纹的来源资料，并只返回唯一记录
-        return jdbcTemplate.query(FIND_BY_CONTENT_HASH_SQL, this::mapDocument, contentHash)
+    public Optional<SourceDocument> findByContentHash(
+            String spaceId,
+            String contentHash
+    ) {
+        // 在指定知识空间内查询相同内容指纹，并只返回唯一记录
+        return jdbcTemplate.query(FIND_BY_CONTENT_HASH_SQL, this::mapDocument, spaceId, contentHash)
                 .stream()
                 .findFirst();
     }
@@ -83,11 +89,12 @@ public class SourceDocumentRepository {
     /**
      * 查询全部有效来源资料，按首次导入时间倒序返回。
      *
+     * @param spaceId 知识空间标识
      * @return 来源资料列表
      */
-    public List<SourceDocument> findAll() {
-        // 查询当前数据库中全部来源资料摘要所需字段
-        return jdbcTemplate.query(FIND_ALL_SQL, this::mapDocument);
+    public List<SourceDocument> findAll(String spaceId) {
+        // 查询指定知识空间中全部来源资料摘要所需字段
+        return jdbcTemplate.query(FIND_ALL_SQL, this::mapDocument, spaceId);
     }
 
     /**
@@ -105,6 +112,7 @@ public class SourceDocumentRepository {
         // 从持久化字段恢复来源资料模型和 ISO-8601 时间
         return new SourceDocument(
                 resultSet.getString("id"),
+                resultSet.getString("space_id"),
                 resultSet.getString("batch_id"),
                 resultSet.getString("name"),
                 resultSet.getString("kind"),

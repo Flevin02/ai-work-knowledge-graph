@@ -1,7 +1,42 @@
+-- 知识空间：作为文档、节点、关系、证据和审核记录的数据隔离根。
+CREATE TABLE IF NOT EXISTS knowledge_spaces (
+    -- 知识空间唯一标识，默认空间使用稳定标识，其余空间使用 UUID。
+    id TEXT PRIMARY KEY,
+    -- 用户可见的知识空间名称。
+    name TEXT NOT NULL,
+    -- 知识空间用途说明，可为空。
+    description TEXT,
+    -- 空间状态：active 或 deleted；删除采用软删除以保留事实来源。
+    status TEXT NOT NULL,
+    -- 空间创建时间，使用 ISO-8601 UTC 字符串。
+    created_at TEXT NOT NULL,
+    -- 空间最近更新时间，使用 ISO-8601 UTC 字符串。
+    updated_at TEXT NOT NULL
+);
+
+-- 同一时间不允许存在两个同名的有效知识空间；已软删除名称可以重新使用。
+CREATE UNIQUE INDEX IF NOT EXISTS uk_knowledge_spaces_active_name
+    ON knowledge_spaces(name)
+    WHERE status = 'active';
+
+-- 首次启动时提供一个可直接使用的默认知识空间。
+INSERT OR IGNORE INTO knowledge_spaces (
+    id, name, description, status, created_at, updated_at
+) VALUES (
+    'default-space',
+    '公司年会筹备',
+    '用于虚构年会演示资料和本地联调。',
+    'active',
+    '2026-08-17T00:00:00Z',
+    '2026-08-17T00:00:00Z'
+);
+
 -- 来源资料导入批次：记录一次 multipart 请求的整体处理状态和分类统计。
 CREATE TABLE IF NOT EXISTS import_batches (
     -- 导入批次唯一标识，使用 UUID。
     id TEXT PRIMARY KEY,
+    -- 本批次所属知识空间。
+    space_id TEXT NOT NULL,
     -- 批次状态：processing、completed、partial_failed 或 failed。
     status TEXT NOT NULL,
     -- 本批次接收的文件总数。
@@ -15,20 +50,24 @@ CREATE TABLE IF NOT EXISTS import_batches (
     -- 批次创建时间，使用 ISO-8601 UTC 字符串。
     created_at TEXT NOT NULL,
     -- 批次完成时间；处理过程中为空。
-    completed_at TEXT
+    completed_at TEXT,
+    -- 保证导入批次所属知识空间真实存在。
+    FOREIGN KEY (space_id) REFERENCES knowledge_spaces(id)
 );
 
 -- 来源资料：保存原始办公资料的结构化索引、解析文本和证据源定位。
 CREATE TABLE IF NOT EXISTS source_documents (
     -- 来源资料唯一标识，使用 UUID。
     id TEXT PRIMARY KEY,
+    -- 来源资料所属知识空间。
+    space_id TEXT NOT NULL,
     -- 首次导入该内容的批次标识。
     batch_id TEXT NOT NULL,
     -- 用户上传时的原始文件名，仅用于展示，不参与服务端路径拼接。
     name TEXT NOT NULL,
     -- 文件类型：markdown 或 txt。
     kind TEXT NOT NULL,
-    -- 原始文件字节内容的 SHA-256 指纹，用于重复导入识别。
+    -- 原始文件字节内容的 SHA-256 指纹，用于空间内重复导入识别。
     content_hash TEXT NOT NULL,
     -- 原始文件在服务端上传目录中的保存路径。
     storage_path TEXT NOT NULL,
@@ -44,14 +83,146 @@ CREATE TABLE IF NOT EXISTS source_documents (
     imported_at TEXT NOT NULL,
     -- 最近更新时间，使用 ISO-8601 UTC 字符串。
     updated_at TEXT NOT NULL,
+    -- 保证来源资料所属知识空间真实存在。
+    FOREIGN KEY (space_id) REFERENCES knowledge_spaces(id),
     -- 保证来源资料可以追溯到首次导入批次。
     FOREIGN KEY (batch_id) REFERENCES import_batches(id)
 );
 
--- 同一字节内容只保留一份来源资料记录，是重复导入识别的最终数据库约束。
-CREATE UNIQUE INDEX IF NOT EXISTS uk_source_documents_content_hash
-    ON source_documents(content_hash);
+-- 图谱节点：保存项目、部门、人员、任务、文档、会议、风险和决策等实体。
+CREATE TABLE IF NOT EXISTS graph_nodes (
+    -- 图谱节点唯一标识，使用 UUID 或可稳定复用的领域标识。
+    id TEXT PRIMARY KEY,
+    -- 节点所属知识空间。
+    space_id TEXT NOT NULL,
+    -- 节点类型：project、department、person、task、document、meeting、risk 或 decision。
+    node_type TEXT NOT NULL,
+    -- 节点展示名称。
+    label TEXT NOT NULL,
+    -- 节点摘要，可为空。
+    summary TEXT,
+    -- 节点状态：suggested、active、completed、pending、conflict、orphan 或 stale。
+    status TEXT NOT NULL,
+    -- 支持同名实体规范化和去重的稳定键，可为空。
+    normalized_key TEXT,
+    -- 支撑节点结论的来源资料标识 JSON 数组。
+    source_ids_json TEXT NOT NULL DEFAULT '[]',
+    -- 节点创建时间，使用 ISO-8601 UTC 字符串。
+    created_at TEXT NOT NULL,
+    -- 节点最近更新时间，使用 ISO-8601 UTC 字符串。
+    updated_at TEXT NOT NULL,
+    -- 保证节点所属知识空间真实存在。
+    FOREIGN KEY (space_id) REFERENCES knowledge_spaces(id)
+);
 
--- 支持来源资料列表按最近导入时间倒序查询。
-CREATE INDEX IF NOT EXISTS idx_source_documents_imported_at
-    ON source_documents(imported_at DESC);
+-- 图谱关系：保存节点之间的候选、已确认、已拒绝或已失效关系。
+CREATE TABLE IF NOT EXISTS graph_edges (
+    -- 图谱关系唯一标识。
+    id TEXT PRIMARY KEY,
+    -- 关系所属知识空间。
+    space_id TEXT NOT NULL,
+    -- 关系主体节点标识。
+    source_node_id TEXT NOT NULL,
+    -- 关系客体节点标识。
+    target_node_id TEXT NOT NULL,
+    -- 关系类型，例如“负责”“属于项目”“项目任务”。
+    relation_type TEXT NOT NULL,
+    -- 关系状态：suggested、confirmed、rejected 或 stale。
+    status TEXT NOT NULL,
+    -- 关系置信度，规则或人工关系也使用 0～1 表示。
+    confidence REAL NOT NULL,
+    -- 关系创建时间，使用 ISO-8601 UTC 字符串。
+    created_at TEXT NOT NULL,
+    -- 关系最近更新时间，使用 ISO-8601 UTC 字符串。
+    updated_at TEXT NOT NULL,
+    -- 保证关系所属知识空间真实存在。
+    FOREIGN KEY (space_id) REFERENCES knowledge_spaces(id),
+    -- 保证主体节点真实存在。
+    FOREIGN KEY (source_node_id) REFERENCES graph_nodes(id),
+    -- 保证客体节点真实存在。
+    FOREIGN KEY (target_node_id) REFERENCES graph_nodes(id)
+);
+
+-- 关系证据：每条关系必须通过来源资料中的原文片段说明其依据。
+CREATE TABLE IF NOT EXISTS evidences (
+    -- 证据唯一标识。
+    id TEXT PRIMARY KEY,
+    -- 证据所属知识空间。
+    space_id TEXT NOT NULL,
+    -- 证据所支撑的图谱关系标识。
+    edge_id TEXT NOT NULL,
+    -- 证据来源资料标识。
+    source_document_id TEXT NOT NULL,
+    -- 来源资料中的原文片段。
+    quote TEXT NOT NULL,
+    -- 段落、标题、行号或页码等定位信息，可为空。
+    locator TEXT,
+    -- 证据提取方式：ai、rule 或 user。
+    extraction_method TEXT NOT NULL,
+    -- 证据创建时间，使用 ISO-8601 UTC 字符串。
+    created_at TEXT NOT NULL,
+    -- 保证证据所属知识空间真实存在。
+    FOREIGN KEY (space_id) REFERENCES knowledge_spaces(id),
+    -- 保证证据所支撑的关系真实存在。
+    FOREIGN KEY (edge_id) REFERENCES graph_edges(id),
+    -- 保证证据可以追溯到原始来源资料。
+    FOREIGN KEY (source_document_id) REFERENCES source_documents(id)
+);
+
+-- 关系审核记录：保留接受、拒绝和修改动作，避免相同错误建议反复出现。
+CREATE TABLE IF NOT EXISTS review_actions (
+    -- 审核记录唯一标识。
+    id TEXT PRIMARY KEY,
+    -- 审核记录所属知识空间。
+    space_id TEXT NOT NULL,
+    -- 被审核的图谱关系标识。
+    edge_id TEXT NOT NULL,
+    -- 审核动作：accept、reject 或 modify。
+    action TEXT NOT NULL,
+    -- 拒绝原因或修改说明，可为空。
+    reason TEXT,
+    -- 操作者展示名称；本地单用户阶段默认 local-user。
+    operator_name TEXT NOT NULL,
+    -- 审核时间，使用 ISO-8601 UTC 字符串。
+    created_at TEXT NOT NULL,
+    -- 保证审核记录所属知识空间真实存在。
+    FOREIGN KEY (space_id) REFERENCES knowledge_spaces(id),
+    -- 保证被审核关系真实存在。
+    FOREIGN KEY (edge_id) REFERENCES graph_edges(id)
+);
+
+-- 来源资料和导入批次的 space_id 兼容旧数据库升级，因此相关索引由
+-- DatabaseSchemaInitializer 在字段迁移完成后统一创建。
+
+-- 支持按知识空间、类型和状态筛选图谱节点。
+CREATE INDEX IF NOT EXISTS idx_graph_nodes_space_type_status
+    ON graph_nodes(space_id, node_type, status);
+
+-- 同一知识空间内规范化键非空时保持唯一，避免重复实体。
+CREATE UNIQUE INDEX IF NOT EXISTS uk_graph_nodes_space_normalized_key
+    ON graph_nodes(space_id, normalized_key)
+    WHERE normalized_key IS NOT NULL;
+
+-- 支持按知识空间和状态查询图谱关系与待审核关系。
+CREATE INDEX IF NOT EXISTS idx_graph_edges_space_status
+    ON graph_edges(space_id, status);
+
+-- 支持查询节点的一跳出边。
+CREATE INDEX IF NOT EXISTS idx_graph_edges_source_node
+    ON graph_edges(source_node_id);
+
+-- 支持查询节点的一跳入边。
+CREATE INDEX IF NOT EXISTS idx_graph_edges_target_node
+    ON graph_edges(target_node_id);
+
+-- 支持按关系查询证据。
+CREATE INDEX IF NOT EXISTS idx_evidences_edge_id
+    ON evidences(edge_id);
+
+-- 支持按来源资料反查证据。
+CREATE INDEX IF NOT EXISTS idx_evidences_source_document_id
+    ON evidences(source_document_id);
+
+-- 支持查询一条关系的完整审核历史。
+CREATE INDEX IF NOT EXISTS idx_review_actions_edge_created_at
+    ON review_actions(edge_id, created_at DESC);

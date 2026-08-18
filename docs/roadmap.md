@@ -1,6 +1,6 @@
 # 参赛开发路线图
 
-更新时间：2026-08-17
+更新时间：2026-08-18
 
 ## 目标假设
 
@@ -61,6 +61,8 @@
 
 ### 2026-08-17 ～ 2026-08-23：前后端基础工程和数据层
 
+阶段状态：已完成基础工程、数据层和本地 HTTP 自测（2026-08-18）。Chrome 控制连接在当前会话未暴露 Node REPL，因此浏览器点击/文件选择尚未作为独立证据；不影响 Java API、SQLite、CORS、前端构建和真实虚构资料导入链路的已验证结果。
+
 - 初始化 Next.js 前端，并基于 Firefly Boot 建立 `common + server` 两模块 Java 后端。
 - 确定前后端 HTTP API 边界。
 - 复用统一响应、全局异常、TraceId、Validation 和 Knife4j，清理原脚手架示例与敏感配置。
@@ -69,6 +71,13 @@
 - 完成知识空间和本地文件目录结构。
 - 完成 Markdown/TXT 导入、内容指纹和基础列表页面。
 - 验收：可以导入演示资料并在数据库中看到来源记录。
+
+阶段验收证据：
+
+- `backend/server/src/main/resources/db/schema.sql` 已包含 `knowledge_spaces`、`source_documents`、`import_batches`、`graph_nodes`、`graph_edges`、`evidences`、`review_actions`。
+- Java 21 根 Reactor 测试 13 项全部通过，覆盖空间隔离、资料导入/重复、图谱证据、真实摘要和 CORS DELETE 预检。
+- `fixtures/annual-party/` 7 份虚构 Markdown/TXT 已通过 HTTP 导入到独立空间，SQLite 中为 7 份资料、8 个批次、7 个唯一指纹，上传目录按空间隔离。
+- `npm run typecheck` 和 `npm run build` 均通过，前端已具备空间切换/创建/软删除和真实资料列表控件。
 
 ### 2026-08-24 ～ 2026-08-30：AI 抽取和关系审核
 
