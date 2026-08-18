@@ -584,13 +584,13 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 
 ## 18.2 当前验证边界
 
-- 前端图谱节点、关系审核和健康检查数据仍来自 `src/lib/demo-data.ts`；只有来源资料列表和导入结果已经读取 Java 后端。
+- 前端图谱节点、关系审核和健康检查数据仍来自 `frontend/src/lib/demo-data.ts`；只有来源资料列表和导入结果已经读取 Java 后端。
 - 新导入资料已经写入 SQLite 和服务端上传目录，但尚未触发 AI 抽取，也不会自动生成图谱节点、关系或证据。
 - 图谱节点、关系和证据的持久化查询链路已完成，但当前真实空间没有 AI 写入的正式图谱数据；手工关系写入仅在集成测试中验证。
 - 当前重复识别基于原始文件字节的 SHA-256 完全一致；尚未实现同一文档不同版本的内容差异预览。
 - 当前后端只解析 UTF-8 Markdown/TXT；Apache POI 和 PDFBox 依赖已经进入 Maven 管理，但 DOCX/PDF 解析器尚未实现。
 - AI 供应商和模型已经配置化，但 `AiExtractionClient`、Gemini 调用和结构化输出校验尚未实现。
-- 本轮本地 HTTP 验证使用 `fixtures/annual-party/` 下 7 份虚构资料，未进行真实公司资料、真实 Gemini API、生产部署和浏览器自动化端到端验证。
+- 本轮本地 HTTP 验证使用 `fixture/annual-party/` 下 7 份虚构资料，未进行真实公司资料、真实 Gemini API、生产部署和浏览器自动化端到端验证。
 - Chrome 控制连接在本会话未暴露 Node REPL 工具，因此浏览器点击/文件选择尚未作为独立证据；前端类型检查、生产构建、SSR 控件输出和带 Origin 的 HTTP/CORS 链路已完成验证。
 - 本机默认 Maven 运行时可能使用 Java 25；本项目必须显式使用 Java 21，避免 Lombok 注解处理失败。
 - OpenAPI JSON 已在本地临时端口验证路径、标签和响应模型，但尚未进行独立部署后的 Knife4j 页面人工验收。

@@ -76,8 +76,8 @@
 
 - `backend/server/src/main/resources/db/schema.sql` 已包含 `knowledge_spaces`、`source_documents`、`import_batches`、`graph_nodes`、`graph_edges`、`evidences`、`review_actions`。
 - Java 21 根 Reactor 测试 13 项全部通过，覆盖空间隔离、资料导入/重复、图谱证据、真实摘要和 CORS DELETE 预检。
-- `fixtures/annual-party/` 7 份虚构 Markdown/TXT 已通过 HTTP 导入到独立空间，SQLite 中为 7 份资料、8 个批次、7 个唯一指纹，上传目录按空间隔离。
-- `npm run typecheck` 和 `npm run build` 均通过，前端已具备空间切换/创建/软删除和真实资料列表控件。
+- `fixture/annual-party/` 7 份虚构 Markdown/TXT 已通过 HTTP 导入到独立空间，SQLite 中为 7 份资料、8 个批次、7 个唯一指纹，上传目录按空间隔离。
+- 在 `frontend/` 执行 `npm run typecheck` 和 `npm run build` 均通过，前端已具备空间切换/创建/软删除和真实资料列表控件。
 
 ### 2026-08-24 ～ 2026-08-30：AI 抽取和关系审核
 

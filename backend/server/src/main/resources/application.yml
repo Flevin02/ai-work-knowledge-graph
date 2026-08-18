@@ -17,8 +17,10 @@ spring:
 
 app:
   frontend-origin: ${FRONTEND_ORIGIN:http://localhost:3010}
-  database-path: ${DATABASE_PATH:./data/knowledge-graph.sqlite}
-  upload-dir: ${UPLOAD_DIR:./data/uploads}
+  # 相对路径以 backend/server 作为启动工作目录；可通过 DATA_DIR 或单独路径变量覆盖。
+  data-dir: ${DATA_DIR:./data}
+  database-path: ${DATABASE_PATH:${app.data-dir}/knowledge-graph.sqlite}
+  upload-dir: ${UPLOAD_DIR:${app.data-dir}/uploads}
 
 ai:
   provider: ${AI_PROVIDER:gemini}

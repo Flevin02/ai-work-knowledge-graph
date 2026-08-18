@@ -46,10 +46,13 @@ Controller 内部不重复声明 `/api`，后续切换部署前缀只修改 `SER
 默认数据库和上传目录由以下环境变量控制：
 
 ```properties
+DATA_DIR=./data
 DATABASE_PATH=./data/knowledge-graph.sqlite
 UPLOAD_DIR=./data/uploads
 FRONTEND_ORIGIN=http://localhost:3010
 ```
+
+上述相对路径以 `backend/server` 作为启动工作目录，对应仓库中的 `backend/server/data/`。如果从其他工作目录启动，请使用绝对路径，或同时设置 `DATA_DIR`、`DATABASE_PATH` 和 `UPLOAD_DIR`，不要依赖调用方当前目录的隐式差异。
 
 启动时会自动创建目录，并执行项目内的幂等建表脚本：
 

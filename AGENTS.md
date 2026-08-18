@@ -39,14 +39,13 @@
 - 不通过本机绝对路径依赖 `/Users/flevin/projects/firefly-boot`。
 - Firefly Boot 只作为脚手架参考；复制后的代码由当前项目独立维护。
 - 不复制 Firefly Boot 工作区的未提交修改、示例调试代码或本地敏感配置。
-- `fixtures/` 只允许存放虚构或完成脱敏的演示资料。
+- `fixture/` 只允许存放虚构或完成脱敏的演示资料。
 
 ## 4. 目录与职责
 
 ```text
 ai-work-knowledge-graph/
-├── app/                 # Next.js 页面入口和全局样式
-├── src/                 # 前端组件、前端类型和演示数据
+├── frontend/            # Next.js 页面入口、前端组件、类型和演示数据
 ├── backend/
 │   ├── common/          # 统一响应、异常、TraceId 等技术能力
 │   └── server/          # 文档、图谱、审核、健康检查和 AI 业务
@@ -54,8 +53,9 @@ ai-work-knowledge-graph/
 │   ├── prd/             # 产品需求、实施状态和新会话代办
 │   ├── design/          # 技术设计和数据模型
 │   └── decisions/       # 已确认设计决策
-├── fixtures/            # 虚构演示资料
-└── tests/               # 跨模块或端到端测试说明
+├── fixture/             # 虚构演示资料
+├── scripts/             # 导入、校验和演示辅助脚本
+└── LICENSE/README 等    # 仓库级入口文件
 ```
 
 - `common` 只放真正跨业务复用的技术能力。
@@ -159,6 +159,7 @@ ai-work-knowledge-graph/
 ### 前端
 
 ```bash
+cd frontend
 npm run typecheck
 npm run build
 ```
@@ -168,6 +169,7 @@ npm run build
 本项目必须显式使用 Java 21。本机默认 Maven 可能运行在其他 JDK：
 
 ```bash
+cd backend
 kg_java_home=$(/usr/libexec/java_home -v 21)
 JAVA_HOME="$kg_java_home" PATH="$kg_java_home/bin:$PATH" mvn test
 ```
