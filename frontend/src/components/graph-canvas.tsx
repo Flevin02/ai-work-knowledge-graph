@@ -43,7 +43,18 @@ export default function GraphCanvas({ nodes, edges, selectedNodeId, onSelectNode
     const graph = cytoscape({
       container: containerRef.current,
       elements,
-      layout: { name: 'cose', animate: false, fit: true, padding: 44, idealEdgeLength: 135 },
+      minZoom: 0.35,
+      maxZoom: 1.35,
+      layout: {
+        name: 'cose',
+        animate: false,
+        fit: true,
+        padding: 56,
+        idealEdgeLength: 180,
+        nodeDimensionsIncludeLabels: true,
+        nodeOverlap: 12,
+        componentSpacing: 100,
+      },
       style: [
         {
           selector: 'node',
@@ -102,15 +113,21 @@ export default function GraphCanvas({ nodes, edges, selectedNodeId, onSelectNode
     graph.on('tap', 'node', (event) => onSelectNode(event.target.id()));
     graphRef.current = graph;
 
-    if (selectedNodeId && graph.getElementById(selectedNodeId).length) {
-      graph.getElementById(selectedNodeId).addClass('selected');
-    }
-
     return () => {
       graph.destroy();
       graphRef.current = null;
     };
-  }, [edges, nodes, onSelectNode, selectedNodeId]);
+  }, [edges, nodes, onSelectNode]);
+
+  useEffect(() => {
+    const graph = graphRef.current;
+    if (!graph) return;
+
+    graph.nodes().removeClass('selected');
+    if (selectedNodeId && graph.getElementById(selectedNodeId).length) {
+      graph.getElementById(selectedNodeId).addClass('selected');
+    }
+  }, [edges, nodes, selectedNodeId]);
 
   return <div ref={containerRef} className="graph-canvas" aria-label="工作知识关系图谱" />;
 }

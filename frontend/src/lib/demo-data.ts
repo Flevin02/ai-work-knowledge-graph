@@ -15,7 +15,7 @@ export const demoGraph: GraphData = {
     { id: 'doc-plan', type: 'document', label: '年会活动方案', summary: '记录活动目标、时间范围和初步流程。', status: 'active', sourceIds: ['doc-plan'], createdAt: date, updatedAt: date },
     { id: 'doc-meeting-1', type: 'document', label: '第一次筹备会议纪要', summary: '记录首次会议决议和任务分工。', status: 'active', sourceIds: ['doc-meeting-1'], createdAt: date, updatedAt: date },
     { id: 'doc-role', type: 'document', label: '人员分工表', summary: '记录行政部、负责人和宣传物料任务。', status: 'active', sourceIds: ['doc-role'], createdAt: date, updatedAt: date },
-    { id: 'doc-contract', type: 'document', label: '场地合同（待确认）', summary: '可能属于年会项目，当前关系等待人工确认。', status: 'orphan', sourceIds: ['doc-contract'], createdAt: date, updatedAt: date },
+    { id: 'doc-contract', type: 'document', label: '场地合同（待确认）', summary: '可能属于年会项目，当前关联等待人工审核。', status: 'orphan', sourceIds: ['doc-contract'], createdAt: date, updatedAt: date },
     { id: 'risk-budget', type: 'risk', label: '预算金额待确认', summary: '会议纪要与报价单中的预算口径尚未统一。', status: 'conflict', sourceIds: ['doc-meeting-1'], createdAt: date, updatedAt: date },
     { id: 'decision-theme', type: 'decision', label: '主题：欢乐同行', summary: '第一次筹备会议已确认年会主题。', status: 'completed', sourceIds: ['doc-meeting-1'], createdAt: date, updatedAt: date },
   ],
