@@ -21,12 +21,14 @@ export type DocumentImportResponse = {
 export async function listSourceDocuments(
   spaceId: string,
   page = 1,
-  pageSize = 12
+  pageSize = 12,
+  signal?: AbortSignal
 ): Promise<SourceDocumentPage> {
   const searchParams = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
   const response = await fetch(`${backendApiUrl}/v1/spaces/${encodeURIComponent(spaceId)}/documents?${searchParams}`, {
     method: 'GET',
     cache: 'no-store',
+    signal,
   });
   return readApiResponse<SourceDocumentPage>(response);
 }

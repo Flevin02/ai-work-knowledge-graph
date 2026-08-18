@@ -57,6 +57,7 @@ type DeleteConfirmation =
 
 const allTypes: Array<NodeType | 'all'> = ['all', 'project', 'department', 'person', 'task', 'document', 'meeting', 'risk', 'decision'];
 const DOCUMENT_PAGE_SIZE = 12;
+const DOCUMENT_PROCESSING_POLL_INTERVAL_MS = 3000;
 const relationTypeLabels: Record<string, string> = {
   project_contains_feature: '项目包含功能',
   feature_contains_requirement: '功能包含需求',
@@ -154,12 +155,22 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
   useEffect(() => {
     if (!currentSpaceId) return;
     let cancelled = false;
+    let pollingErrorVisible = false;
+    let pollingTimer: ReturnType<typeof setTimeout> | undefined;
+    const abortController = new AbortController();
 
-    const loadPersistedDocuments = async () => {
-      setNotice('正在加载当前知识空间的真实来源资料。');
-      setNoticeTone('loading');
+    const loadPersistedDocuments = async (isPolling = false) => {
+      if (!isPolling) {
+        setNotice('正在加载当前知识空间的真实来源资料。');
+        setNoticeTone('loading');
+      }
       try {
-        const response = await listSourceDocuments(currentSpaceId, documentPage, DOCUMENT_PAGE_SIZE);
+        const response = await listSourceDocuments(
+          currentSpaceId,
+          documentPage,
+          DOCUMENT_PAGE_SIZE,
+          abortController.signal
+        );
         if (cancelled) return;
 
         if (!response.items.length && documentPage > 1 && response.totalPages > 0) {
@@ -184,12 +195,39 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
             response.items,
           ),
         }));
-        setNotice(response.total
-          ? `已加载当前空间第 ${response.page} 页，共 ${response.total} 份真实来源资料；图谱节点仍为虚构演示数据。`
-          : '当前知识空间尚未导入真实来源资料；图谱节点仍为虚构演示数据。');
-        setNoticeTone('success');
+        const hasProcessingDocument = response.items.some(
+          (document) => document.latestExtraction?.status === 'processing'
+        );
+        if (!isPolling) {
+          setNotice(response.total
+            ? `已加载当前空间第 ${response.page} 页，共 ${response.total} 份真实来源资料；图谱节点仍为虚构演示数据。`
+            : '当前知识空间尚未导入真实来源资料；图谱节点仍为虚构演示数据。');
+          setNoticeTone('success');
+        } else if (pollingErrorVisible) {
+          pollingErrorVisible = false;
+          setNotice(hasProcessingDocument ? 'AI 提取状态刷新已恢复。' : 'AI 提取状态已更新。');
+          setNoticeTone('success');
+        }
+
+        if (hasProcessingDocument) {
+          // 等本次请求完成后再刷新当前页，避免慢请求重叠并发
+          pollingTimer = setTimeout(
+            () => void loadPersistedDocuments(true),
+            DOCUMENT_PROCESSING_POLL_INTERVAL_MS
+          );
+        }
       } catch (error) {
         if (cancelled) return;
+        if (isPolling) {
+          pollingErrorVisible = true;
+          setNotice(`AI 提取状态刷新失败，将继续重试：${error instanceof Error ? error.message : '未知错误'}`);
+          setNoticeTone('warning');
+          pollingTimer = setTimeout(
+            () => void loadPersistedDocuments(true),
+            DOCUMENT_PROCESSING_POLL_INTERVAL_MS
+          );
+          return;
+        }
         setPersistedDocuments([]);
         setDocumentTotal(0);
         setDocumentTotalPages(0);
@@ -200,7 +238,11 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
     };
 
     void loadPersistedDocuments();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      abortController.abort();
+      if (pollingTimer) clearTimeout(pollingTimer);
+    };
   }, [currentSpaceId, documentPage, documentRefreshKey]);
 
   const currentSpace = spaces.find((space) => space.id === currentSpaceId) ?? null;
@@ -731,6 +773,7 @@ function DocumentPreviewModal({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<'rendered' | 'source'>('rendered');
+  const previewModeLabel = previewMode === 'rendered' ? '渲染预览' : '原文预览';
 
   useEffect(() => {
     let cancelled = false;
@@ -767,10 +810,10 @@ function DocumentPreviewModal({
     <section className="document-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="document-preview-title" onClick={(event) => event.stopPropagation()}>
       <header className="document-preview-header">
         <div>
-          <div className="eyebrow">来源资料 / 原文预览</div>
+          <div className="eyebrow">来源资料 / {previewModeLabel}</div>
           <h2 id="document-preview-title" title={document.name}>{document.name}</h2>
         </div>
-        <button className="space-icon-button" aria-label="关闭原文预览" title="关闭" onClick={onClose}><X size={16} /></button>
+        <button className="space-icon-button" aria-label={`关闭${previewModeLabel}`} title="关闭" onClick={onClose}><X size={16} /></button>
       </header>
       {isLoading && <div className="document-preview-state"><LoaderCircle className="spin" size={22} /><span>正在加载原文…</span></div>}
       {!isLoading && error && <div className="document-preview-state error"><AlertTriangle size={22} /><span>原文加载失败：{error}</span><button className="secondary-button" onClick={onClose}>关闭</button></div>}
@@ -793,7 +836,7 @@ function DocumentPreviewModal({
               aria-selected={previewMode === 'source'}
               onClick={() => setPreviewMode('source')}
             >
-              <FileText size={13} /> 原文
+              <FileText size={13} /> 原文预览
             </button>
           </div>
           <span>SHA-256 · {content.contentHash.slice(0, 16)}…</span>
