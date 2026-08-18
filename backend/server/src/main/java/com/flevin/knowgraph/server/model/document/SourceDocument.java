@@ -10,6 +10,7 @@ import java.time.Instant;
  * @param batchId 首次导入批次标识
  * @param name 原始文件名
  * @param kind 文件类型
+ * @param documentType 文档业务类型
  * @param contentHash SHA-256 内容指纹
  * @param storagePath 原始文件本地保存路径
  * @param contentText 解析后的完整文本
@@ -25,6 +26,7 @@ public record SourceDocument(
         String batchId,
         String name,
         String kind,
+        SourceDocumentType documentType,
         String contentHash,
         String storagePath,
         String contentText,

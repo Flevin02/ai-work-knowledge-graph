@@ -1,0 +1,154 @@
+package com.flevin.knowgraph.server.service.ai;
+
+import com.flevin.knowgraph.server.model.ai.AiEntityCandidate;
+import com.flevin.knowgraph.server.model.ai.AiEntityType;
+import com.flevin.knowgraph.server.model.ai.AiEvidenceCandidate;
+import com.flevin.knowgraph.server.model.ai.AiExtractionRequest;
+import com.flevin.knowgraph.server.model.ai.AiExtractionResult;
+import com.flevin.knowgraph.server.model.ai.AiRelationCandidate;
+import jakarta.validation.Validation;
+import jakarta.validation.ValidatorFactory;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class AiExtractionResultValidatorTests {
+
+    @Test
+    void acceptsResultWhoseReferencesAndQuotesMatchSourceChunk() {
+        AiExtractionRequest request = request();
+        AiExtractionResult result = validResult("用户中心包含登录功能");
+
+        try (ValidatorFactory validatorFactory = Validation.buildDefaultValidatorFactory()) {
+            AiExtractionResultValidator validator = new AiExtractionResultValidator(
+                    validatorFactory.getValidator()
+            );
+
+            // 校验结构、关系引用和逐字原文证据
+            AiExtractionResult validatedResult = validator.validate(request, result);
+
+            assertThat(validatedResult).isSameAs(result);
+        }
+    }
+
+    @Test
+    void rejectsEvidenceQuoteThatCannotBeFoundInSourceChunk() {
+        AiExtractionRequest request = request();
+        AiExtractionResult result = validResult("原文中不存在的模型幻觉引用");
+
+        try (ValidatorFactory validatorFactory = Validation.buildDefaultValidatorFactory()) {
+            AiExtractionResultValidator validator = new AiExtractionResultValidator(
+                    validatorFactory.getValidator()
+            );
+
+            // 验证模型改写或臆造的引用不能成为图谱证据
+            assertThatThrownBy(() -> validator.validate(request, result))
+                    .isInstanceOf(AiExtractionValidationException.class)
+                    .hasMessageContaining("证据无法在原文中逐字定位");
+        }
+    }
+
+    @Test
+    void rejectsRelationThatReferencesMissingEntity() {
+        AiExtractionRequest request = request();
+        AiExtractionResult validResult = validResult("用户中心包含登录功能");
+        AiRelationCandidate invalidRelation = new AiRelationCandidate(
+                "entity-missing",
+                "entity-feature",
+                "project_contains_feature",
+                0.9D,
+                List.of("evidence-1")
+        );
+        AiExtractionResult invalidResult = new AiExtractionResult(
+                validResult.entities(),
+                List.of(invalidRelation),
+                validResult.evidences(),
+                List.of()
+        );
+
+        try (ValidatorFactory validatorFactory = Validation.buildDefaultValidatorFactory()) {
+            AiExtractionResultValidator validator = new AiExtractionResultValidator(
+                    validatorFactory.getValidator()
+            );
+
+            // 验证关系不能引用模型未输出的候选实体
+            assertThatThrownBy(() -> validator.validate(request, invalidResult))
+                    .isInstanceOf(AiExtractionValidationException.class)
+                    .hasMessageContaining("不存在的主体实体");
+        }
+    }
+
+    @Test
+    void rejectsBlankRequestBeforeRemoteModelCanBeCalled() {
+        AiExtractionRequest invalidRequest = new AiExtractionRequest(
+                "document-1",
+                "用户中心 PRD.md",
+                "prd",
+                "section-1-chunk-1",
+                "用户中心 > 登录功能",
+                " "
+        );
+
+        try (ValidatorFactory validatorFactory = Validation.buildDefaultValidatorFactory()) {
+            AiExtractionResultValidator validator = new AiExtractionResultValidator(
+                    validatorFactory.getValidator()
+            );
+
+            // 验证空白原文在产生远程调用和费用前被拒绝
+            assertThatThrownBy(() -> validator.validateRequest(invalidRequest))
+                    .isInstanceOf(AiExtractionValidationException.class)
+                    .hasMessageContaining("content");
+        }
+    }
+
+    private AiExtractionRequest request() {
+        return new AiExtractionRequest(
+                "document-1",
+                "用户中心 PRD.md",
+                "prd",
+                "section-1-chunk-1",
+                "用户中心 > 登录功能",
+                "用户中心包含登录功能，登录功能支持手机号验证码。"
+        );
+    }
+
+    private AiExtractionResult validResult(String quote) {
+        AiEvidenceCandidate evidence = new AiEvidenceCandidate(
+                "evidence-1",
+                "document-1",
+                "section-1-chunk-1",
+                "用户中心 > 登录功能",
+                quote
+        );
+        AiEntityCandidate project = new AiEntityCandidate(
+                "entity-project",
+                AiEntityType.PROJECT,
+                "用户中心",
+                "用户中心项目",
+                List.of("evidence-1")
+        );
+        AiEntityCandidate feature = new AiEntityCandidate(
+                "entity-feature",
+                AiEntityType.FEATURE,
+                "登录功能",
+                "支持手机号验证码登录",
+                List.of("evidence-1")
+        );
+        AiRelationCandidate relation = new AiRelationCandidate(
+                "entity-project",
+                "entity-feature",
+                "project_contains_feature",
+                0.9D,
+                List.of("evidence-1")
+        );
+        return new AiExtractionResult(
+                List.of(project, feature),
+                List.of(relation),
+                List.of(evidence),
+                List.of()
+        );
+    }
+}

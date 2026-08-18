@@ -23,9 +23,25 @@ app:
   upload-dir: ${UPLOAD_DIR:${app.data-dir}/uploads}
 
 ai:
-  provider: ${AI_PROVIDER:gemini}
-  model: ${AI_MODEL:gemini-2.5-flash}
-  api-key: ${GEMINI_API_KEY:}
+  enabled: ${AI_ENABLED:true}
+  provider: ${AI_PROVIDER:openai-compatible}
+  model: ${AI_MODEL:gpt-5.4-mini}
+  api-key: ${AI_API_KEY:}
+  base-url: ${AI_BASE_URL:https://api.psydo.top/v1}
+  json-schema-enabled: ${AI_JSON_SCHEMA_ENABLED:true}
+  embedding-enabled: ${AI_EMBEDDING_ENABLED:true}
+  embedding-model: ${AI_EMBEDDING_MODEL:text-embedding-3-small}
+  prompt-version: ${AI_PROMPT_VERSION:prd-extraction-v1}
+  schema-version: ${AI_SCHEMA_VERSION:extraction-v1}
+  temperature: ${AI_TEMPERATURE:0.0}
+  max-output-tokens: ${AI_MAX_OUTPUT_TOKENS:4096}
+  max-retries: ${AI_MAX_RETRIES:0}
+  timeout-seconds: ${AI_TIMEOUT_SECONDS:60}
+  rag:
+    max-chunk-chars: ${AI_RAG_MAX_CHUNK_CHARS:1500}
+    overlap-chars: ${AI_RAG_OVERLAP_CHARS:150}
+    top-k: ${AI_RAG_TOP_K:5}
+    min-score: ${AI_RAG_MIN_SCORE:0.70}
 
 springdoc:
   swagger-ui:
@@ -36,8 +52,18 @@ springdoc:
     path: /v3/api-docs
   group-configs:
     - group: default
-      paths-to-match: /**
-      packages-to-scan: com.flevin.knowgraph.server.controller
+      paths-to-match:
+        - /**
+      packages-to-scan:
+        - com.flevin.knowgraph.server.controller
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    cache-enabled: false
+  global-config:
+    banner: false
 
 knife4j:
   enable: true

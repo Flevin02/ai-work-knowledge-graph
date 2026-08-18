@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.flevin.knowgraph.server.repository.mapper.GraphNodeMapper">
+
+    <!-- 查询指定知识空间内未失效节点，并保持创建时间和主键顺序。 -->
+    <select id="findActiveBySpaceId"
+            resultType="com.flevin.knowgraph.server.repository.entity.GraphNodeEntity">
+        SELECT id,
+               space_id,
+               node_type,
+               label,
+               summary,
+               status,
+               normalized_key,
+               source_ids_json,
+               created_at,
+               updated_at
+        FROM graph_nodes
+        WHERE space_id = #{spaceId}
+          AND status != 'stale'
+        ORDER BY created_at ASC, id ASC
+    </select>
+
+</mapper>

@@ -1,57 +1,25 @@
 package com.flevin.knowgraph.server.repository.space;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.flevin.knowgraph.server.model.space.KnowledgeSpace;
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.flevin.knowgraph.server.repository.entity.KnowledgeSpaceEntity;
+import com.flevin.knowgraph.server.repository.mapper.KnowledgeSpaceMapper;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * 知识空间数据访问对象，负责有效空间查询、创建和软删除。
+ * 知识空间数据访问对象，使用 MyBatis-Plus 简化有效空间查询、创建和软删除。
  */
 @Repository
+@RequiredArgsConstructor
 public class KnowledgeSpaceRepository {
 
-    private static final String FIND_ACTIVE_SQL = """
-            SELECT id, name, description, status, created_at, updated_at
-            FROM knowledge_spaces
-            WHERE status = 'active'
-            ORDER BY created_at ASC, id ASC
-            """;
-
-    private static final String FIND_ACTIVE_BY_ID_SQL = """
-            SELECT id, name, description, status, created_at, updated_at
-            FROM knowledge_spaces
-            WHERE id = ? AND status = 'active'
-            """;
-
-    private static final String EXISTS_ACTIVE_NAME_SQL = """
-            SELECT COUNT(1)
-            FROM knowledge_spaces
-            WHERE name = ? AND status = 'active'
-            """;
-
-    private static final String INSERT_SQL = """
-            INSERT INTO knowledge_spaces (
-                id, name, description, status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            """;
-
-    private static final String SOFT_DELETE_SQL = """
-            UPDATE knowledge_spaces
-            SET status = 'deleted', updated_at = ?
-            WHERE id = ? AND status = 'active'
-            """;
-
-    private final JdbcTemplate jdbcTemplate;
-
-    public KnowledgeSpaceRepository(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
-    }
+    private final KnowledgeSpaceMapper knowledgeSpaceMapper;
 
     /**
      * 查询全部有效知识空间。
@@ -59,8 +27,16 @@ public class KnowledgeSpaceRepository {
      * @return 按创建时间排序的有效知识空间
      */
     public List<KnowledgeSpace> findAllActive() {
-        // 查询未被软删除的全部知识空间
-        return jdbcTemplate.query(FIND_ACTIVE_SQL, this::mapSpace);
+        // 使用 MyBatis-Plus Lambda 条件构造器查询未软删除空间
+        List<KnowledgeSpaceEntity> entities = knowledgeSpaceMapper.selectList(
+                Wrappers.<KnowledgeSpaceEntity>lambdaQuery()
+                        .eq(KnowledgeSpaceEntity::getStatus, "active")
+                        .orderByAsc(KnowledgeSpaceEntity::getCreatedAt)
+                        .orderByAsc(KnowledgeSpaceEntity::getId)
+        );
+
+        // 将持久化实体转换为领域 record，阻止 ORM 类型向 Service 层泄漏
+        return entities.stream().map(this::toDomain).toList();
     }
 
     /**
@@ -70,10 +46,13 @@ public class KnowledgeSpaceRepository {
      * @return 有效知识空间；不存在或已删除时返回空
      */
     public Optional<KnowledgeSpace> findActiveById(String spaceId) {
-        // 查询指定标识且状态有效的知识空间
-        return jdbcTemplate.query(FIND_ACTIVE_BY_ID_SQL, this::mapSpace, spaceId)
-                .stream()
-                .findFirst();
+        // 使用空间标识和 active 状态查询单条有效记录
+        KnowledgeSpaceEntity entity = knowledgeSpaceMapper.selectOne(
+                Wrappers.<KnowledgeSpaceEntity>lambdaQuery()
+                        .eq(KnowledgeSpaceEntity::getId, spaceId)
+                        .eq(KnowledgeSpaceEntity::getStatus, "active")
+        );
+        return Optional.ofNullable(entity).map(this::toDomain);
     }
 
     /**
@@ -83,8 +62,12 @@ public class KnowledgeSpaceRepository {
      * @return 存在同名有效空间时返回 true
      */
     public boolean existsActiveByName(String name) {
-        // 统计同名且有效的知识空间数量
-        Integer count = jdbcTemplate.queryForObject(EXISTS_ACTIVE_NAME_SQL, Integer.class, name);
+        // 使用 COUNT 查询同名且有效的知识空间数量
+        Long count = knowledgeSpaceMapper.selectCount(
+                Wrappers.<KnowledgeSpaceEntity>lambdaQuery()
+                        .eq(KnowledgeSpaceEntity::getName, name)
+                        .eq(KnowledgeSpaceEntity::getStatus, "active")
+        );
         return count != null && count > 0;
     }
 
@@ -94,12 +77,12 @@ public class KnowledgeSpaceRepository {
      * @return 有效知识空间数量
      */
     public int countActive() {
-        // 统计当前未被软删除的知识空间数量
-        Integer count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(1) FROM knowledge_spaces WHERE status = 'active'",
-                Integer.class
+        // 使用 MyBatis-Plus COUNT 查询当前有效空间数量
+        Long count = knowledgeSpaceMapper.selectCount(
+                Wrappers.<KnowledgeSpaceEntity>lambdaQuery()
+                        .eq(KnowledgeSpaceEntity::getStatus, "active")
         );
-        return count == null ? 0 : count;
+        return count == null ? 0 : Math.toIntExact(count);
     }
 
     /**
@@ -108,16 +91,11 @@ public class KnowledgeSpaceRepository {
      * @param space 新知识空间模型
      */
     public void save(KnowledgeSpace space) {
-        // 持久化知识空间基本信息和时间字段
-        jdbcTemplate.update(
-                INSERT_SQL,
-                space.id(),
-                space.name(),
-                space.description(),
-                space.status(),
-                space.createdAt().toString(),
-                space.updatedAt().toString()
-        );
+        // 将领域模型转换为 MyBatis-Plus 持久化实体
+        KnowledgeSpaceEntity entity = toEntity(space);
+
+        // 使用 BaseMapper 插入新知识空间
+        knowledgeSpaceMapper.insert(entity);
     }
 
     /**
@@ -131,30 +109,50 @@ public class KnowledgeSpaceRepository {
             String spaceId,
             Instant updatedAt
     ) {
-        // 更新空间状态并保留全部事实来源和关联数据
-        return jdbcTemplate.update(SOFT_DELETE_SQL, updatedAt.toString(), spaceId);
+        KnowledgeSpaceEntity updateEntity = new KnowledgeSpaceEntity();
+        updateEntity.setStatus("deleted");
+        updateEntity.setUpdatedAt(updatedAt.toString());
+
+        // 只更新当前仍然有效的空间，保持软删除幂等
+        LambdaUpdateWrapper<KnowledgeSpaceEntity> updateWrapper = Wrappers.lambdaUpdate();
+        updateWrapper.eq(KnowledgeSpaceEntity::getId, spaceId)
+                .eq(KnowledgeSpaceEntity::getStatus, "active");
+
+        // 使用 BaseMapper 执行带状态边界的软删除
+        return knowledgeSpaceMapper.update(updateEntity, updateWrapper);
     }
 
     /**
-     * 将 JDBC 查询结果映射为知识空间模型。
+     * 将 MyBatis-Plus 实体转换为领域模型。
      *
-     * @param resultSet JDBC 查询结果
-     * @param rowNumber 当前结果行号
-     * @return 知识空间模型
-     * @throws SQLException 字段读取失败时抛出
+     * @param entity 持久化实体
+     * @return 知识空间领域模型
      */
-    private KnowledgeSpace mapSpace(
-            ResultSet resultSet,
-            int rowNumber
-    ) throws SQLException {
-        // 从数据库字段恢复知识空间和 ISO-8601 时间
+    private KnowledgeSpace toDomain(KnowledgeSpaceEntity entity) {
         return new KnowledgeSpace(
-                resultSet.getString("id"),
-                resultSet.getString("name"),
-                resultSet.getString("description"),
-                resultSet.getString("status"),
-                Instant.parse(resultSet.getString("created_at")),
-                Instant.parse(resultSet.getString("updated_at"))
+                entity.getId(),
+                entity.getName(),
+                entity.getDescription(),
+                entity.getStatus(),
+                Instant.parse(entity.getCreatedAt()),
+                Instant.parse(entity.getUpdatedAt())
         );
+    }
+
+    /**
+     * 将领域模型转换为 MyBatis-Plus 实体。
+     *
+     * @param space 知识空间领域模型
+     * @return 持久化实体
+     */
+    private KnowledgeSpaceEntity toEntity(KnowledgeSpace space) {
+        KnowledgeSpaceEntity entity = new KnowledgeSpaceEntity();
+        entity.setId(space.id());
+        entity.setName(space.name());
+        entity.setDescription(space.description());
+        entity.setStatus(space.status());
+        entity.setCreatedAt(space.createdAt().toString());
+        entity.setUpdatedAt(space.updatedAt().toString());
+        return entity;
     }
 }

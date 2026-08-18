@@ -1,48 +1,26 @@
 package com.flevin.knowgraph.server.repository.document;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.flevin.knowgraph.server.model.document.SourceDocument;
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.flevin.knowgraph.server.model.document.SourceDocumentType;
+import com.flevin.knowgraph.server.repository.entity.SourceDocumentEntity;
+import com.flevin.knowgraph.server.repository.mapper.SourceDocumentMapper;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * 来源资料数据访问对象，负责来源记录的保存和内容指纹查询。
+ * 来源资料数据访问对象，使用 MyBatis-Plus 简化保存、去重、列表和原文查询。
  */
 @Repository
+@RequiredArgsConstructor
 public class SourceDocumentRepository {
 
-    private static final String INSERT_SQL = """
-            INSERT INTO source_documents (
-                id, space_id, batch_id, name, kind, content_hash, storage_path, content_text,
-                excerpt, status, file_size, imported_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """;
-
-    private static final String FIND_BY_CONTENT_HASH_SQL = """
-            SELECT id, space_id, batch_id, name, kind, content_hash, storage_path, content_text,
-                   excerpt, status, file_size, imported_at, updated_at
-            FROM source_documents
-            WHERE space_id = ? AND content_hash = ?
-            """;
-
-    private static final String FIND_ALL_SQL = """
-            SELECT id, space_id, batch_id, name, kind, content_hash, storage_path, content_text,
-                   excerpt, status, file_size, imported_at, updated_at
-            FROM source_documents
-            WHERE space_id = ?
-            ORDER BY imported_at DESC, id DESC
-            """;
-
-    private final JdbcTemplate jdbcTemplate;
-
-    public SourceDocumentRepository(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
-    }
+    private final SourceDocumentMapper sourceDocumentMapper;
 
     /**
      * 保存已完成解析和原始文件落盘的来源资料。
@@ -50,23 +28,11 @@ public class SourceDocumentRepository {
      * @param document 来源资料模型
      */
     public void save(SourceDocument document) {
-        // 保存来源资料的结构化索引、解析文本和原始文件定位信息
-        jdbcTemplate.update(
-                INSERT_SQL,
-                document.id(),
-                document.spaceId(),
-                document.batchId(),
-                document.name(),
-                document.kind(),
-                document.contentHash(),
-                document.storagePath(),
-                document.contentText(),
-                document.excerpt(),
-                document.status(),
-                document.fileSize(),
-                document.importedAt().toString(),
-                document.updatedAt().toString()
-        );
+        // 将领域来源资料转换为 MyBatis-Plus 持久化实体
+        SourceDocumentEntity entity = toEntity(document);
+
+        // 使用 BaseMapper 插入来源资料结构化索引和原文
+        sourceDocumentMapper.insert(entity);
     }
 
     /**
@@ -80,10 +46,34 @@ public class SourceDocumentRepository {
             String spaceId,
             String contentHash
     ) {
-        // 在指定知识空间内查询相同内容指纹，并只返回唯一记录
-        return jdbcTemplate.query(FIND_BY_CONTENT_HASH_SQL, this::mapDocument, spaceId, contentHash)
-                .stream()
-                .findFirst();
+        // 使用知识空间和内容指纹查询空间内重复来源资料
+        SourceDocumentEntity entity = sourceDocumentMapper.selectOne(
+                Wrappers.<SourceDocumentEntity>lambdaQuery()
+                        .eq(SourceDocumentEntity::getSpaceId, spaceId)
+                        .eq(SourceDocumentEntity::getContentHash, contentHash)
+        );
+        return Optional.ofNullable(entity).map(this::toDomain);
+    }
+
+    /**
+     * 按知识空间和资料标识查询完整来源资料，供原文预览和后续 AI 处理使用。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 来源资料标识
+     * @return 完整来源资料；不存在时返回空
+     */
+    public Optional<SourceDocument> findById(
+            String spaceId,
+            String documentId
+    ) {
+        // 使用知识空间和资料标识查询完整原文，防止跨空间读取
+        SourceDocumentEntity entity = sourceDocumentMapper.selectOne(
+                Wrappers.<SourceDocumentEntity>lambdaQuery()
+                        .eq(SourceDocumentEntity::getSpaceId, spaceId)
+                        .eq(SourceDocumentEntity::getId, documentId)
+                        .eq(SourceDocumentEntity::getStatus, "active")
+        );
+        return Optional.ofNullable(entity).map(this::toDomain);
     }
 
     /**
@@ -93,37 +83,124 @@ public class SourceDocumentRepository {
      * @return 来源资料列表
      */
     public List<SourceDocument> findAll(String spaceId) {
-        // 查询指定知识空间中全部来源资料摘要所需字段
-        return jdbcTemplate.query(FIND_ALL_SQL, this::mapDocument, spaceId);
+        // 按空间、导入时间和主键查询来源资料，保持现有 API 顺序稳定
+        List<SourceDocumentEntity> entities = sourceDocumentMapper.selectList(
+                Wrappers.<SourceDocumentEntity>lambdaQuery()
+                        .eq(SourceDocumentEntity::getSpaceId, spaceId)
+                        .eq(SourceDocumentEntity::getStatus, "active")
+                        .orderByDesc(SourceDocumentEntity::getImportedAt)
+                        .orderByDesc(SourceDocumentEntity::getId)
+        );
+
+        // 将 ORM 实体转换为领域模型，避免 Service 感知 MyBatis-Plus
+        return entities.stream().map(this::toDomain).toList();
     }
 
     /**
-     * 将 JDBC 查询结果映射为来源资料模型。
+     * 软删除指定来源资料，保留原始文件、数据库记录和历史证据。
      *
-     * @param resultSet JDBC 查询结果
-     * @param rowNumber 当前结果行号
-     * @return 来源资料模型
-     * @throws SQLException 字段读取失败时抛出
+     * @param spaceId 知识空间标识
+     * @param documentId 来源资料标识
+     * @param updatedAt 删除时间
+     * @return 实际更新记录数
      */
-    private SourceDocument mapDocument(
-            ResultSet resultSet,
-            int rowNumber
-    ) throws SQLException {
-        // 从持久化字段恢复来源资料模型和 ISO-8601 时间
+    public int softDelete(
+            String spaceId,
+            String documentId,
+            Instant updatedAt
+    ) {
+        SourceDocumentEntity updateEntity = new SourceDocumentEntity();
+        updateEntity.setStatus("deleted");
+        updateEntity.setUpdatedAt(updatedAt.toString());
+
+        // 只删除当前仍处于 active 状态的来源资料，保持操作幂等
+        LambdaUpdateWrapper<SourceDocumentEntity> updateWrapper = Wrappers.lambdaUpdate();
+        updateWrapper.eq(SourceDocumentEntity::getSpaceId, spaceId)
+                .eq(SourceDocumentEntity::getId, documentId)
+                .eq(SourceDocumentEntity::getStatus, "active");
+
+        // 使用 MyBatis-Plus 更新来源资料状态
+        return sourceDocumentMapper.update(updateEntity, updateWrapper);
+    }
+
+    /**
+     * 恢复此前软删除的相同来源资料，不重复写入原始文件。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 来源资料标识
+     * @param documentType 重新导入时选择的文档业务类型
+     * @param updatedAt 恢复时间
+     * @return 实际更新记录数
+     */
+    public int restore(
+            String spaceId,
+            String documentId,
+            SourceDocumentType documentType,
+            Instant updatedAt
+    ) {
+        SourceDocumentEntity updateEntity = new SourceDocumentEntity();
+        updateEntity.setStatus("active");
+        updateEntity.setDocumentType(documentType.getValue());
+        updateEntity.setUpdatedAt(updatedAt.toString());
+
+        // 只恢复当前处于 deleted 状态的同空间来源资料
+        LambdaUpdateWrapper<SourceDocumentEntity> updateWrapper = Wrappers.lambdaUpdate();
+        updateWrapper.eq(SourceDocumentEntity::getSpaceId, spaceId)
+                .eq(SourceDocumentEntity::getId, documentId)
+                .eq(SourceDocumentEntity::getStatus, "deleted");
+
+        // 使用 MyBatis-Plus 恢复来源资料状态和业务类型
+        return sourceDocumentMapper.update(updateEntity, updateWrapper);
+    }
+
+    /**
+     * 将 MyBatis-Plus 实体转换为来源资料领域模型。
+     *
+     * @param entity 持久化实体
+     * @return 来源资料领域模型
+     */
+    private SourceDocument toDomain(SourceDocumentEntity entity) {
         return new SourceDocument(
-                resultSet.getString("id"),
-                resultSet.getString("space_id"),
-                resultSet.getString("batch_id"),
-                resultSet.getString("name"),
-                resultSet.getString("kind"),
-                resultSet.getString("content_hash"),
-                resultSet.getString("storage_path"),
-                resultSet.getString("content_text"),
-                resultSet.getString("excerpt"),
-                resultSet.getString("status"),
-                resultSet.getLong("file_size"),
-                Instant.parse(resultSet.getString("imported_at")),
-                Instant.parse(resultSet.getString("updated_at"))
+                entity.getId(),
+                entity.getSpaceId(),
+                entity.getBatchId(),
+                entity.getName(),
+                entity.getKind(),
+                SourceDocumentType.fromValue(entity.getDocumentType())
+                        .orElse(SourceDocumentType.GENERAL),
+                entity.getContentHash(),
+                entity.getStoragePath(),
+                entity.getContentText(),
+                entity.getExcerpt(),
+                entity.getStatus(),
+                entity.getFileSize(),
+                Instant.parse(entity.getImportedAt()),
+                Instant.parse(entity.getUpdatedAt())
         );
+    }
+
+    /**
+     * 将来源资料领域模型转换为 MyBatis-Plus 实体。
+     *
+     * @param document 来源资料领域模型
+     * @return 持久化实体
+     */
+    private SourceDocumentEntity toEntity(SourceDocument document) {
+        SourceDocumentEntity entity = new SourceDocumentEntity();
+        entity.setId(document.id());
+        entity.setSpaceId(document.spaceId());
+        entity.setBatchId(document.batchId());
+        entity.setName(document.name());
+        entity.setKind(document.kind());
+        entity.setDocumentType(document.documentType().getValue());
+        entity.setContentHash(document.contentHash());
+        entity.setStoragePath(document.storagePath());
+        entity.setContentText(document.contentText());
+        entity.setExcerpt(document.excerpt());
+        entity.setStatus(document.status());
+        entity.setFileSize(document.fileSize());
+        entity.setImportedAt(document.importedAt().toString());
+        entity.setUpdatedAt(document.updatedAt().toString());
+        return entity;
     }
 }

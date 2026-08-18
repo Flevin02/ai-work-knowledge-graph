@@ -11,6 +11,7 @@ import java.time.Instant;
  * @param spaceId 所属知识空间标识
  * @param name 原始文件名
  * @param kind 文件类型
+ * @param documentType 文档业务类型
  * @param contentHash SHA-256 内容指纹
  * @param excerpt 文本预览
  * @param status 来源资料状态
@@ -28,6 +29,8 @@ public record SourceDocumentResponse(
         String name,
         @Schema(description = "文件类型", allowableValues = {"markdown", "txt"}, example = "markdown")
         String kind,
+        @Schema(description = "文档业务类型", allowableValues = {"general", "prd"}, example = "prd")
+        SourceDocumentType documentType,
         @Schema(description = "SHA-256 内容指纹", example = "d7439bee24773b8b381b9f68f45745c2f1222683b7449f1f25c7c7efea20f005")
         String contentHash,
         @Schema(description = "解析文本预览", example = "会议确认年会主题和首批行动项。")

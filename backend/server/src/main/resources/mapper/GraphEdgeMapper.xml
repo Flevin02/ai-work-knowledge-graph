@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.flevin.knowgraph.server.repository.mapper.GraphEdgeMapper">
+
+    <!-- 查询指定知识空间内未失效关系，并保持创建时间和主键顺序。 -->
+    <select id="findActiveBySpaceId"
+            resultType="com.flevin.knowgraph.server.repository.entity.GraphEdgeEntity">
+        SELECT id,
+               space_id,
+               source_node_id,
+               target_node_id,
+               relation_type,
+               status,
+               confidence,
+               created_at,
+               updated_at
+        FROM graph_edges
+        WHERE space_id = #{spaceId}
+          AND status != 'stale'
+        ORDER BY created_at ASC, id ASC
+    </select>
+
+    <!-- 将主体或客体已经失效的关系统一标记为 stale。 -->
+    <update id="markStaleByNodeIds">
+        UPDATE graph_edges
+        SET status = 'stale',
+            updated_at = #{updatedAt}
+        WHERE space_id = #{spaceId}
+          AND status != 'stale'
+          AND (
+            source_node_id IN
+            <foreach collection="nodeIds" item="nodeId" open="(" separator="," close=")">
+                #{nodeId}
+            </foreach>
+            OR target_node_id IN
+            <foreach collection="nodeIds" item="nodeId" open="(" separator="," close=")">
+                #{nodeId}
+            </foreach>
+          )
+    </update>
+
+    <!-- 删除来源资料后，将不再存在有效来源证据的关系标记为 stale。 -->
+    <update id="markStaleWithoutActiveEvidence">
+        UPDATE graph_edges
+        SET status = 'stale',
+            updated_at = #{updatedAt}
+        WHERE space_id = #{spaceId}
+          AND status != 'stale'
+          AND id IN (
+            SELECT edge_id
+            FROM evidences
+            WHERE space_id = #{spaceId}
+              AND source_document_id = #{documentId}
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM evidences active_evidence
+            INNER JOIN source_documents active_document
+                    ON active_document.id = active_evidence.source_document_id
+            WHERE active_evidence.edge_id = graph_edges.id
+              AND active_evidence.space_id = #{spaceId}
+              AND active_document.status = 'active'
+          )
+    </update>
+
+</mapper>

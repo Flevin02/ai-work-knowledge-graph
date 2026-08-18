@@ -6,6 +6,7 @@ import com.flevin.knowgraph.common.exception.TipsException;
 import com.flevin.knowgraph.common.model.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -31,10 +32,15 @@ public class GlobalExceptionHandler {
      * @return 失败响应
      */
     @ExceptionHandler(TipsException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ApiResponse<Void> handleTipsException(TipsException exception) {
+    public ResponseEntity<ApiResponse<Void>> handleTipsException(TipsException exception) {
         log.warn("业务提示: code={}, message={}", exception.getErrorCode().getCode(), exception.getMessage());
-        return ApiResponse.error(exception.getErrorCode(), exception.getMessage());
+
+        // 将业务错误码映射为一致的 RESTful HTTP 状态
+        HttpStatus status = resolveHttpStatus(exception.getErrorCode());
+
+        // 使用统一响应体返回可直接展示的业务提示
+        return ResponseEntity.status(status)
+                .body(ApiResponse.error(exception.getErrorCode(), exception.getMessage()));
     }
 
     /**
@@ -44,10 +50,15 @@ public class GlobalExceptionHandler {
      * @return 失败响应
      */
     @ExceptionHandler(BusinessException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ApiResponse<Void> handleBusinessException(BusinessException exception) {
+    public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException exception) {
         log.error("业务异常: code={}, message={}", exception.getErrorCode().getCode(), exception.getMessage(), exception);
-        return ApiResponse.error(exception.getErrorCode(), exception.getMessage());
+
+        // 将业务错误码映射为一致的 RESTful HTTP 状态
+        HttpStatus status = resolveHttpStatus(exception.getErrorCode());
+
+        // 使用统一响应体返回带上下文的业务异常
+        return ResponseEntity.status(status)
+                .body(ApiResponse.error(exception.getErrorCode(), exception.getMessage()));
     }
 
     /**
@@ -95,5 +106,17 @@ public class GlobalExceptionHandler {
     public ApiResponse<Void> handleException(Exception exception) {
         log.error("系统异常: {}", exception.getMessage(), exception);
         return ApiResponse.error(ErrorCode.SYSTEM_ERROR);
+    }
+
+    /**
+     * 将项目错误码转换为对应 HTTP 状态，未知状态回退为 400。
+     *
+     * @param errorCode 项目错误码
+     * @return RESTful HTTP 状态
+     */
+    private HttpStatus resolveHttpStatus(ErrorCode errorCode) {
+        // 使用错误码数值解析标准 HTTP 状态
+        HttpStatus status = HttpStatus.resolve(errorCode.getCode());
+        return status == null ? HttpStatus.BAD_REQUEST : status;
     }
 }

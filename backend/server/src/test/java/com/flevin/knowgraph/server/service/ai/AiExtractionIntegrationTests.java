@@ -1,0 +1,175 @@
+package com.flevin.knowgraph.server.service.ai;
+
+import com.flevin.knowgraph.server.model.ai.AiEntityCandidate;
+import com.flevin.knowgraph.server.model.ai.AiEntityType;
+import com.flevin.knowgraph.server.model.ai.AiEvidenceCandidate;
+import com.flevin.knowgraph.server.model.ai.AiExtractionRequest;
+import com.flevin.knowgraph.server.model.ai.AiExtractionResult;
+import com.flevin.knowgraph.server.model.ai.AiRelationCandidate;
+import com.flevin.knowgraph.server.model.document.DocumentImportResponse;
+import com.flevin.knowgraph.server.service.document.DocumentService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.jdbc.core.JdbcTemplate;
+
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/**
+ * AI 抽取入口集成测试，使用 Fake/Mock 客户端验证编排边界，不调用真实模型。
+ */
+@SpringBootTest(properties = {
+        "app.database-path=target/test-data/ai-extraction.sqlite",
+        "app.upload-dir=target/test-data/ai-extraction-uploads",
+        "ai.enabled=false"
+})
+@AutoConfigureMockMvc
+class AiExtractionIntegrationTests {
+
+    private static final String SPACE_ID = "default-space";
+
+    @Autowired
+    private DocumentService documentService;
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @MockBean
+    private AiExtractionClient aiExtractionClient;
+
+    @BeforeEach
+    void clearPreviousExtractionData() {
+        // 先清理引用来源资料的抽取、证据、关系和节点，满足 SQLite 外键约束
+        jdbcTemplate.update("DELETE FROM ai_extraction_runs");
+        jdbcTemplate.update("DELETE FROM review_actions");
+        jdbcTemplate.update("DELETE FROM evidences");
+        jdbcTemplate.update("DELETE FROM graph_edges");
+        jdbcTemplate.update("DELETE FROM graph_nodes");
+        jdbcTemplate.update("DELETE FROM source_documents");
+        jdbcTemplate.update("DELETE FROM import_batches");
+    }
+
+    @Test
+    void extractsImportedDocumentThroughPreviewEndpointWithoutWritingGraph() throws Exception {
+        MockMultipartFile documentFile = new MockMultipartFile(
+                "files",
+                "登录功能.md",
+                "text/markdown",
+                "# 用户中心\n\n## 登录功能\n登录功能支持手机号验证码。".getBytes(StandardCharsets.UTF_8)
+        );
+
+        // 先导入来源资料，准备真实章节和分片数据
+        DocumentImportResponse importResponse = documentService.importDocuments(
+                SPACE_ID,
+                "prd",
+                List.of(documentFile)
+        );
+        String documentId = importResponse.results().getFirst().document().id();
+
+        // 使用固定结构化结果替代真实模型，验证服务端编排和证据校验
+        when(aiExtractionClient.extract(any(AiExtractionRequest.class)))
+                .thenAnswer(invocation -> fakeResult(invocation.getArgument(0)));
+
+        // 调用 AI 抽取预览入口，不写入正式图谱表
+        MvcResult extractionResult = mockMvc.perform(post(
+                        "/v1/spaces/{spaceId}/documents/{documentId}/extractions",
+                        SPACE_ID,
+                        documentId
+                ))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.error").value(false))
+                .andExpect(jsonPath("$.data.documentType").value("prd"))
+                .andExpect(jsonPath("$.data.sectionCount").value(2))
+                .andExpect(jsonPath("$.data.chunkCount").value(2))
+                .andExpect(jsonPath("$.data.chunks[0].extraction.entities.length()").value(2))
+                .andReturn();
+
+        JsonNode extractionJson = objectMapper.readTree(extractionResult.getResponse().getContentAsString());
+        String extractionId = extractionJson.path("data").path("extractionId").asText();
+
+        // 查询历史抽取记录摘要，验证结果已脱离首次弹窗持久化
+        mockMvc.perform(get(
+                        "/v1/spaces/{spaceId}/documents/{documentId}/extractions",
+                        SPACE_ID,
+                        documentId
+                ))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].extractionId").value(extractionId))
+                .andExpect(jsonPath("$.data[0].status").value("completed"));
+
+        // 查询历史抽取完整结果，验证页面刷新后仍可重新打开候选结果
+        mockMvc.perform(get(
+                        "/v1/spaces/{spaceId}/documents/{documentId}/extractions/{extractionId}",
+                        SPACE_ID,
+                        documentId,
+                        extractionId
+                ))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.summary.extractionId").value(extractionId))
+                .andExpect(jsonPath("$.data.result.documentId").value(documentId))
+                .andExpect(jsonPath("$.data.result.chunks.length()").value(2));
+    }
+
+    private AiExtractionResult fakeResult(AiExtractionRequest request) {
+        AiEvidenceCandidate evidence = new AiEvidenceCandidate(
+                "evidence-1",
+                request.sourceDocumentId(),
+                request.chunkId(),
+                request.sectionPath(),
+                request.content().contains("登录功能支持手机号验证码")
+                        ? "登录功能支持手机号验证码。"
+                        : request.content().substring(0, Math.min(8, request.content().length()))
+        );
+        AiEntityCandidate project = new AiEntityCandidate(
+                "entity-project",
+                AiEntityType.PROJECT,
+                "用户中心",
+                "用户中心项目",
+                List.of("evidence-1")
+        );
+        AiEntityCandidate feature = new AiEntityCandidate(
+                "entity-feature",
+                AiEntityType.FEATURE,
+                "登录功能",
+                "支持手机号验证码登录",
+                List.of("evidence-1")
+        );
+        AiRelationCandidate relation = new AiRelationCandidate(
+                "entity-project",
+                "entity-feature",
+                "project_contains_feature",
+                0.9D,
+                List.of("evidence-1")
+        );
+        return new AiExtractionResult(
+                List.of(project, feature),
+                List.of(relation),
+                List.of(evidence),
+                List.of()
+        );
+    }
+}

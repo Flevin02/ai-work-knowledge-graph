@@ -191,14 +191,14 @@ class GraphIntegrationTests {
         );
 
         // 查询图谱摘要，验证节点、已确认关系和待审核关系来自 SQLite 真实统计
-        mockMvc.perform(get("/v1/graph/summary").param("spaceId", DEFAULT_SPACE_ID))
+        mockMvc.perform(get("/v1/spaces/{spaceId}/graph/summary", DEFAULT_SPACE_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.nodes").value(2))
                 .andExpect(jsonPath("$.data.edges").value(1))
                 .andExpect(jsonPath("$.data.pendingReviews").value(1));
 
         // 查询图谱节点、关系和证据，验证批量关联结果
-        mockMvc.perform(get("/v1/graph").param("spaceId", DEFAULT_SPACE_ID))
+        mockMvc.perform(get("/v1/spaces/{spaceId}/graph", DEFAULT_SPACE_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.nodes.length()").value(2))
                 .andExpect(jsonPath("$.data.edges.length()").value(2))

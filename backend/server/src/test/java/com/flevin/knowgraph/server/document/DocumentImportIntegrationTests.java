@@ -3,7 +3,11 @@ package com.flevin.knowgraph.server.document;
 import com.flevin.knowgraph.server.model.document.DocumentImportFileStatus;
 import com.flevin.knowgraph.server.model.document.DocumentImportResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocument;
+import com.flevin.knowgraph.server.model.graph.GraphEdge;
+import com.flevin.knowgraph.server.model.graph.GraphEvidence;
+import com.flevin.knowgraph.server.model.graph.GraphNode;
 import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
+import com.flevin.knowgraph.server.repository.graph.GraphRepository;
 import com.flevin.knowgraph.server.service.document.DocumentService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,10 +22,12 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -44,6 +50,9 @@ class DocumentImportIntegrationTests {
     private SourceDocumentRepository sourceDocumentRepository;
 
     @Autowired
+    private GraphRepository graphRepository;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
@@ -60,7 +69,13 @@ class DocumentImportIntegrationTests {
         // 删除测试生成的原始文件，避免不同测试用例相互影响
         storagePaths.forEach(this::deleteTestFile);
 
-        // 先删除来源资料，满足 SQLite 外键约束
+        // 清理可能引用来源资料的图谱证据和关系
+        jdbcTemplate.update("DELETE FROM review_actions");
+        jdbcTemplate.update("DELETE FROM evidences");
+        jdbcTemplate.update("DELETE FROM graph_edges");
+        jdbcTemplate.update("DELETE FROM graph_nodes");
+
+        // 再删除来源资料，满足 SQLite 外键约束
         jdbcTemplate.update("DELETE FROM source_documents");
 
         // 再删除已失去引用的导入批次
@@ -133,22 +148,69 @@ class DocumentImportIntegrationTests {
                 DEFAULT_SPACE_ID.getBytes(StandardCharsets.UTF_8)
         );
 
-        // 通过 multipart 接口导入 TXT 来源资料
-        mockMvc.perform(multipart("/v1/documents/import").file(spaceId).file(textFile))
+        MockMultipartFile documentType = new MockMultipartFile(
+                "documentType",
+                "",
+                "text/plain",
+                "prd".getBytes(StandardCharsets.UTF_8)
+        );
+
+        // 通过 multipart 接口以 PRD 业务类型导入 TXT 来源资料
+        mockMvc.perform(multipart("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID)
+                        .file(documentType)
+                        .file(textFile))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.error").value(false))
                 .andExpect(jsonPath("$.data.status").value("completed"))
                 .andExpect(jsonPath("$.data.importedCount").value(1))
                 .andExpect(jsonPath("$.data.results[0].status").value("imported"))
                 .andExpect(jsonPath("$.data.results[0].document.kind").value("txt"))
+                .andExpect(jsonPath("$.data.results[0].document.documentType").value("prd"))
                 .andExpect(jsonPath("$.data.results[0].document.contentHash").isString());
 
         // 查询来源资料列表，验证 Controller 返回真实持久化结果
-        mockMvc.perform(get("/v1/documents").param("spaceId", DEFAULT_SPACE_ID))
+        mockMvc.perform(get("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].name").value("人员分工.txt"))
+                .andExpect(jsonPath("$.data[0].documentType").value("prd"))
                 .andExpect(jsonPath("$.data[0].excerpt").value("行政部负责统筹，张三负责场地。"));
+    }
+
+    @Test
+    void controllerRejectsUnsupportedDocumentType() throws Exception {
+        MockMultipartFile textFile = new MockMultipartFile(
+                "files",
+                "范围说明.txt",
+                "text/plain",
+                "这是范围说明。".getBytes(StandardCharsets.UTF_8)
+        );
+
+        MockMultipartFile spaceId = new MockMultipartFile(
+                "spaceId",
+                "",
+                "text/plain",
+                DEFAULT_SPACE_ID.getBytes(StandardCharsets.UTF_8)
+        );
+
+        MockMultipartFile documentType = new MockMultipartFile(
+                "documentType",
+                "",
+                "text/plain",
+                "unknown".getBytes(StandardCharsets.UTF_8)
+        );
+
+        // 导入不支持的文档业务类型，验证参数错误不会创建批次或来源资料
+        mockMvc.perform(multipart("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID)
+                        .file(documentType)
+                        .file(textFile))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(true))
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.msg").value("文档业务类型仅支持 general 或 prd"));
+
+        // 验证参数失败没有产生来源资料
+        assertThat(sourceDocumentRepository.findAll(DEFAULT_SPACE_ID)).isEmpty();
     }
 
     @Test
@@ -168,7 +230,8 @@ class DocumentImportIntegrationTests {
         );
 
         // 导入包含非法 UTF-8 字节的 TXT 文件
-        mockMvc.perform(multipart("/v1/documents/import").file(spaceId).file(malformedFile))
+        mockMvc.perform(multipart("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID)
+                        .file(malformedFile))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("failed"))
                 .andExpect(jsonPath("$.data.failedCount").value(1))
@@ -181,6 +244,160 @@ class DocumentImportIntegrationTests {
     }
 
     @Test
+    void controllerReturnsPersistedMarkdownContentForPreview() throws Exception {
+        MockMultipartFile markdownFile = new MockMultipartFile(
+                "files",
+                "预览资料.md",
+                "text/markdown",
+                "# 预览标题\n\n- 第一条内容\n- 第二条内容".getBytes(StandardCharsets.UTF_8)
+        );
+
+        // 先通过 Service 创建真实来源资料，得到后续预览接口需要的数据库标识
+        DocumentImportResponse importResponse = documentService.importDocuments(
+                DEFAULT_SPACE_ID,
+                "prd",
+                List.of(markdownFile)
+        );
+        String documentId = importResponse.results().getFirst().document().id();
+
+        // 通过原文预览接口读取服务端保存的 Markdown 解析文本
+        mockMvc.perform(get(
+                        "/v1/spaces/{spaceId}/documents/{documentId}/content",
+                        DEFAULT_SPACE_ID,
+                        documentId
+                ))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.error").value(false))
+                .andExpect(jsonPath("$.data.name").value("预览资料.md"))
+                .andExpect(jsonPath("$.data.kind").value("markdown"))
+                .andExpect(jsonPath("$.data.documentType").value("prd"))
+                .andExpect(jsonPath("$.data.contentText").value("# 预览标题\n\n- 第一条内容\n- 第二条内容"));
+    }
+
+    @Test
+    void controllerSoftDeletesDocumentAndInvalidatesExclusiveGraphSources() throws Exception {
+        String content = "# 删除测试\n该资料独立支撑一个图谱节点和关系。";
+        MockMultipartFile documentFile = new MockMultipartFile(
+                "files",
+                "删除测试.md",
+                "text/markdown",
+                content.getBytes(StandardCharsets.UTF_8)
+        );
+
+        // 导入待删除来源资料并记录原始文件路径
+        DocumentImportResponse importResponse = documentService.importDocuments(
+                DEFAULT_SPACE_ID,
+                "prd",
+                List.of(documentFile)
+        );
+        String documentId = importResponse.results().getFirst().document().id();
+        SourceDocument savedDocument = sourceDocumentRepository.findById(DEFAULT_SPACE_ID, documentId)
+                .orElseThrow();
+        Instant createdAt = Instant.now();
+
+        // 创建一个仅由待删除资料支撑的节点
+        graphRepository.saveNode(new GraphNode(
+                "delete-exclusive-node",
+                DEFAULT_SPACE_ID,
+                "document",
+                "删除测试节点",
+                "只由待删除资料支撑",
+                "active",
+                "document:delete-exclusive-node",
+                List.of(documentId),
+                createdAt,
+                createdAt
+        ));
+
+        // 创建一个由其他来源保留的稳定节点
+        graphRepository.saveNode(new GraphNode(
+                "delete-stable-node",
+                DEFAULT_SPACE_ID,
+                "project",
+                "稳定项目节点",
+                "删除资料后仍保留",
+                "active",
+                "project:delete-stable-node",
+                List.of("other-source"),
+                createdAt,
+                createdAt
+        ));
+
+        // 创建连接两个节点且证据仅来自待删除资料的关系
+        graphRepository.saveEdge(new GraphEdge(
+                "delete-test-edge",
+                DEFAULT_SPACE_ID,
+                "delete-exclusive-node",
+                "delete-stable-node",
+                "属于项目",
+                "confirmed",
+                1.0D,
+                createdAt,
+                createdAt
+        ));
+        graphRepository.saveEvidence(new GraphEvidence(
+                "delete-test-evidence",
+                DEFAULT_SPACE_ID,
+                "delete-test-edge",
+                documentId,
+                "删除测试.md",
+                "该资料独立支撑一个图谱节点和关系。",
+                "第 2 行",
+                "user",
+                createdAt
+        ));
+
+        // 删除来源资料，验证接口返回成功
+        mockMvc.perform(delete(
+                        "/v1/spaces/{spaceId}/documents/{documentId}",
+                        DEFAULT_SPACE_ID,
+                        documentId
+                ))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.error").value(false));
+
+        // 来源资料列表不再返回已删除记录
+        mockMvc.perform(get("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0));
+
+        // 已删除资料不能继续通过原文接口预览
+        mockMvc.perform(get(
+                        "/v1/spaces/{spaceId}/documents/{documentId}/content",
+                        DEFAULT_SPACE_ID,
+                        documentId
+                ))
+                .andExpect(status().isNotFound());
+
+        // 图谱中仅由删除资料支撑的节点和关系不再返回，其他来源节点继续保留
+        mockMvc.perform(get("/v1/spaces/{spaceId}/graph", DEFAULT_SPACE_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nodes.length()").value(1))
+                .andExpect(jsonPath("$.data.nodes[0].id").value("delete-stable-node"))
+                .andExpect(jsonPath("$.data.edges.length()").value(0));
+
+        // 物理原始文件和数据库事实记录继续保留
+        assertThat(Path.of(savedDocument.storagePath())).exists();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM source_documents WHERE id = ?",
+                String.class,
+                documentId
+        )).isEqualTo("deleted");
+
+        // 重新上传同内容时恢复原记录，但不会盲目恢复已经失效的图谱节点和关系
+        DocumentImportResponse restoredResponse = documentService.importDocuments(
+                DEFAULT_SPACE_ID,
+                "prd",
+                List.of(documentFile)
+        );
+        assertThat(restoredResponse.importedCount()).isEqualTo(1);
+        assertThat(restoredResponse.results().getFirst().document().id()).isEqualTo(documentId);
+        assertThat(graphRepository.findNodes(DEFAULT_SPACE_ID))
+                .extracting(GraphNode::id)
+                .containsExactly("delete-stable-node");
+    }
+
+    @Test
     void controllerRejectsRequestWithoutFiles() throws Exception {
         MockMultipartFile spaceId = new MockMultipartFile(
                 "spaceId",
@@ -190,7 +407,7 @@ class DocumentImportIntegrationTests {
         );
 
         // 提交不包含 files 部件的 multipart 请求
-        mockMvc.perform(multipart("/v1/documents/import").file(spaceId))
+        mockMvc.perform(multipart("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value(true))
                 .andExpect(jsonPath("$.code").value(400))
@@ -200,7 +417,7 @@ class DocumentImportIntegrationTests {
     @Test
     void corsAllowsConfiguredFrontendOrigin() throws Exception {
         // 模拟本地前端对来源资料列表发起跨域预检请求
-        mockMvc.perform(options("/v1/documents")
+        mockMvc.perform(options("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID)
                         .header("Origin", "http://localhost:3010")
                         .header("Access-Control-Request-Method", "GET"))
                 .andExpect(status().isOk())

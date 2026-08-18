@@ -8,14 +8,19 @@ import com.flevin.knowgraph.server.model.document.DocumentImportFileStatus;
 import com.flevin.knowgraph.server.model.document.DocumentImportResponse;
 import com.flevin.knowgraph.server.model.document.ImportBatch;
 import com.flevin.knowgraph.server.model.document.SourceDocument;
+import com.flevin.knowgraph.server.model.document.SourceDocumentContentResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentResponse;
+import com.flevin.knowgraph.server.model.document.SourceDocumentType;
 import com.flevin.knowgraph.server.repository.document.ImportBatchRepository;
 import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
+import com.flevin.knowgraph.server.repository.graph.GraphRepository;
 import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
 import com.flevin.knowgraph.server.storage.LocalFileStorage;
 import lombok.extern.slf4j.Slf4j;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -38,6 +43,7 @@ import java.util.UUID;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class DocumentServiceImpl implements DocumentService {
 
     private static final String ACTIVE_STATUS = "active";
@@ -47,33 +53,27 @@ public class DocumentServiceImpl implements DocumentService {
     private final ImportBatchRepository importBatchRepository;
     private final KnowledgeSpaceService knowledgeSpaceService;
     private final LocalFileStorage localFileStorage;
-
-    public DocumentServiceImpl(
-            SourceDocumentRepository sourceDocumentRepository,
-            ImportBatchRepository importBatchRepository,
-            KnowledgeSpaceService knowledgeSpaceService,
-            LocalFileStorage localFileStorage
-    ) {
-        this.sourceDocumentRepository = sourceDocumentRepository;
-        this.importBatchRepository = importBatchRepository;
-        this.knowledgeSpaceService = knowledgeSpaceService;
-        this.localFileStorage = localFileStorage;
-    }
+    private final GraphRepository graphRepository;
 
     /**
      * 导入一批 Markdown/TXT 来源资料，逐文件返回成功、重复或失败结果。
      *
      * @param spaceId 知识空间标识
+     * @param documentType 文档业务类型；为空时按 general 处理
      * @param files 用户上传的来源资料；为空时返回参数提示
      * @return 带批次统计和逐文件结果的导入响应
      */
     @Override
     public DocumentImportResponse importDocuments(
             String spaceId,
+            String documentType,
             List<MultipartFile> files
     ) {
         // 校验来源资料所属知识空间当前有效
         knowledgeSpaceService.requireActive(spaceId);
+
+        // 解析文档业务类型，避免把 PRD 语义错误写入文件格式字段
+        SourceDocumentType resolvedDocumentType = resolveDocumentType(documentType);
 
         if (files == null || files.isEmpty()) {
             throw new TipsException(ErrorCode.PARAM_ERROR, "请选择需要导入的 Markdown 或 TXT 文件");
@@ -102,7 +102,7 @@ public class DocumentServiceImpl implements DocumentService {
 
         // 逐文件完成解析、重复识别、原始文件落盘和来源记录持久化
         List<DocumentImportFileResult> results = files.stream()
-                .map(file -> importFile(spaceId, batchId, file))
+                .map(file -> importFile(spaceId, batchId, resolvedDocumentType, file))
                 .toList();
 
         // 汇总成功导入数量
@@ -162,16 +162,83 @@ public class DocumentServiceImpl implements DocumentService {
     }
 
     /**
+     * 查询指定来源资料的解析原文，用于前端纯文本预览和后续证据定位。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 来源资料标识
+     * @return 不暴露服务端路径的原文预览响应
+     */
+    @Override
+    public SourceDocumentContentResponse getDocumentContent(
+            String spaceId,
+            String documentId
+    ) {
+        // 校验来源资料所属知识空间当前有效
+        knowledgeSpaceService.requireActive(spaceId);
+
+        // 查询指定知识空间内的完整来源资料，防止跨空间预览原文
+        SourceDocument document = sourceDocumentRepository.findById(spaceId, documentId)
+                .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "来源资料不存在"));
+
+        // 仅返回解析文本和展示元数据，不暴露服务端存储路径
+        return new SourceDocumentContentResponse(
+                document.id(),
+                document.spaceId(),
+                document.name(),
+                document.kind(),
+                document.documentType(),
+                document.contentHash(),
+                document.contentText(),
+                document.importedAt(),
+                document.updatedAt()
+        );
+    }
+
+    /**
+     * 软删除来源资料，并同步失效无剩余来源支撑的图谱节点和关系。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 来源资料标识
+     */
+    @Override
+    @Transactional
+    public void deleteDocument(
+            String spaceId,
+            String documentId
+    ) {
+        // 校验来源资料所属知识空间当前有效
+        knowledgeSpaceService.requireActive(spaceId);
+
+        // 使用统一时间更新来源资料、图谱节点和关系状态
+        Instant updatedAt = Instant.now();
+
+        // 软删除当前仍有效的来源资料，原始文件和历史记录继续保留
+        int deletedCount = sourceDocumentRepository.softDelete(
+                spaceId,
+                documentId,
+                updatedAt
+        );
+        if (deletedCount == 0) {
+            throw new TipsException(ErrorCode.NOT_FOUND, "来源资料不存在或已删除");
+        }
+
+        // 移除该资料对图谱节点和关系的来源贡献
+        graphRepository.invalidateBySourceDocument(spaceId, documentId, updatedAt);
+    }
+
+    /**
      * 导入单份来源资料，并把可预期的文件问题转换为文件级失败结果。
      *
      * @param spaceId 当前知识空间标识
      * @param batchId 当前导入批次标识
+     * @param documentType 当前文档业务类型
      * @param file 当前上传文件
      * @return 单文件导入结果
      */
     private DocumentImportFileResult importFile(
             String spaceId,
             String batchId,
+            SourceDocumentType documentType,
             MultipartFile file
     ) {
         // 规范化浏览器或 multipart 客户端提供的原始文件名
@@ -193,11 +260,34 @@ public class DocumentServiceImpl implements DocumentService {
                     contentHash
             );
             if (existingDocument.isPresent()) {
+                SourceDocument existing = existingDocument.get();
+                if ("deleted".equals(existing.status())) {
+                    // 恢复此前软删除的相同来源资料，不重复写入原始文件
+                    sourceDocumentRepository.restore(
+                            spaceId,
+                            existing.id(),
+                            documentType,
+                            Instant.now()
+                    );
+
+                    // 查询恢复后的有效来源资料，返回稳定的接口摘要
+                    SourceDocument restoredDocument = sourceDocumentRepository.findById(
+                                    spaceId,
+                                    existing.id()
+                            )
+                            .orElseThrow(() -> new IllegalStateException("来源资料恢复后无法查询"));
+                    return new DocumentImportFileResult(
+                            originalName,
+                            DocumentImportFileStatus.IMPORTED,
+                            "此前已删除的相同资料已恢复，请重新执行 AI 提取",
+                            toResponse(restoredDocument)
+                    );
+                }
                 return new DocumentImportFileResult(
                         originalName,
                         DocumentImportFileStatus.DUPLICATE,
                         "内容与已导入资料重复，未再次保存",
-                        toResponse(existingDocument.get())
+                        toResponse(existing)
                 );
             }
 
@@ -217,6 +307,7 @@ public class DocumentServiceImpl implements DocumentService {
                     batchId,
                     originalName,
                     parsedDocument.kind(),
+                    documentType,
                     contentHash,
                     storedFile.toString(),
                     parsedDocument.contentText(),
@@ -423,6 +514,7 @@ public class DocumentServiceImpl implements DocumentService {
                 document.spaceId(),
                 document.name(),
                 document.kind(),
+                document.documentType(),
                 document.contentHash(),
                 document.excerpt(),
                 document.status(),
@@ -430,6 +522,25 @@ public class DocumentServiceImpl implements DocumentService {
                 document.importedAt(),
                 document.updatedAt()
         );
+    }
+
+    /**
+     * 将可选接口文本解析为来源资料业务类型。
+     *
+     * @param documentType 接口传入的业务类型文本
+     * @return 已校验业务类型；空值返回 general
+     */
+    private SourceDocumentType resolveDocumentType(String documentType) {
+        if (documentType == null || documentType.isBlank()) {
+            return SourceDocumentType.GENERAL;
+        }
+
+        // 按稳定的小写值解析文档业务类型
+        return SourceDocumentType.fromValue(documentType)
+                .orElseThrow(() -> new TipsException(
+                        ErrorCode.PARAM_ERROR,
+                        "文档业务类型仅支持 general 或 prd"
+                ));
     }
 
     /**

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.flevin.knowgraph.server.repository.mapper.GraphEvidenceMapper">
+
+    <!-- 批量查询关系证据及来源资料名称，避免逐关系查询。 -->
+    <select id="findRowsBySpaceIdAndEdgeIds"
+            resultType="com.flevin.knowgraph.server.repository.entity.GraphEvidenceRow">
+        SELECT e.id,
+               e.space_id,
+               e.edge_id,
+               e.source_document_id,
+               d.name AS source_document_name,
+               e.quote,
+               e.locator,
+               e.extraction_method,
+               e.created_at
+        FROM evidences e
+        INNER JOIN source_documents d ON d.id = e.source_document_id
+        WHERE e.space_id = #{spaceId}
+          AND e.edge_id IN
+        <foreach collection="edgeIds" item="edgeId" open="(" separator="," close=")">
+            #{edgeId}
+        </foreach>
+        ORDER BY e.created_at ASC, e.id ASC
+    </select>
+
+</mapper>

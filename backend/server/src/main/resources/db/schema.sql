@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS source_documents (
     name TEXT NOT NULL,
     -- 文件类型：markdown 或 txt。
     kind TEXT NOT NULL,
+    -- 文档业务类型：general 或 prd；与文件格式字段 kind 相互独立。
+    document_type TEXT NOT NULL DEFAULT 'general',
     -- 原始文件字节内容的 SHA-256 指纹，用于空间内重复导入识别。
     content_hash TEXT NOT NULL,
     -- 原始文件在服务端上传目录中的保存路径。
@@ -169,6 +171,42 @@ CREATE TABLE IF NOT EXISTS evidences (
     FOREIGN KEY (source_document_id) REFERENCES source_documents(id)
 );
 
+-- AI 抽取运行：记录一次来源资料抽取的模型、版本、状态、结果和失败上下文。
+CREATE TABLE IF NOT EXISTS ai_extraction_runs (
+    -- 抽取运行唯一标识。
+    id TEXT PRIMARY KEY,
+    -- 抽取运行所属知识空间。
+    space_id TEXT NOT NULL,
+    -- 被抽取的来源资料标识。
+    source_document_id TEXT NOT NULL,
+    -- 当前模型协议或供应商标识。
+    provider TEXT NOT NULL,
+    -- 当前聊天模型名称。
+    model TEXT NOT NULL,
+    -- 本次使用的 Prompt 版本。
+    prompt_version TEXT NOT NULL,
+    -- 本次使用的结构化输出 Schema 版本。
+    schema_version TEXT NOT NULL,
+    -- 运行状态：processing、completed 或 failed。
+    status TEXT NOT NULL,
+    -- 解析得到的章节数量。
+    section_count INTEGER NOT NULL DEFAULT 0,
+    -- 实际抽取的分片数量。
+    chunk_count INTEGER NOT NULL DEFAULT 0,
+    -- 成功运行的完整结构化结果 JSON；失败时为空。
+    result_json TEXT,
+    -- 失败或校验错误摘要；成功时为空。
+    error_message TEXT,
+    -- 运行创建时间，使用 ISO-8601 UTC 字符串。
+    created_at TEXT NOT NULL,
+    -- 运行完成或失败时间；处理中为空。
+    completed_at TEXT,
+    -- 保证运行所属知识空间真实存在。
+    FOREIGN KEY (space_id) REFERENCES knowledge_spaces(id),
+    -- 保证运行能够追溯到来源资料。
+    FOREIGN KEY (source_document_id) REFERENCES source_documents(id)
+);
+
 -- 关系审核记录：保留接受、拒绝和修改动作，避免相同错误建议反复出现。
 CREATE TABLE IF NOT EXISTS review_actions (
     -- 审核记录唯一标识。
@@ -222,6 +260,10 @@ CREATE INDEX IF NOT EXISTS idx_evidences_edge_id
 -- 支持按来源资料反查证据。
 CREATE INDEX IF NOT EXISTS idx_evidences_source_document_id
     ON evidences(source_document_id);
+
+-- 支持按文档查看最近抽取记录和状态。
+CREATE INDEX IF NOT EXISTS idx_ai_extraction_runs_document_created_at
+    ON ai_extraction_runs(source_document_id, created_at DESC);
 
 -- 支持查询一条关系的完整审核历史。
 CREATE INDEX IF NOT EXISTS idx_review_actions_edge_created_at

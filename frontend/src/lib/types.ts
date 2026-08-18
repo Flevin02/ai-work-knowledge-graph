@@ -47,12 +47,102 @@ export type SourceDocument = {
   spaceId?: string;
   name: string;
   kind: 'markdown' | 'txt' | 'docx' | 'pdf';
+  documentType?: 'general' | 'prd';
   contentHash: string;
   excerpt: string;
   status: 'active' | 'changed' | 'missing' | 'parse_failed';
   fileSize?: number;
   importedAt: string;
   updatedAt: string;
+};
+
+export type SourceDocumentContent = {
+  id: string;
+  spaceId: string;
+  name: string;
+  kind: 'markdown' | 'txt' | 'docx' | 'pdf';
+  documentType?: string;
+  contentHash: string;
+  contentText: string;
+  importedAt: string;
+  updatedAt: string;
+};
+
+export type AiEntityCandidate = {
+  candidateId: string;
+  type: string;
+  name: string;
+  summary?: string;
+  evidenceIds: string[];
+};
+
+export type AiRelationCandidate = {
+  sourceEntityId: string;
+  targetEntityId: string;
+  relationType: string;
+  confidence: number;
+  evidenceIds: string[];
+};
+
+export type AiEvidenceCandidate = {
+  evidenceId: string;
+  sourceDocumentId: string;
+  chunkId: string;
+  sectionPath: string;
+  quote: string;
+};
+
+export type AiConflictCandidate = {
+  conflictType: string;
+  description: string;
+  evidenceIds: string[];
+};
+
+export type AiExtractionResult = {
+  entities: AiEntityCandidate[];
+  relations: AiRelationCandidate[];
+  evidences: AiEvidenceCandidate[];
+  conflicts: AiConflictCandidate[];
+};
+
+export type AiDocumentExtraction = {
+  extractionId: string;
+  status: 'processing' | 'completed' | 'failed';
+  createdAt: string;
+  completedAt?: string;
+  documentId: string;
+  documentName: string;
+  documentType: 'general' | 'prd';
+  provider: string;
+  model: string;
+  promptVersion: string;
+  schemaVersion: string;
+  sectionCount: number;
+  chunkCount: number;
+  chunks: Array<{
+    chunkId: string;
+    sectionPath: string;
+    extraction: AiExtractionResult;
+  }>;
+};
+
+export type AiExtractionRunSummary = {
+  extractionId: string;
+  status: 'processing' | 'completed' | 'failed';
+  provider: string;
+  model: string;
+  promptVersion: string;
+  schemaVersion: string;
+  sectionCount: number;
+  chunkCount: number;
+  errorMessage?: string;
+  createdAt: string;
+  completedAt?: string;
+};
+
+export type AiExtractionRunDetail = {
+  summary: AiExtractionRunSummary;
+  result?: AiDocumentExtraction;
 };
 
 export type KnowledgeSpace = {

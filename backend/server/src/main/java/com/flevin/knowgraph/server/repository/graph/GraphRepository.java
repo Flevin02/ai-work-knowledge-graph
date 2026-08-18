@@ -1,90 +1,40 @@
 package com.flevin.knowgraph.server.repository.graph;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flevin.knowgraph.server.model.graph.GraphEdge;
 import com.flevin.knowgraph.server.model.graph.GraphEvidence;
 import com.flevin.knowgraph.server.model.graph.GraphNode;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import com.flevin.knowgraph.server.repository.entity.GraphEdgeEntity;
+import com.flevin.knowgraph.server.repository.entity.GraphEvidenceEntity;
+import com.flevin.knowgraph.server.repository.entity.GraphEvidenceRow;
+import com.flevin.knowgraph.server.repository.entity.GraphNodeEntity;
+import com.flevin.knowgraph.server.repository.mapper.GraphEdgeMapper;
+import com.flevin.knowgraph.server.repository.mapper.GraphEvidenceMapper;
+import com.flevin.knowgraph.server.repository.mapper.GraphNodeMapper;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 图谱数据访问对象，负责节点、关系、证据的批量查询和基础写入。
+ * 图谱数据访问对象，统一使用 MyBatis-Plus Mapper 完成节点、关系、证据查询和写入。
  */
 @Repository
+@RequiredArgsConstructor
 public class GraphRepository {
 
     private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {
     };
 
-    private static final String FIND_NODES_SQL = """
-            SELECT id, space_id, node_type, label, summary, status, normalized_key,
-                   source_ids_json, created_at, updated_at
-            FROM graph_nodes
-            WHERE space_id = ? AND status != 'stale'
-            ORDER BY created_at ASC, id ASC
-            """;
-
-    private static final String FIND_EDGES_SQL = """
-            SELECT id, space_id, source_node_id, target_node_id, relation_type,
-                   status, confidence, created_at, updated_at
-            FROM graph_edges
-            WHERE space_id = ? AND status != 'stale'
-            ORDER BY created_at ASC, id ASC
-            """;
-
-    private static final String FIND_EVIDENCES_SQL = """
-            SELECT e.id, e.space_id, e.edge_id, e.source_document_id,
-                   d.name AS source_document_name, e.quote, e.locator,
-                   e.extraction_method, e.created_at
-            FROM evidences e
-            INNER JOIN source_documents d ON d.id = e.source_document_id
-            WHERE e.space_id = :spaceId AND e.edge_id IN (:edgeIds)
-            ORDER BY e.created_at ASC, e.id ASC
-            """;
-
-    private static final String INSERT_NODE_SQL = """
-            INSERT INTO graph_nodes (
-                id, space_id, node_type, label, summary, status, normalized_key,
-                source_ids_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """;
-
-    private static final String INSERT_EDGE_SQL = """
-            INSERT INTO graph_edges (
-                id, space_id, source_node_id, target_node_id, relation_type,
-                status, confidence, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """;
-
-    private static final String INSERT_EVIDENCE_SQL = """
-            INSERT INTO evidences (
-                id, space_id, edge_id, source_document_id, quote, locator,
-                extraction_method, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """;
-
-    private final JdbcTemplate jdbcTemplate;
-    private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
+    private final GraphNodeMapper graphNodeMapper;
+    private final GraphEdgeMapper graphEdgeMapper;
+    private final GraphEvidenceMapper graphEvidenceMapper;
     private final ObjectMapper objectMapper;
-
-    public GraphRepository(
-            JdbcTemplate jdbcTemplate,
-            NamedParameterJdbcTemplate namedParameterJdbcTemplate,
-            ObjectMapper objectMapper
-    ) {
-        this.jdbcTemplate = jdbcTemplate;
-        this.namedParameterJdbcTemplate = namedParameterJdbcTemplate;
-        this.objectMapper = objectMapper;
-    }
 
     /**
      * 查询指定知识空间的全部有效图谱节点。
@@ -93,8 +43,10 @@ public class GraphRepository {
      * @return 图谱节点列表
      */
     public List<GraphNode> findNodes(String spaceId) {
-        // 批量查询指定知识空间的有效节点
-        return jdbcTemplate.query(FIND_NODES_SQL, this::mapNode, spaceId);
+        // 通过专用 Mapper 查询未失效节点，复杂排序仍由 Mapper SQL 保持明确
+        return graphNodeMapper.findActiveBySpaceId(spaceId).stream()
+                .map(this::toDomain)
+                .toList();
     }
 
     /**
@@ -104,8 +56,10 @@ public class GraphRepository {
      * @return 图谱关系列表
      */
     public List<GraphEdge> findEdges(String spaceId) {
-        // 批量查询指定知识空间的未失效关系
-        return jdbcTemplate.query(FIND_EDGES_SQL, this::mapEdge, spaceId);
+        // 通过专用 Mapper 查询未失效关系，保持原有创建顺序
+        return graphEdgeMapper.findActiveBySpaceId(spaceId).stream()
+                .map(this::toDomain)
+                .toList();
     }
 
     /**
@@ -123,11 +77,10 @@ public class GraphRepository {
             return List.of();
         }
 
-        // 绑定知识空间和关系标识集合，批量查询全部证据
-        MapSqlParameterSource parameters = new MapSqlParameterSource()
-                .addValue("spaceId", spaceId)
-                .addValue("edgeIds", edgeIds);
-        return namedParameterJdbcTemplate.query(FIND_EVIDENCES_SQL, parameters, this::mapEvidence);
+        // 通过 Mapper 的动态 IN 查询批量读取证据和来源资料名称
+        return graphEvidenceMapper.findRowsBySpaceIdAndEdgeIds(spaceId, edgeIds).stream()
+                .map(this::toDomain)
+                .toList();
     }
 
     /**
@@ -137,13 +90,13 @@ public class GraphRepository {
      * @return 有效节点数量
      */
     public int countNodes(String spaceId) {
-        // 统计未失效图谱节点数量
-        Integer count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(1) FROM graph_nodes WHERE space_id = ? AND status != 'stale'",
-                Integer.class,
-                spaceId
+        // 使用 MyBatis-Plus Lambda 条件构造器统计未失效节点
+        Long count = graphNodeMapper.selectCount(
+                Wrappers.<GraphNodeEntity>lambdaQuery()
+                        .eq(GraphNodeEntity::getSpaceId, spaceId)
+                        .ne(GraphNodeEntity::getStatus, "stale")
         );
-        return count == null ? 0 : count;
+        return count == null ? 0 : Math.toIntExact(count);
     }
 
     /**
@@ -153,13 +106,13 @@ public class GraphRepository {
      * @return 已确认关系数量
      */
     public int countConfirmedEdges(String spaceId) {
-        // 统计正式进入图谱的已确认关系数量
-        Integer count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(1) FROM graph_edges WHERE space_id = ? AND status = 'confirmed'",
-                Integer.class,
-                spaceId
+        // 使用 MyBatis-Plus Lambda 条件构造器统计已确认关系
+        Long count = graphEdgeMapper.selectCount(
+                Wrappers.<GraphEdgeEntity>lambdaQuery()
+                        .eq(GraphEdgeEntity::getSpaceId, spaceId)
+                        .eq(GraphEdgeEntity::getStatus, "confirmed")
         );
-        return count == null ? 0 : count;
+        return count == null ? 0 : Math.toIntExact(count);
     }
 
     /**
@@ -169,13 +122,13 @@ public class GraphRepository {
      * @return 待审核关系数量
      */
     public int countPendingEdges(String spaceId) {
-        // 统计 AI 或规则生成但尚未人工确认的关系数量
-        Integer count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(1) FROM graph_edges WHERE space_id = ? AND status = 'suggested'",
-                Integer.class,
-                spaceId
+        // 使用 MyBatis-Plus Lambda 条件构造器统计待审核关系
+        Long count = graphEdgeMapper.selectCount(
+                Wrappers.<GraphEdgeEntity>lambdaQuery()
+                        .eq(GraphEdgeEntity::getSpaceId, spaceId)
+                        .eq(GraphEdgeEntity::getStatus, "suggested")
         );
-        return count == null ? 0 : count;
+        return count == null ? 0 : Math.toIntExact(count);
     }
 
     /**
@@ -184,23 +137,11 @@ public class GraphRepository {
      * @param node 图谱节点
      */
     public void saveNode(GraphNode node) {
-        // 将节点来源资料标识序列化为 JSON 数组
-        String sourceIdsJson = writeSourceIds(node.sourceIds());
+        // 将节点来源资料标识序列化为 JSON 并转换为持久化实体
+        GraphNodeEntity entity = toEntity(node);
 
-        // 保存节点结构、状态、来源和时间字段
-        jdbcTemplate.update(
-                INSERT_NODE_SQL,
-                node.id(),
-                node.spaceId(),
-                node.type(),
-                node.label(),
-                node.summary(),
-                node.status(),
-                node.normalizedKey(),
-                sourceIdsJson,
-                node.createdAt().toString(),
-                node.updatedAt().toString()
-        );
+        // 使用 BaseMapper 保存图谱节点
+        graphNodeMapper.insert(entity);
     }
 
     /**
@@ -209,19 +150,11 @@ public class GraphRepository {
      * @param edge 图谱关系
      */
     public void saveEdge(GraphEdge edge) {
-        // 保存关系主体、客体、类型、状态和置信度
-        jdbcTemplate.update(
-                INSERT_EDGE_SQL,
-                edge.id(),
-                edge.spaceId(),
-                edge.sourceNodeId(),
-                edge.targetNodeId(),
-                edge.type(),
-                edge.status(),
-                edge.confidence(),
-                edge.createdAt().toString(),
-                edge.updatedAt().toString()
-        );
+        // 将领域关系转换为 MyBatis-Plus 持久化实体
+        GraphEdgeEntity entity = toEntity(edge);
+
+        // 使用 BaseMapper 保存图谱关系
+        graphEdgeMapper.insert(entity);
     }
 
     /**
@@ -230,18 +163,81 @@ public class GraphRepository {
      * @param evidence 图谱关系证据
      */
     public void saveEvidence(GraphEvidence evidence) {
-        // 保存证据原文、定位和来源资料关联
-        jdbcTemplate.update(
-                INSERT_EVIDENCE_SQL,
-                evidence.id(),
-                evidence.spaceId(),
-                evidence.edgeId(),
-                evidence.sourceDocumentId(),
-                evidence.quote(),
-                evidence.locator(),
-                evidence.extractionMethod(),
-                evidence.createdAt().toString()
+        // 将领域证据转换为 MyBatis-Plus 持久化实体
+        GraphEvidenceEntity entity = toEntity(evidence);
+
+        // 使用 BaseMapper 保存图谱关系证据
+        graphEvidenceMapper.insert(entity);
+    }
+
+    /**
+     * 删除来源资料后更新图谱来源贡献，并失效无剩余来源的节点和关系。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 已删除来源资料标识
+     * @param updatedAt 更新时间
+     */
+    public void invalidateBySourceDocument(
+            String spaceId,
+            String documentId,
+            Instant updatedAt
+    ) {
+        // 查询当前知识空间全部未失效节点，逐个检查来源资料贡献
+        List<GraphNodeEntity> nodes = graphNodeMapper.findActiveBySpaceId(spaceId);
+        List<String> staleNodeIds = new ArrayList<>();
+
+        nodes.forEach(node -> invalidateNodeSource(node, documentId, updatedAt, staleNodeIds));
+
+        if (!staleNodeIds.isEmpty()) {
+            // 将连接到失效节点的关系同步标记为 stale
+            graphEdgeMapper.markStaleByNodeIds(
+                    spaceId,
+                    staleNodeIds,
+                    updatedAt.toString()
+            );
+        }
+
+        // 将全部有效证据都来自已删除资料的关系标记为 stale
+        graphEdgeMapper.markStaleWithoutActiveEvidence(
+                spaceId,
+                documentId,
+                updatedAt.toString()
         );
+    }
+
+    /**
+     * 从节点来源列表移除已删除文档，并在无剩余来源时失效节点。
+     *
+     * @param node 节点持久化实体
+     * @param documentId 已删除来源资料标识
+     * @param updatedAt 更新时间
+     * @param staleNodeIds 收集已失效节点标识
+     */
+    private void invalidateNodeSource(
+            GraphNodeEntity node,
+            String documentId,
+            Instant updatedAt,
+            List<String> staleNodeIds
+    ) {
+        List<String> sourceIds = readSourceIds(node.getSourceIdsJson());
+        if (!sourceIds.contains(documentId)) {
+            return;
+        }
+
+        // 移除当前来源资料，保留其他文档对同一节点的支撑
+        List<String> remainingSourceIds = sourceIds.stream()
+                .filter(sourceId -> !documentId.equals(sourceId))
+                .toList();
+        node.setSourceIdsJson(writeSourceIds(remainingSourceIds));
+        node.setUpdatedAt(updatedAt.toString());
+
+        if (remainingSourceIds.isEmpty()) {
+            node.setStatus("stale");
+            staleNodeIds.add(node.getId());
+        }
+
+        // 使用 MyBatis-Plus 按主键更新节点来源和状态
+        graphNodeMapper.updateById(node);
     }
 
     /**
@@ -260,89 +256,144 @@ public class GraphRepository {
     }
 
     /**
-     * 将 JDBC 查询结果映射为图谱节点。
+     * 将数据库 JSON 字符串解析为节点来源资料标识。
      *
-     * @param resultSet JDBC 查询结果
-     * @param rowNumber 当前结果行号
-     * @return 图谱节点
-     * @throws SQLException 字段或来源 JSON 读取失败时抛出
+     * @param sourceIdsJson 来源资料标识 JSON
+     * @return 来源资料标识列表
      */
-    private GraphNode mapNode(
-            ResultSet resultSet,
-            int rowNumber
-    ) throws SQLException {
+    private List<String> readSourceIds(String sourceIdsJson) {
         try {
-            // 解析节点来源资料标识 JSON 数组
-            List<String> sourceIds = objectMapper.readValue(
-                    resultSet.getString("source_ids_json"),
-                    STRING_LIST_TYPE
-            );
-            return new GraphNode(
-                    resultSet.getString("id"),
-                    resultSet.getString("space_id"),
-                    resultSet.getString("node_type"),
-                    resultSet.getString("label"),
-                    resultSet.getString("summary"),
-                    resultSet.getString("status"),
-                    resultSet.getString("normalized_key"),
-                    sourceIds,
-                    Instant.parse(resultSet.getString("created_at")),
-                    Instant.parse(resultSet.getString("updated_at"))
-            );
+            // 使用项目统一 ObjectMapper 解析来源资料标识
+            return objectMapper.readValue(sourceIdsJson, STRING_LIST_TYPE);
         } catch (JsonProcessingException exception) {
-            throw new SQLException("图谱节点来源资料标识不是有效 JSON", exception);
+            throw new IllegalStateException("图谱节点来源资料标识不是有效 JSON", exception);
         }
     }
 
     /**
-     * 将 JDBC 查询结果映射为图谱关系。
+     * 将 MyBatis-Plus 节点实体转换为领域模型。
      *
-     * @param resultSet JDBC 查询结果
-     * @param rowNumber 当前结果行号
-     * @return 图谱关系
-     * @throws SQLException 字段读取失败时抛出
+     * @param entity 节点持久化实体
+     * @return 图谱节点领域模型
      */
-    private GraphEdge mapEdge(
-            ResultSet resultSet,
-            int rowNumber
-    ) throws SQLException {
-        // 从数据库字段恢复图谱关系和 ISO-8601 时间
+    private GraphNode toDomain(GraphNodeEntity entity) {
+        try {
+            // 解析节点来源资料标识 JSON 数组
+            List<String> sourceIds = readSourceIds(entity.getSourceIdsJson());
+            return new GraphNode(
+                    entity.getId(),
+                    entity.getSpaceId(),
+                    entity.getNodeType(),
+                    entity.getLabel(),
+                    entity.getSummary(),
+                    entity.getStatus(),
+                    entity.getNormalizedKey(),
+                    sourceIds,
+                    Instant.parse(entity.getCreatedAt()),
+                    Instant.parse(entity.getUpdatedAt())
+            );
+        } catch (IllegalStateException exception) {
+            throw exception;
+        }
+    }
+
+    /**
+     * 将 MyBatis-Plus 关系实体转换为领域模型。
+     *
+     * @param entity 关系持久化实体
+     * @return 图谱关系领域模型
+     */
+    private GraphEdge toDomain(GraphEdgeEntity entity) {
         return new GraphEdge(
-                resultSet.getString("id"),
-                resultSet.getString("space_id"),
-                resultSet.getString("source_node_id"),
-                resultSet.getString("target_node_id"),
-                resultSet.getString("relation_type"),
-                resultSet.getString("status"),
-                resultSet.getDouble("confidence"),
-                Instant.parse(resultSet.getString("created_at")),
-                Instant.parse(resultSet.getString("updated_at"))
+                entity.getId(),
+                entity.getSpaceId(),
+                entity.getSourceNodeId(),
+                entity.getTargetNodeId(),
+                entity.getRelationType(),
+                entity.getStatus(),
+                entity.getConfidence(),
+                Instant.parse(entity.getCreatedAt()),
+                Instant.parse(entity.getUpdatedAt())
         );
     }
 
     /**
-     * 将 JDBC 查询结果映射为图谱关系证据。
+     * 将联合查询证据行转换为领域模型。
      *
-     * @param resultSet JDBC 查询结果
-     * @param rowNumber 当前结果行号
-     * @return 图谱关系证据
-     * @throws SQLException 字段读取失败时抛出
+     * @param row 证据联合查询行
+     * @return 图谱证据领域模型
      */
-    private GraphEvidence mapEvidence(
-            ResultSet resultSet,
-            int rowNumber
-    ) throws SQLException {
-        // 从证据和来源资料联合查询结果恢复可追溯证据模型
+    private GraphEvidence toDomain(GraphEvidenceRow row) {
         return new GraphEvidence(
-                resultSet.getString("id"),
-                resultSet.getString("space_id"),
-                resultSet.getString("edge_id"),
-                resultSet.getString("source_document_id"),
-                resultSet.getString("source_document_name"),
-                resultSet.getString("quote"),
-                resultSet.getString("locator"),
-                resultSet.getString("extraction_method"),
-                Instant.parse(resultSet.getString("created_at"))
+                row.getId(),
+                row.getSpaceId(),
+                row.getEdgeId(),
+                row.getSourceDocumentId(),
+                row.getSourceDocumentName(),
+                row.getQuote(),
+                row.getLocator(),
+                row.getExtractionMethod(),
+                Instant.parse(row.getCreatedAt())
         );
+    }
+
+    /**
+     * 将图谱节点领域模型转换为持久化实体。
+     *
+     * @param node 图谱节点
+     * @return 节点持久化实体
+     */
+    private GraphNodeEntity toEntity(GraphNode node) {
+        GraphNodeEntity entity = new GraphNodeEntity();
+        entity.setId(node.id());
+        entity.setSpaceId(node.spaceId());
+        entity.setNodeType(node.type());
+        entity.setLabel(node.label());
+        entity.setSummary(node.summary());
+        entity.setStatus(node.status());
+        entity.setNormalizedKey(node.normalizedKey());
+        entity.setSourceIdsJson(writeSourceIds(node.sourceIds()));
+        entity.setCreatedAt(node.createdAt().toString());
+        entity.setUpdatedAt(node.updatedAt().toString());
+        return entity;
+    }
+
+    /**
+     * 将图谱关系领域模型转换为持久化实体。
+     *
+     * @param edge 图谱关系
+     * @return 关系持久化实体
+     */
+    private GraphEdgeEntity toEntity(GraphEdge edge) {
+        GraphEdgeEntity entity = new GraphEdgeEntity();
+        entity.setId(edge.id());
+        entity.setSpaceId(edge.spaceId());
+        entity.setSourceNodeId(edge.sourceNodeId());
+        entity.setTargetNodeId(edge.targetNodeId());
+        entity.setRelationType(edge.type());
+        entity.setStatus(edge.status());
+        entity.setConfidence(edge.confidence());
+        entity.setCreatedAt(edge.createdAt().toString());
+        entity.setUpdatedAt(edge.updatedAt().toString());
+        return entity;
+    }
+
+    /**
+     * 将图谱证据领域模型转换为持久化实体。
+     *
+     * @param evidence 图谱证据
+     * @return 证据持久化实体
+     */
+    private GraphEvidenceEntity toEntity(GraphEvidence evidence) {
+        GraphEvidenceEntity entity = new GraphEvidenceEntity();
+        entity.setId(evidence.id());
+        entity.setSpaceId(evidence.spaceId());
+        entity.setEdgeId(evidence.edgeId());
+        entity.setSourceDocumentId(evidence.sourceDocumentId());
+        entity.setQuote(evidence.quote());
+        entity.setLocator(evidence.locator());
+        entity.setExtractionMethod(evidence.extractionMethod());
+        entity.setCreatedAt(evidence.createdAt().toString());
+        return entity;
     }
 }

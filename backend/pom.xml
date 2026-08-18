@@ -32,6 +32,8 @@
         <sqlite-jdbc.version>3.49.1.0</sqlite-jdbc.version>
         <poi.version>5.4.1</poi.version>
         <pdfbox.version>3.0.4</pdfbox.version>
+        <langchain4j.version>1.19.0</langchain4j.version>
+        <mybatis-plus.version>3.5.17</mybatis-plus.version>
     </properties>
 
     <dependencyManagement>

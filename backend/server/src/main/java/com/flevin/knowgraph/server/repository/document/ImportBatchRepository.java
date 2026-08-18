@@ -1,35 +1,23 @@
 package com.flevin.knowgraph.server.repository.document;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.flevin.knowgraph.server.model.document.ImportBatch;
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.flevin.knowgraph.server.repository.entity.ImportBatchEntity;
+import com.flevin.knowgraph.server.repository.mapper.ImportBatchMapper;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 
 /**
- * 来源资料导入批次数据访问对象。
+ * 来源资料导入批次数据访问对象，使用 MyBatis-Plus 简化插入和状态更新。
  */
 @Repository
+@RequiredArgsConstructor
 public class ImportBatchRepository {
 
-    private static final String INSERT_SQL = """
-            INSERT INTO import_batches (
-                id, space_id, status, total_count, imported_count, duplicate_count,
-                failed_count, created_at, completed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """;
-
-    private static final String COMPLETE_SQL = """
-            UPDATE import_batches
-            SET status = ?, imported_count = ?, duplicate_count = ?, failed_count = ?, completed_at = ?
-            WHERE id = ?
-            """;
-
-    private final JdbcTemplate jdbcTemplate;
-
-    public ImportBatchRepository(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
-    }
+    private final ImportBatchMapper importBatchMapper;
 
     /**
      * 新增一条待处理的来源资料导入批次。
@@ -37,19 +25,11 @@ public class ImportBatchRepository {
      * @param batch 初始导入批次
      */
     public void save(ImportBatch batch) {
-        // 保存批次初始状态，为后续逐文件结果提供可追溯的批次标识
-        jdbcTemplate.update(
-                INSERT_SQL,
-                batch.id(),
-                batch.spaceId(),
-                batch.status(),
-                batch.totalCount(),
-                batch.importedCount(),
-                batch.duplicateCount(),
-                batch.failedCount(),
-                batch.createdAt().toString(),
-                batch.completedAt() == null ? null : batch.completedAt().toString()
-        );
+        // 将领域批次转换为 MyBatis-Plus 持久化实体
+        ImportBatchEntity entity = toEntity(batch);
+
+        // 使用 BaseMapper 插入批次初始状态
+        importBatchMapper.insert(entity);
     }
 
     /**
@@ -70,15 +50,38 @@ public class ImportBatchRepository {
             int failedCount,
             Instant completedAt
     ) {
-        // 写入批次最终统计，保留成功、重复和失败的明确边界
-        jdbcTemplate.update(
-                COMPLETE_SQL,
-                status,
-                importedCount,
-                duplicateCount,
-                failedCount,
-                completedAt.toString(),
-                batchId
-        );
+        ImportBatchEntity updateEntity = new ImportBatchEntity();
+        updateEntity.setStatus(status);
+        updateEntity.setImportedCount(importedCount);
+        updateEntity.setDuplicateCount(duplicateCount);
+        updateEntity.setFailedCount(failedCount);
+        updateEntity.setCompletedAt(completedAt.toString());
+
+        // 只按批次主键更新最终统计，避免重复查询批次对象
+        LambdaUpdateWrapper<ImportBatchEntity> updateWrapper = Wrappers.lambdaUpdate();
+        updateWrapper.eq(ImportBatchEntity::getId, batchId);
+
+        // 使用 BaseMapper 写入批次最终状态和分类统计
+        importBatchMapper.update(updateEntity, updateWrapper);
+    }
+
+    /**
+     * 将领域批次转换为 MyBatis-Plus 实体。
+     *
+     * @param batch 导入批次领域模型
+     * @return 持久化实体
+     */
+    private ImportBatchEntity toEntity(ImportBatch batch) {
+        ImportBatchEntity entity = new ImportBatchEntity();
+        entity.setId(batch.id());
+        entity.setSpaceId(batch.spaceId());
+        entity.setStatus(batch.status());
+        entity.setTotalCount(batch.totalCount());
+        entity.setImportedCount(batch.importedCount());
+        entity.setDuplicateCount(batch.duplicateCount());
+        entity.setFailedCount(batch.failedCount());
+        entity.setCreatedAt(batch.createdAt().toString());
+        entity.setCompletedAt(batch.completedAt() == null ? null : batch.completedAt().toString());
+        return entity;
     }
 }

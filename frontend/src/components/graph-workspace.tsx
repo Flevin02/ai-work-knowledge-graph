@@ -7,6 +7,7 @@ import {
   Check,
   ChevronRight,
   CircleHelp,
+  Eye,
   FileText,
   Filter,
   FolderPlus,
@@ -17,28 +18,41 @@ import {
   LoaderCircle,
   Search,
   ShieldCheck,
+  Sparkles,
   Trash2,
   Upload,
   X,
 } from 'lucide-react';
 import GraphCanvas from './graph-canvas';
-import { importSourceDocuments, listSourceDocuments } from '@/lib/api/documents';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { createDocumentExtraction, deleteSourceDocument, getDocumentExtraction, getSourceDocumentContent, importSourceDocuments, listDocumentExtractions, listSourceDocuments } from '@/lib/api/documents';
 import { createKnowledgeSpace, deleteKnowledgeSpace, listKnowledgeSpaces } from '@/lib/api/spaces';
 import {
   nodeTypeColors,
   nodeTypeLabels,
   type EdgeStatus,
+  type AiDocumentExtraction,
   type GraphData,
   type GraphEdge,
   type GraphNode,
   type KnowledgeSpace,
   type NodeType,
   type SourceDocument,
+  type SourceDocumentContent,
 } from '@/lib/types';
 
 type GraphWorkspaceProps = { initialGraph: GraphData };
 type View = 'graph' | 'documents' | 'review' | 'health';
 type NoticeTone = 'success' | 'warning' | 'error' | 'loading';
+type DocumentExtractionState = {
+  status: 'processing' | 'success' | 'error';
+  message?: string;
+  extractionId?: string;
+};
+type DeleteConfirmation =
+  | { kind: 'space'; item: KnowledgeSpace }
+  | { kind: 'document'; item: SourceDocument };
 
 const allTypes: Array<NodeType | 'all'> = ['all', 'project', 'department', 'person', 'task', 'document', 'meeting', 'risk', 'decision'];
 
@@ -76,6 +90,12 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
   const [newSpaceDescription, setNewSpaceDescription] = useState('');
   const [isManagingSpace, setIsManagingSpace] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [previewDocument, setPreviewDocument] = useState<SourceDocument | null>(null);
+  const [extractionPreview, setExtractionPreview] = useState<AiDocumentExtraction | null>(null);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation | null>(null);
+  const [documentExtractionStates, setDocumentExtractionStates] = useState<Record<string, DocumentExtractionState>>({});
+  const [loadingExtractionResultId, setLoadingExtractionResultId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -193,23 +213,19 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
     }
   };
 
-  const removeCurrentSpace = async () => {
-    if (!currentSpace || spaces.length <= 1) {
+  const removeCurrentSpace = async (space: KnowledgeSpace) => {
+    if (spaces.length <= 1) {
       setNotice('至少保留一个有效知识空间。');
       setNoticeTone('warning');
       return;
     }
-    if (!window.confirm(`确认移除知识空间“${currentSpace.name}”吗？来源资料和图谱事实会保留在本地数据库中。`)) {
-      return;
-    }
-
     setIsManagingSpace(true);
     try {
-      await deleteKnowledgeSpace(currentSpace.id);
-      const remainingSpaces = spaces.filter((space) => space.id !== currentSpace.id);
+      await deleteKnowledgeSpace(space.id);
+      const remainingSpaces = spaces.filter((item) => item.id !== space.id);
       setSpaces(remainingSpaces);
       setCurrentSpaceId(remainingSpaces[0]?.id ?? null);
-      setNotice(`知识空间“${currentSpace.name}”已移除，历史事实仍保留。`);
+      setNotice(`知识空间“${space.name}”已移除，历史事实仍保留。`);
       setNoticeTone('success');
     } catch (error) {
       setNotice(`移除知识空间失败：${error instanceof Error ? error.message : '未知错误'}`);
@@ -249,6 +265,99 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
     } finally {
       setIsImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const removeDocument = async (document: SourceDocument) => {
+    if (!currentSpaceId) return;
+    setDeletingDocumentId(document.id);
+    try {
+      await deleteSourceDocument(currentSpaceId, document.id);
+      setPersistedDocuments((current) => current.filter((item) => item.id !== document.id));
+      setGraph((current) => ({
+        ...current,
+        documents: current.documents.filter((item) => item.id !== document.id),
+      }));
+      setDocumentExtractionStates((current) => {
+        const nextStates = { ...current };
+        delete nextStates[document.id];
+        return nextStates;
+      });
+      setPreviewDocument((current) => current?.id === document.id ? null : current);
+      setNotice(`来源资料“${document.name}”已删除，相关图谱来源贡献已同步更新。`);
+      setNoticeTone('success');
+    } catch (error) {
+      setNotice(`删除来源资料失败：${error instanceof Error ? error.message : '未知错误'}`);
+      setNoticeTone('error');
+    } finally {
+      setDeletingDocumentId(null);
+    }
+  };
+
+  const extractDocument = async (document: SourceDocument) => {
+    if (!currentSpaceId) return;
+
+    setDocumentExtractionStates((current) => ({
+      ...current,
+      [document.id]: { status: 'processing', message: '正在提取实体、关系和原文证据' },
+    }));
+    try {
+      const extraction = await createDocumentExtraction(currentSpaceId, document.id);
+      const entityCount = extraction.chunks.reduce((count, chunk) => count + chunk.extraction.entities.length, 0);
+      const relationCount = extraction.chunks.reduce((count, chunk) => count + chunk.extraction.relations.length, 0);
+      setExtractionPreview(extraction);
+      setDocumentExtractionStates((current) => ({
+        ...current,
+        [document.id]: {
+          status: 'success',
+          extractionId: extraction.extractionId,
+          message: `${extraction.chunkCount} 个分片，${entityCount} 个候选实体，${relationCount} 条候选关系`,
+        },
+      }));
+    } catch (error) {
+      setDocumentExtractionStates((current) => ({
+        ...current,
+        [document.id]: {
+          status: 'error',
+          message: error instanceof Error ? error.message : '未知错误',
+        },
+      }));
+    }
+  };
+
+  const viewExtractionResult = async (document: SourceDocument) => {
+    if (!currentSpaceId) return;
+
+    setLoadingExtractionResultId(document.id);
+    try {
+      // 查询该文档历史抽取记录，优先选择最近一次成功结果
+      const runs = await listDocumentExtractions(currentSpaceId, document.id);
+      const latestCompletedRun = runs.find((run) => run.status === 'completed');
+      if (!latestCompletedRun) {
+        const latestRun = runs[0];
+        throw new Error(latestRun?.errorMessage || '当前文档还没有可查看的成功抽取结果');
+      }
+
+      // 查询完整抽取结果，支持页面刷新后重新打开历史结果
+      const detail = await getDocumentExtraction(
+        currentSpaceId,
+        document.id,
+        latestCompletedRun.extractionId
+      );
+      if (!detail.result) {
+        throw new Error('抽取记录没有保存完整结果');
+      }
+      setExtractionPreview(detail.result);
+    } catch (error) {
+      setDocumentExtractionStates((current) => ({
+        ...current,
+        [document.id]: {
+          status: 'error',
+          message: error instanceof Error ? error.message : '历史结果加载失败',
+        },
+      }));
+    } finally {
+      setLoadingExtractionResultId(null);
     }
   };
 
@@ -301,7 +410,7 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
                 {spaces.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
               </select>
               <button className="space-icon-button" aria-label="新建知识空间" title="新建知识空间" onClick={() => setIsSpaceFormOpen((current) => !current)}><FolderPlus size={15} /></button>
-              <button className="space-icon-button danger" aria-label="删除当前知识空间" title="删除当前知识空间" disabled={!currentSpace || spaces.length <= 1 || isManagingSpace} onClick={() => void removeCurrentSpace()}><Trash2 size={15} /></button>
+              <button className="space-icon-button danger" aria-label="删除当前知识空间" title="删除当前知识空间" disabled={!currentSpace || spaces.length <= 1 || isManagingSpace} onClick={() => currentSpace && setDeleteConfirmation({ kind: 'space', item: currentSpace })}><Trash2 size={15} /></button>
             </div>
             <div className="space-title"><span className="space-icon"><Archive size={17} /></span>{currentSpace?.name ?? '等待后端连接'}</div>
             <p>{currentSpace?.description ?? '每个知识空间使用独立目录保存来源资料。'}</p>
@@ -361,7 +470,16 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
             <div className="graph-card"><GraphCanvas nodes={visibleNodes} edges={visibleEdges} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} /><div className="graph-footnote">当前视图 {visibleNodes.length} 个节点 / {visibleEdges.length} 条关系 · 点击节点查看证据</div></div>
           </>}
 
-          {view === 'documents' && <DocumentPanel documents={persistedDocuments} />}
+          {view === 'documents' && <DocumentPanel
+            documents={persistedDocuments}
+            onPreview={setPreviewDocument}
+            onDelete={(document) => setDeleteConfirmation({ kind: 'document', item: document })}
+            onExtract={(document) => void extractDocument(document)}
+            onViewExtraction={(document) => void viewExtractionResult(document)}
+            deletingDocumentId={deletingDocumentId}
+            extractionStates={documentExtractionStates}
+            loadingExtractionResultId={loadingExtractionResultId}
+          />}
           {view === 'review' && <ReviewPanel graph={graph} pendingEdges={pendingEdges} onUpdateEdge={updateEdge} />}
           {view === 'health' && <HealthPanel graph={graph} onSelectNode={(id) => { setSelectedNodeId(id); setView('graph'); }} />}
         </section>
@@ -374,6 +492,28 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
               : <div className="empty-detail"><Link2 size={28} /><p>选择一个节点查看它的上下文</p></div>}
         </aside>
       </div>
+      {previewDocument && currentSpaceId && <DocumentPreviewModal
+        document={previewDocument}
+        spaceId={currentSpaceId}
+        onClose={() => setPreviewDocument(null)}
+      />}
+      {extractionPreview && <AiExtractionPreviewModal
+        extraction={extractionPreview}
+        onClose={() => setExtractionPreview(null)}
+      />}
+      {deleteConfirmation && <DeleteConfirmationDialog
+        target={deleteConfirmation}
+        onCancel={() => setDeleteConfirmation(null)}
+        onConfirm={() => {
+          const target = deleteConfirmation;
+          setDeleteConfirmation(null);
+          if (target.kind === 'space') {
+            void removeCurrentSpace(target.item);
+            return;
+          }
+          void removeDocument(target.item);
+        }}
+      />}
     </main>
   );
 }
@@ -393,19 +533,244 @@ function formatImportedAt(importedAt: string) {
   }).format(new Date(importedAt));
 }
 
-function DocumentPanel({ documents }: { documents: SourceDocument[] }) {
+function DocumentPanel({
+  documents,
+  onPreview,
+  onDelete,
+  onExtract,
+  onViewExtraction,
+  deletingDocumentId,
+  extractionStates,
+  loadingExtractionResultId,
+}: {
+  documents: SourceDocument[];
+  onPreview: (document: SourceDocument) => void;
+  onDelete: (document: SourceDocument) => void;
+  onExtract: (document: SourceDocument) => void;
+  onViewExtraction: (document: SourceDocument) => void;
+  deletingDocumentId: string | null;
+  extractionStates: Record<string, DocumentExtractionState>;
+  loadingExtractionResultId: string | null;
+}) {
   if (!documents.length) {
     return <div className="state-card document-empty"><FileText size={28} /><h3>尚未导入来源资料</h3><p>点击右上角“导入资料”，选择 UTF-8 Markdown 或 TXT 文件。</p></div>;
   }
 
   return <div className="document-grid">
-    {documents.map((document) => <article className="document-card" key={document.id}>
-      <div className="document-card-head"><span className="document-kind"><FileText size={16} />{document.kind === 'markdown' ? 'Markdown' : 'TXT'}</span><span className="document-status">已解析</span></div>
+    {documents.map((document) => {
+      const extractionState = extractionStates[document.id];
+      const isExtracting = extractionState?.status === 'processing';
+      return <article className="document-card" key={document.id}>
+      <div className="document-card-head"><span className="document-kind"><FileText size={16} />{document.kind === 'markdown' ? 'Markdown' : 'TXT'}</span><div className="document-status-group"><span className="document-status">已解析</span>{extractionState && <span className={`ai-document-status ${extractionState.status}`} title={extractionState.message}>{isExtracting && <LoaderCircle className="spin" size={11} />}{extractionState.status === 'processing' ? 'AI 提取中' : extractionState.status === 'success' ? 'AI 已完成' : 'AI 提取失败'}</span>}</div></div>
       <h3 title={document.name}>{document.name}</h3>
       <p>{document.excerpt}</p>
       <div className="document-meta"><span>{formatFileSize(document.fileSize)}</span><span>{formatImportedAt(document.importedAt)}</span></div>
       <div className="document-hash" title={document.contentHash}>SHA-256 · {document.contentHash.slice(0, 16)}…</div>
-    </article>)}
+      <div className="document-card-actions">
+        <button className="secondary-button" onClick={() => onPreview(document)}><Eye size={14} /> 查看</button>
+        <button className="secondary-button" disabled={isExtracting} onClick={() => onExtract(document)}>{isExtracting ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />} {isExtracting ? '提取中' : extractionState?.status === 'error' ? '重新提取' : extractionState?.status === 'success' ? '再次提取' : 'AI 提取'}</button>
+        <button className="secondary-button" disabled={loadingExtractionResultId === document.id} onClick={() => onViewExtraction(document)}>{loadingExtractionResultId === document.id ? <LoaderCircle className="spin" size={14} /> : <FileText size={14} />} {loadingExtractionResultId === document.id ? '加载中' : '查看结果'}</button>
+        <button className="secondary-button danger-button" disabled={deletingDocumentId === document.id || isExtracting} onClick={() => onDelete(document)}>{deletingDocumentId === document.id ? <LoaderCircle className="spin" size={14} /> : <Trash2 size={14} />} 删除</button>
+      </div>
+    </article>;})}
+  </div>;
+}
+
+function DeleteConfirmationDialog({
+  target,
+  onCancel,
+  onConfirm,
+}: {
+  target: DeleteConfirmation;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const isSpace = target.kind === 'space';
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCancel();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
+
+  return <div className="document-preview-backdrop confirmation-backdrop" role="presentation" onClick={onCancel}>
+    <section className="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-confirmation-title" aria-describedby="delete-confirmation-description" onClick={(event) => event.stopPropagation()}>
+      <header className="confirmation-header">
+        <span className="confirmation-icon"><AlertTriangle size={21} /></span>
+        <div>
+          <div className="eyebrow">{isSpace ? '知识空间 / 移除确认' : '来源资料 / 删除确认'}</div>
+          <h2 id="delete-confirmation-title">{isSpace ? '确认移除知识空间？' : '确认删除来源资料？'}</h2>
+        </div>
+        <button className="space-icon-button" aria-label="关闭删除确认" title="关闭" onClick={onCancel}><X size={16} /></button>
+      </header>
+      <div className="confirmation-content">
+        <div className="confirmation-target">
+          {isSpace ? <Archive size={18} /> : <FileText size={18} />}
+          <div><span>{isSpace ? '待移除知识空间' : '待删除来源资料'}</span><strong title={target.item.name}>{target.item.name}</strong></div>
+        </div>
+        <p id="delete-confirmation-description">{isSpace
+          ? '移除后，该空间将不再出现在工作台中；来源资料和图谱事实仍会保留在本地数据库中。'
+          : '删除后，仅由该资料支撑的图谱节点和关系会同步失效；原始文件与历史证据仍会保留。'}</p>
+      </div>
+      <footer className="confirmation-actions">
+        <button className="ghost-button" autoFocus onClick={onCancel}>取消</button>
+        <button className="secondary-button danger-button confirmation-submit" onClick={onConfirm}><Trash2 size={15} />{isSpace ? '确认移除' : '确认删除'}</button>
+      </footer>
+    </section>
+  </div>;
+}
+
+function DocumentPreviewModal({
+  document,
+  spaceId,
+  onClose,
+}: {
+  document: SourceDocument;
+  spaceId: string;
+  onClose: () => void;
+}) {
+  const [content, setContent] = useState<SourceDocumentContent | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState<'rendered' | 'source'>('rendered');
+
+  useEffect(() => {
+    let cancelled = false;
+    setContent(null);
+    setError(null);
+    setIsLoading(true);
+
+    const loadContent = async () => {
+      try {
+        const loadedContent = await getSourceDocumentContent(spaceId, document.id);
+        if (cancelled) return;
+        setContent(loadedContent);
+      } catch (loadError) {
+        if (cancelled) return;
+        setError(loadError instanceof Error ? loadError.message : '原文加载失败');
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    };
+
+    void loadContent();
+    return () => { cancelled = true; };
+  }, [document.id, spaceId]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  return <div className="document-preview-backdrop" role="presentation" onClick={onClose}>
+    <section className="document-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="document-preview-title" onClick={(event) => event.stopPropagation()}>
+      <header className="document-preview-header">
+        <div>
+          <div className="eyebrow">来源资料 / 原文预览</div>
+          <h2 id="document-preview-title" title={document.name}>{document.name}</h2>
+        </div>
+        <button className="space-icon-button" aria-label="关闭原文预览" title="关闭" onClick={onClose}><X size={16} /></button>
+      </header>
+      {isLoading && <div className="document-preview-state"><LoaderCircle className="spin" size={22} /><span>正在加载原文…</span></div>}
+      {!isLoading && error && <div className="document-preview-state error"><AlertTriangle size={22} /><span>原文加载失败：{error}</span><button className="secondary-button" onClick={onClose}>关闭</button></div>}
+      {!isLoading && !error && content && <>
+        <div className="document-preview-meta">
+          <div className="document-preview-mode" role="tablist" aria-label="原文预览模式">
+            <button
+              className={previewMode === 'rendered' ? 'preview-mode-button active' : 'preview-mode-button'}
+              type="button"
+              role="tab"
+              aria-selected={previewMode === 'rendered'}
+              onClick={() => setPreviewMode('rendered')}
+            >
+              <Eye size={13} /> 渲染预览
+            </button>
+            <button
+              className={previewMode === 'source' ? 'preview-mode-button active' : 'preview-mode-button'}
+              type="button"
+              role="tab"
+              aria-selected={previewMode === 'source'}
+              onClick={() => setPreviewMode('source')}
+            >
+              <FileText size={13} /> 原文
+            </button>
+          </div>
+          <span>SHA-256 · {content.contentHash.slice(0, 16)}…</span>
+        </div>
+        {previewMode === 'rendered'
+          ? <article className="document-preview-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{content.contentText}</ReactMarkdown></article>
+          : <pre className="document-preview-content">{content.contentText}</pre>}
+      </>}
+    </section>
+  </div>;
+}
+
+function AiExtractionPreviewModal({
+  extraction,
+  onClose,
+}: {
+  extraction: AiDocumentExtraction;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  const entities = extraction.chunks.flatMap((chunk) => chunk.extraction.entities);
+  const relations = extraction.chunks.flatMap((chunk) => chunk.extraction.relations);
+  const evidences = extraction.chunks.flatMap((chunk) => chunk.extraction.evidences);
+  const conflicts = extraction.chunks.flatMap((chunk) => chunk.extraction.conflicts);
+  const entityNames = new Map(entities.map((entity) => [entity.candidateId, entity.name]));
+
+  return <div className="document-preview-backdrop" role="presentation" onClick={onClose}>
+    <section className="document-preview-dialog ai-extraction-dialog" role="dialog" aria-modal="true" aria-labelledby="ai-extraction-title" onClick={(event) => event.stopPropagation()}>
+      <header className="document-preview-header">
+        <div>
+          <div className="eyebrow">来源资料 / AI 提取预览</div>
+          <h2 id="ai-extraction-title" title={extraction.documentName}>{extraction.documentName}</h2>
+        </div>
+        <button className="space-icon-button" aria-label="关闭 AI 提取预览" title="关闭" onClick={onClose}><X size={16} /></button>
+      </header>
+      <div className="ai-extraction-meta">
+        <span>{extraction.provider} · {extraction.model}</span>
+        <span>Prompt {extraction.promptVersion} · Schema {extraction.schemaVersion}</span>
+      </div>
+      <div className="ai-extraction-summary">
+        <div><strong>{extraction.chunkCount}</strong><span>分片</span></div>
+        <div><strong>{entities.length}</strong><span>候选实体</span></div>
+        <div><strong>{relations.length}</strong><span>候选关系</span></div>
+        <div><strong>{evidences.length}</strong><span>原文证据</span></div>
+        <div><strong>{conflicts.length}</strong><span>冲突</span></div>
+      </div>
+      <div className="ai-extraction-content">
+        {extraction.chunks.map((chunk) => <section className="ai-chunk-card" key={chunk.chunkId}>
+          <div className="ai-chunk-heading"><span>{chunk.sectionPath}</span><em>{chunk.chunkId}</em></div>
+          <div className="ai-result-section">
+            <h3>候选实体</h3>
+            {chunk.extraction.entities.length
+              ? <div className="ai-entity-list">{chunk.extraction.entities.map((entity) => <div key={entity.candidateId}><span>{entity.type}</span><strong>{entity.name}</strong><p>{entity.summary || '暂无摘要'}</p></div>)}</div>
+              : <p className="ai-empty-result">当前分片未识别出实体</p>}
+          </div>
+          <div className="ai-result-section">
+            <h3>候选关系</h3>
+            {chunk.extraction.relations.length
+              ? <div className="ai-relation-list">{chunk.extraction.relations.map((relation, index) => <div key={`${chunk.chunkId}-relation-${index}`}><strong>{entityNames.get(relation.sourceEntityId) ?? relation.sourceEntityId}</strong><span>{relation.relationType}</span><strong>{entityNames.get(relation.targetEntityId) ?? relation.targetEntityId}</strong><em>{Math.round(relation.confidence * 100)}%</em></div>)}</div>
+              : <p className="ai-empty-result">当前分片未识别出关系</p>}
+          </div>
+          {chunk.extraction.evidences.length > 0 && <div className="ai-result-section"><h3>原文证据</h3><div className="ai-evidence-list">{chunk.extraction.evidences.map((evidence) => <blockquote key={evidence.evidenceId}>“{evidence.quote}”<span>{evidence.sectionPath}</span></blockquote>)}</div></div>}
+          {chunk.extraction.conflicts.length > 0 && <div className="ai-result-section"><h3>冲突</h3><div className="ai-conflict-list">{chunk.extraction.conflicts.map((conflict, index) => <div key={`${chunk.chunkId}-conflict-${index}`}><AlertTriangle size={14} /><span>{conflict.description}</span></div>)}</div></div>}
+        </section>)}
+      </div>
+    </section>
   </div>;
 }
 

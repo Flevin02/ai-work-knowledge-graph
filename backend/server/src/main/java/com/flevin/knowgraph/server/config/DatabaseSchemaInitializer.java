@@ -55,6 +55,13 @@ public class DatabaseSchemaInitializer {
                 "ALTER TABLE source_documents ADD COLUMN space_id TEXT REFERENCES knowledge_spaces(id)"
         );
 
+        // 为旧版本数据库补充来源资料业务类型字段，已有资料默认为通用文档
+        addColumnIfMissing(
+                "source_documents",
+                "document_type",
+                "ALTER TABLE source_documents ADD COLUMN document_type TEXT NOT NULL DEFAULT 'general'"
+        );
+
         // 将升级前已有批次归入默认知识空间
         jdbcTemplate.update(
                 "UPDATE import_batches SET space_id = ? WHERE space_id IS NULL OR space_id = ''",

@@ -1,6 +1,6 @@
 ---
 title: AI 工作知识图谱维护助手 PRD
-version: v0.7
+version: v0.9
 status: 开发中
 created: 2026-08-17
 updated: 2026-08-18
@@ -80,6 +80,7 @@ scope: 参赛项目 / 独立轻量应用
 
 - 多人协作和审核记录。
 - 关系版本与时间旅行查询。
+- 文档标签：支持人工标签和 AI 建议标签，用于资料筛选、RAG 元数据过滤和共同标签候选关联；共同标签不能直接证明正式图谱关系，仍需原文证据或人工确认。
 - 会议纪要自动转任务和提醒。
 - 项目周报、交接材料和活动通知自动生成。
 - 图谱驱动的活动海报和多渠道物料生成。
@@ -231,7 +232,7 @@ AI 不得直接修改原始文件，不得无证据创建确定关系，不得�
 
 ## 9.3 结构化输出
 
-AI 必须通过 Zod Schema 或 JSON Schema 输出结构化结果，禁止在业务层直接解析自由文本：
+AI 必须返回能够映射到 Java DTO 的结构化结果，禁止在业务层直接解析自由文本。兼容端点确认支持时优先使用原生 JSON Schema；端点不支持时使用 LangChain4j 的结构化 Prompt 和反序列化能力，并继续执行 Bean Validation、业务引用和证据反查：
 
 ```json
 {
@@ -253,35 +254,42 @@ AI 必须通过 Zod Schema 或 JSON Schema 输出结构化结果，禁止在业�
 
 ## 9.4 模型供应商策略
 
-Gemini 是首版默认实现，不是产品层的固定依赖。后端应定义统一的 `AiExtractionClient` 接口，领域层只依赖实体、关系、证据和冲突的结构化结果，不直接依赖 Gemini SDK 或供应商响应对象。
+首版使用 LangChain4j 接入 OpenAI-compatible 协议，默认配置指向自定义 Base URL 和模型名。模型产品不是领域层固定依赖；后端通过统一的 `AiExtractionClient` 接口隔离框架和协议对象，领域层只依赖实体、关系、证据和冲突的结构化结果。
 
 默认配置：
 
 ```properties
-AI_PROVIDER=gemini
-AI_MODEL=gemini-2.5-flash
-GEMINI_API_KEY=仅服务端配置
+AI_ENABLED=false
+AI_PROVIDER=openai-compatible
+AI_BASE_URL=https://api.psydo.top/v1
+AI_MODEL=gpt-5.4-mini
+AI_API_KEY=仅服务端环境变量配置
+AI_JSON_SCHEMA_ENABLED=false
+AI_EMBEDDING_ENABLED=false
+AI_EMBEDDING_MODEL=text-embedding-3-small
 ```
 
-### 选择 Gemini 的原因
+### 选择 LangChain4j 和 OpenAI-compatible 协议的原因
 
-1. 当前项目最先需要的是结构化文档抽取，不是训练或部署模型；Gemini API 可以作为外部模型服务快速接入。
-2. Google AI Studio 的申请和调用门槛适合比赛原型，能够先用一个模型完成实体、关系和证据抽取闭环。
-3. 它支持结构化 JSON 输出，便于映射到 Java DTO 并进行二次校验。
-4. 当前前端原型最初就是按 Gemini 文案生成思路设计的，迁移成本较低。
+1. 项目的重点是学习模型调用、结构化输出、Embedding 和 RAG，而不是从零维护 HTTP 协议、流式解析和供应商响应对象。
+2. LangChain4j 同时提供低层模型接口、AI Service、结构化输出、Embedding 和检索抽象，能够在 Java 后端内逐层学习而不引入独立 Python 服务。
+3. OpenAI-compatible 协议允许通过 `provider + baseUrl + model + apiKey` 连接不同兼容端点，业务层不需要知道具体模型产品。
+4. 真实聊天模型和 Embedding 模型独立配置，可以先验证结构化抽取，再确认端点支持的 Embedding 模型并启用 RAG。
 
-### Gemini 的限制
+### 自定义兼容端点的限制
 
 - 需要网络访问和服务端 API Key，现场网络或账号状态异常会影响实时抽取。
 - API 调用存在配额、速率和费用约束，不能把每次页面刷新都设计成一次模型调用。
+- Base URL 可访问或接口返回 401 只说明路由和鉴权入口存在，不证明当前账号拥有指定模型权限。
+- 不同 OpenAI-compatible 服务对 Chat Completions、Responses、原生 JSON Schema、推理参数和 Embedding API 的兼容程度可能不同，必须分别实测。
 - 模型输出不是业务事实，仍可能漏识别、错合并实体或产生错误关系；必须保留证据并经过人工确认。
 - 上传的办公资料会进入第三方模型服务，真实公司资料默认禁止直接上传，演示必须使用虚构或脱敏数据。
 - 中文文档、表格、扫描件和复杂 PDF 的解析质量需要通过本地样本验证，不能仅凭模型宣传能力视为已验证。
-- 供应商、模型名称和 API 响应格式可能变化，因此不能让 Controller、Repository 或图谱领域对象直接依赖 Gemini 字段。
+- 供应商、模型名称和 API 响应格式可能变化，因此不能让 Controller、Repository 或图谱领域对象直接依赖 OpenAI-compatible 客户端字段。
 
 ### 替换边界
 
-后续可以新增 `openai`、`qwen`、`deepseek` 或本地 Ollama 实现，但替换范围应限制在 AI 适配层和配置层。以下模块不得感知具体模型供应商：
+后续可以增加原生 OpenAI、Gemini、本地 Ollama 或其他协议实现，但替换范围应限制在 AI 适配层和配置层。以下模块不得感知具体模型供应商：
 
 - 文档导入。
 - 实体规范化。
@@ -301,10 +309,10 @@ GEMINI_API_KEY=仅服务端配置
 | UI | Tailwind CSS + shadcn/ui | 快速构建后台工作台，方便统一视觉风格 |
 | 图谱 | Cytoscape.js | 支持节点布局、筛选、邻居展开和中等规模图谱交互 |
 | 表单与校验 | React Hook Form + Zod | 表单状态和 AI 结构化输出共用校验模型 |
-| AI | Gemini API + Java HTTP Client（后端） | 服务端调用模型，使用 Jackson 映射结构化 JSON，避免引入大型 AI 框架 |
+| AI | LangChain4j + OpenAI-compatible 模型（后端） | 支持自定义 Base URL 和模型名，以 `AiExtractionClient` 隔离协议，使用 Java DTO、Bean Validation 和证据反查校验结果 |
 | 文本解析 | Java NIO、Apache POI、Apache PDFBox | 分别处理 Markdown/TXT、DOCX 和 PDF 文本 |
 | 内容指纹 | Java MessageDigest SHA-256 | 判断文档是否新增或发生变化，避免重复调用模型 |
-| 数据持久化 MVP | SQLite JDBC + Spring JDBC（后端） | 轻量、可迁移，避免 JPA/Hibernate 带来的额外复杂度 |
+| 数据持久化 MVP | SQLite + MyBatis-Plus/MyBatis Mapper（后端） | 业务 CRUD 和查询统一使用 Mapper，数据库初始化保留轻量 DDL 执行器，避免 JPA/Hibernate 带来的额外复杂度 |
 | 文件存储 MVP | 本地 uploads 目录 | 参赛演示无需对象存储，后续可替换为 S3/R2 |
 | 导出 | Markdown + JSON + 图谱图片 | 兼容 Obsidian，便于备份、迁移和现场展示 |
 | 测试 | JUnit 5 + Vitest + Playwright | 分别覆盖 Java 领域规则、前端规则和关键用户流程 |
@@ -461,7 +469,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 
 ## 阶段二：AI 抽取与审核（2～3 天）
 
-接入 Gemini API，定义 Java DTO 和结构化 JSON 校验，实现实体规范化、关系去重、证据保存和关系审核页面。
+通过 LangChain4j 接入 OpenAI-compatible 模型，定义 Java DTO、结构化输出和证据校验，实现实体规范化、关系去重、证据保存和关系审核页面。
 
 ## 阶段三：图谱交互（1～2 天）
 
@@ -506,9 +514,9 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - [x] 前端使用 Next.js、React、TypeScript 和 Cytoscape.js。
 - [x] 后端基于 Firefly Boot 已提交基线选择性复用，保持 `common + server` 两模块。
 - [x] 后端使用 Java 21 和 Spring Boot 3.2.11。
-- [x] 数据持久化使用 SQLite 和 Spring JDBC，不使用浏览器 IndexedDB、JPA 或图数据库。
+- [x] 数据持久化使用 SQLite 和 MyBatis-Plus/MyBatis Mapper，不使用浏览器 IndexedDB、JPA 或图数据库；数据库初始化和兼容迁移保留独立 DDL 执行器。
 - [x] `/api` 由 `server.servlet.context-path` 统一配置，Controller 只声明业务路径。
-- [x] AI 模型通过 `AiExtractionClient` 抽象；Gemini 是默认实现，不是领域层固定依赖。
+- [x] AI 模型通过 `AiExtractionClient` 抽象；首个实现使用 OpenAI-compatible 协议、自定义 Base URL 和模型名，不是领域层固定产品依赖。
 - [x] 首先完成 Markdown/TXT 导入，再在同一参赛版本中补齐 DOCX/PDF。
 - [x] 首版不加入活动海报、周报、多用户权限等旁支功能，优先完善知识维护主线。
 - [x] Obsidian 不是运行时依赖，只提供兼容的 Markdown/WikiLink 导出。
@@ -535,7 +543,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 
 ### 前端原型
 
-- 已初始化 Next.js 15.5.23、React、TypeScript 和 Cytoscape.js。
+- 已升级并固定 Next.js 16.3.1，继续使用 React 18、TypeScript 和 Cytoscape.js；已通过生产构建验证当前 peer dependency 兼容范围。
 - 已实现深色工作台布局、节点类型筛选、关键词搜索和图谱统计。
 - 已实现虚构“公司年会筹备”演示图谱。
 - 已实现节点点击、节点详情、来源资料和关系证据展示。
@@ -558,7 +566,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - `server` 已提供 Spring Boot 启动类、健康服务和图谱摘要服务。
 - 已通过 `server.servlet.context-path` 将统一前缀配置为 `/api`。
 - 已配置 local/prod profile、Knife4j/SpringDoc 扫描路径和 AI 供应商环境变量。
-- 已提供 `GET /api/health`、`GET /api/v1/spaces`、`POST /api/v1/spaces`、`DELETE /api/v1/spaces/{spaceId}`、`GET /api/v1/documents`、`POST /api/v1/documents/import`、`GET /api/v1/graph` 和 `GET /api/v1/graph/summary`。
+- 已提供 RESTful 资源接口：`GET/POST /api/v1/spaces`、`DELETE /api/v1/spaces/{spaceId}`、`GET/POST /api/v1/spaces/{spaceId}/documents`、`GET /api/v1/spaces/{spaceId}/documents/{documentId}/content`、`DELETE /api/v1/spaces/{spaceId}/documents/{documentId}`、`GET/POST /api/v1/spaces/{spaceId}/documents/{documentId}/extractions`、`GET /api/v1/spaces/{spaceId}/documents/{documentId}/extractions/{extractionId}`、`GET /api/v1/spaces/{spaceId}/graph` 和 `GET /api/v1/spaces/{spaceId}/graph/summary`。
 - 接口已返回统一响应结构和 `X-Trace-Id` 响应头。
 - 已使用 Java 21 执行根 Reactor `mvn test`，测试通过。
 - 已使用 Java 21 完成 Maven install，并验证两个接口返回 HTTP 200。
@@ -572,18 +580,43 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 ### SQLite、知识空间与来源资料导入
 
 - 已增加 SQLite 数据源配置，启动时自动创建数据库目录和来源资料上传目录，并启用外键约束和忙等待。
-- 已将幂等建表脚本放在 `backend/server/src/main/resources/db/schema.sql`，创建 `knowledge_spaces`、`source_documents`、`import_batches`、`graph_nodes`、`graph_edges`、`evidences`、`review_actions` 七张业务表。
+- 已将幂等建表脚本放在 `backend/server/src/main/resources/db/schema.sql`，创建 `knowledge_spaces`、`source_documents`、`import_batches`、`graph_nodes`、`graph_edges`、`evidences`、`review_actions`、`ai_extraction_runs` 八张业务表。
 - 建表 SQL 已为表、字段、外键和索引补充中文注释；SQLite 不支持持久化的 `COMMENT ON TABLE/COLUMN` 元数据，因此注释随项目 SQL 源码维护。
 - 已建立知识空间和来源资料 Model、Repository、Service、Controller 分层，并通过 `space_id` 将资料、导入批次和后续图谱数据隔离到具体空间。
 - 已建立图谱节点、关系和证据 Model/Repository/Service 查询链路，并将图谱摘要改为按空间读取 SQLite 实时统计；空空间返回零统计，不再返回固定脚手架文案。
-- 已提供 `GET /api/v1/documents?spaceId=...`、`POST /api/v1/documents/import`、`GET /api/v1/spaces`、`POST /api/v1/spaces` 和 `DELETE /api/v1/spaces/{spaceId}`。
+- 已提供 `GET/POST /api/v1/spaces/{spaceId}/documents`、`GET /api/v1/spaces/{spaceId}/documents/{documentId}/content` 和 `DELETE /api/v1/spaces/{spaceId}/documents/{documentId}`；删除采用软删除，不物理删除事实来源。
+- 已实现来源资料删除后的图谱同步失效：仅由该资料支撑的节点标记为 `stale`，多来源节点移除当前来源标识，关联失效节点或已无有效证据的关系标记为 `stale`；原始文件、证据和抽取运行继续保留以支持历史追溯。
 - 已实现 Markdown/TXT 严格 UTF-8 解析、空内容校验、原始文件落盘、SHA-256 内容指纹和按内容去重。
+- 已为来源资料增加独立 `document_type` 业务类型，当前支持 `general` 和 `prd`；文件格式继续由 `kind=markdown/txt` 表示，避免文件格式和业务语义混用。
 - 已实现导入批次统计和逐文件 `imported`、`duplicate`、`failed` 结果；单个解析失败不会阻断同批其他文件。
 - 已限制服务端保存路径使用 UUID 文件名，并按 `uploads/<spaceId>/documents` 建立独立目录；不使用客户端文件名拼接本地路径，数据库写入失败时会清理本次孤儿文件。
 - 已增加旧数据库 `space_id` 兼容迁移，并将原有资料归入默认知识空间；空间内内容指纹改为复合唯一约束。
 - 已配置本地前端来源的 CORS 规则和 10 MB 单文件、50 MB 单批次上传上限，并覆盖 DELETE 预检。
 - 已增加知识空间、文档导入、图谱查询和 CORS 集成测试，覆盖空间创建/软删除、空间隔离、表存在性、关系证据和资料导入边界。
 - 已使用 Java 21 执行根 Reactor 测试，共 13 项测试通过；已使用真实临时 HTTP 服务导入 7 份虚构年会资料，并验证重复批次、SQLite 记录、独立上传目录、OpenAPI 路径和 CORS。
+
+### AI/RAG 学习基础链路
+
+- 已引入 LangChain4j 1.19.0，并通过 `AiExtractionClient` 隔离业务层与具体框架、模型供应商和协议实现。
+- 已实现 OpenAI-compatible 模型配置，默认 Base URL 为 `https://api.psydo.top/v1`、模型名为 `gpt-5.4-mini`；真实密钥仅从 `AI_API_KEY` 环境变量读取，不进入仓库。
+- 已将真实 AI 调用默认设为关闭，只有显式配置 `AI_ENABLED=true` 且提供密钥时才创建真实客户端；模型、Base URL、Prompt 版本、Schema 版本、超时、重试和输出长度均已配置化。
+- 已将聊天模型和 Embedding 模型拆成独立配置；Embedding 默认关闭，避免在尚未确认端点支持模型前把聊天模型错误用于向量化。
+- 已定义实体、关系、证据和冲突的结构化抽取 DTO，实体类型固定包含项目、部门、人员、任务、文档、会议、风险、决策、需求和功能。
+- 已实现结构化结果校验器，覆盖 Bean Validation、候选标识唯一性、关系实体引用、证据引用、来源资料/分片/章节一致性和逐字原文证据反查。
+- 已增加 PRD Markdown 确定性章节解析器，能够保留 Front Matter 前言、标题层级、章节路径、代码围栏边界和原文偏移。
+- 已增加章节感知分片器，短章节保持完整，长章节优先按换行边界切分并保留受控重叠和原文绝对偏移。
+- 已增加 PRD 业务类型导入、非法文档类型、章节解析、长文分片、有效证据、幻觉引用和错误实体引用测试。
+- 已使用 Java 21 执行根 Reactor `mvn test`，共 27 项测试通过；真实模型和真实 Embedding 调用未纳入默认自动测试。
+- 已增加 RESTful AI 抽取资源入口 `POST /api/v1/spaces/{spaceId}/documents/{documentId}/extractions`：按章节解析和分片调用 `AiExtractionClient`，返回候选实体、关系、证据和冲突，但暂不写入正式图谱。
+- 已增加 `ai_extraction_runs` 持久化运行记录，保存供应商、模型、Prompt/Schema 版本、状态、章节/分片数量、完整结果 JSON、脱敏错误摘要和完成时间；同步提供抽取历史列表和按 `extractionId` 查询详情的 RESTful 接口。
+- 已将系统提示词迁移为结构清晰的 `prompts/prd-extraction-system.md`，并增加 classpath 资源测试，避免打包后出现 Prompt 资源缺失。
+- 已接入 MyBatis-Plus 3.5.17；知识空间、来源资料、导入批次和图谱节点/关系/证据 Repository 已统一使用 Entity/Mapper，业务 Repository 不再使用 JdbcTemplate 手写查询。
+- 需要明确 SQL 的图谱节点、关系和证据查询已迁移到 `backend/server/src/main/resources/mapper/*.xml`，Mapper 接口只保留方法签名和 Javadoc。
+- 已增加来源资料原文预览接口 `GET /api/v1/spaces/{spaceId}/documents/{documentId}/content`，返回服务端解析后的 Markdown/TXT 原文，不暴露存储路径。
+- 前端来源资料卡片已增加“查看”按钮，默认使用 Markdown 适配渲染，同时支持切换“原文”查看 Markdown/TXT 原始文本，支持加载、错误、Escape、遮罩关闭和移动端长文滚动；渲染默认不执行原文 HTML。
+- 前端已将当前会话中的 AI 提取状态收敛到对应资料卡片右上角，分别展示提取中、已完成和提取失败；顶部全局消息不再承担长耗时任务状态。首次结果弹窗关闭后，可通过“查看结果”读取服务端历史记录并恢复完整候选结果。
+- 已在运行中的本地服务上完成 HTTP 联调：`GET /api/health`、知识空间查询、带 `Origin=http://localhost:3010` 的 CORS GET 和 multipart 预检均返回 200；临时知识空间上传虚构 Markdown PRD 后，`documentType=prd` 能正确持久化并在来源资料列表返回，临时空间随后已软删除清理。
+- 已在 4010 服务完成真实 RESTful 联调：首次请求疑似因 API 额度不足约 2 秒返回 503，并正确持久化失败运行；额度恢复后重试真实 `gpt-5.4-mini`，约 37 秒返回 HTTP 200，产生 6 个实体、5 条关系、6 条可反查逐字证据和 0 个冲突，历史列表与详情恢复成功，临时资料和空间随后已软删除。
 
 ## 18.2 当前验证边界
 
@@ -592,8 +625,20 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 图谱节点、关系和证据的持久化查询链路已完成，但当前真实空间没有 AI 写入的正式图谱数据；手工关系写入仅在集成测试中验证。
 - 当前重复识别基于原始文件字节的 SHA-256 完全一致；尚未实现同一文档不同版本的内容差异预览。
 - 当前后端只解析 UTF-8 Markdown/TXT；Apache POI 和 PDFBox 依赖已经进入 Maven 管理，但 DOCX/PDF 解析器尚未实现。
-- AI 供应商和模型已经配置化，但 `AiExtractionClient`、Gemini 调用和结构化输出校验尚未实现。
-- 本轮本地 HTTP 验证使用 `fixture/annual-party/` 下 7 份虚构资料，未进行真实公司资料、真实 Gemini API、生产部署和浏览器自动化端到端验证。
+- `AiExtractionClient`、OpenAI-compatible 适配层、结构化 DTO 和校验器已经实现，但尚未从导入接口触发，也没有把候选节点、关系和证据写入图谱表。
+- 已验证当前账号和端点能够调用 `gpt-5.4-mini` 并返回 Prompt 约束的结构化输出；仍未验证原生 JSON Schema 模式、Responses API 结构化抽取或 `text-embedding-3-small`。
+- `AI_JSON_SCHEMA_ENABLED` 默认关闭；当前可使用 LangChain4j 的 Prompt 约束结构化输出，但自定义端点是否支持原生 JSON Schema 需要真实请求后单独验证。
+- Embedding 真实客户端默认关闭，尚未生成、缓存或检索任何真实向量；`document_sections` 和 `document_chunks` 也尚未持久化。当前只持久化抽取运行元数据和完整结果 JSON，尚未把章节、分片、候选实体、关系和证据拆成正式领域表记录。
+- PRD Markdown 章节解析和分片目前只在纯 Java 单元测试中验证，尚未接入导入后的自动处理流程，也未验证超长真实 PRD、DOCX 或 PDF。
+- 前端 `3010` 页面 SSR HTML 可以返回 200，但当前浏览器控制服务未成功连接，因此尚未把浏览器 hydration 后的空间选择、资料上传点击和页面状态作为独立证据；当前已用真实 HTTP/CORS 请求替代验证接口链路。
+- 当前运行中的 OpenAPI 已暴露 RESTful 文档、图谱和抽取资源路径；`SourceDocumentResponse.documentType` 的枚举值仍重复展示两组 `general/prd`，属于注解显式值和枚举推导叠加的文档问题，后续应去除重复声明并补充 OpenAPI 断言。
+- 数据库启动初始化和旧库兼容迁移仍使用 JDBC/DDL 执行器，这是数据库结构职责；业务数据的 CRUD、条件查询、统计和 Join 均通过 MyBatis-Plus/MyBatis Mapper 完成。
+- 当前 SQLite 数据源尚未做显式连接池参数和并发写入验证；连接池配置不能被表述为提升 SQLite 写并发，仍需结合 WAL、`busy_timeout`、事务边界和有界连接数验证“数据库锁等待”和池耗尽错误。
+- 当前 AI 抽取仍以同步 HTTP 响应返回完整结果；前端虽已有独立的 AI 提取预览窗口，但原文查看弹窗还只有“渲染预览”和“原文”两个 tab，尚未在同一处展示可增量更新的 AI 输出，也没有取消、断线重连、失败后继续查看部分输出等能力。
+- 当前 `GET /api/v1/spaces/{spaceId}/documents` 返回当前空间的完整文档数组，列表项不携带最近一次 AI 提取状态，也没有服务端分页；前端只有在用户点击“查看结果”后才额外查询抽取历史，因此会出现进入页面看不出失败、点击后才提示失败的问题。
+- 当前来源资料卡片仍采用较宽的横向网格布局，删除操作仍占用文字按钮空间；竖直长方形卡片、右上角 icon-only 删除入口、悬浮提示和键盘可访问性尚未实现。
+- 本轮本地 HTTP 验证只使用 `fixture/annual-party/` 下虚构资料，已经进行一次真实模型结构化抽取，但未使用真实公司资料，也未进行生产部署和浏览器自动化端到端验证。
+- 本次真实结果虽通过结构、引用和逐字证据校验，但模型把“项目到人员”的关系错误归类为 `project_contains_feature`，证明合法 JSON、可反查证据和较高置信度仍不能替代关系类型白名单、业务语义校验与人工审核。
 - Chrome 控制连接在本会话未暴露 Node REPL 工具，因此浏览器点击/文件选择尚未作为独立证据；前端类型检查、生产构建、SSR 控件输出和带 Origin 的 HTTP/CORS 链路已完成验证。
 - 本机默认 Maven 运行时可能使用 Java 25；本项目必须显式使用 Java 21，避免 Lombok 注解处理失败。
 - OpenAPI JSON 已在本地临时端口验证路径、标签和响应模型，但尚未进行独立部署后的 Knife4j 页面人工验收。
@@ -604,17 +649,43 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 
 ## 19.1 下一优先级：AI 抽取和关系审核
 
-1. 定义 `AiExtractionClient`、结构化抽取 DTO 和供应商适配层。
-2. 对导入后的 Markdown/TXT 文本调用默认模型，校验实体、关系、证据和冲突结构化输出。
-3. 将 AI 候选节点、候选关系和证据保存到当前知识空间，关系默认保持 `suggested`，不直接生成正式关系。
-4. 增加待审核关系接口和前端真实审核列表，支持接受、拒绝和修改，并记录 `review_actions`。
-5. 保持当前来源资料、图谱查询和空间隔离边界，补充模型不可用、结构化输出非法和重试错误态。
+### 19.1.1 最高优先级：来源资料列表状态与服务端分页
+
+先修正列表首屏状态和数据量边界，再继续流式输出和卡片样式，避免用户必须点击结果按钮才能发现 AI 提取失败：
+
+1. **列表接口直接返回 AI 提取摘要**：将 `GET /api/v1/spaces/{spaceId}/documents` 调整为分页响应，每个文档项携带最近一次 AI 提取摘要，至少包含 `extractionId`、`status`、开始/结束时间和脱敏后的失败原因；未执行过提取时明确返回 `not_started`，不能让前端把“未知”猜成“成功”。
+2. **区分最近运行和可查看结果**：状态以最近一次运行的 `processing/completed/failed` 为准，同时保留可选的 `latestCompletedExtractionId`，避免以后“本次失败但历史上曾成功”的数据无法识别。按当前交互要求，最近一次运行失败且没有可用结果时禁用“查看结果”，并显示失败状态和“重试提取”；若后续需要展示历史成功结果，应使用单独的“查看上次结果”文案，不能伪装成本次成功。
+3. **一次查询完成列表组装**：文档页查询和最近抽取摘要使用批量 Join、子查询或窗口函数完成，禁止前端或 Service 对每个文档逐条查询抽取记录形成 N+1；分页总数使用独立计数查询，完整 AI 结果仍由详情接口按 `extractionId` 获取，不塞进列表响应。
+4. **首屏初始化按钮状态**：进入来源资料页、切换知识空间、导入完成或删除完成后，以列表响应初始化每张卡片的 AI 状态。`not_started` 和 `failed` 无可用结果时禁用“查看结果”，`processing` 显示“提取中…”并仅对处理中记录做轻量状态刷新，`completed` 才启用“查看结果”；点击按钮不再承担“首次发现当前状态”的职责。
+5. **第一版采用服务端页码分页**：请求参数使用 `page` 和 `pageSize`，默认每页 12 条并设置合理上限，响应返回 `items`、`page`、`pageSize`、`total` 和 `totalPages`；默认按更新时间倒序并增加稳定的 ID 次排序。删除当前页最后一条后回到有效页，导入完成后刷新第一页。第一版不做无限滚动；若以后改成无限滚动或“加载更多”，后端仍按页分批返回，前端追加 `items`，不允许一次返回全部文档。
+6. **同步契约和验证**：同步更新 Java 分页 DTO、Mapper SQL、OpenAPI 模型、TypeScript 类型和前端分页状态；覆盖无文档、恰好一页、多页、切换空间、处理中、最近失败、删除页末项和排序稳定性，验证列表查询次数不会随单页文档数线性增长。
+
+### 19.1.2 下一轮补强：连接池、流式抽取与来源资料交互
+
+以下事项是 AI 抽取链路进入可用状态前的配套任务，属于待实现设计，不代表当前代码已经完成：
+
+1. **配置数据库连接池**：为 SQLite 数据源补充显式的有界连接池参数，并同时确认 WAL、外键、`busy_timeout`、读写事务边界和连接超时策略。验收重点是并发导入、资料查看和 AI 抽取期间不会无界创建连接，出现锁等待或池耗尽时能从日志和运行记录中定位原因；不以“连接池已配置”直接推导 SQLite 获得了多写并发能力。
+2. **将 AI 抽取改为流式输出**：优先评估在现有 Spring MVC + `fetch` 链路上使用 `text/event-stream`（SSE）传输，事件至少区分 `run_started`、`chunk_started`、`delta`、`chunk_completed`、`completed` 和 `error`，每个事件携带 `extractionRunId`、文档/分片标识和可恢复状态。前端通过 `ReadableStream` 增量消费并展示已收到的内容；模型的部分 JSON 不直接写入图谱，必须在完整响应后统一做 Schema、业务规则和证据校验，只有校验通过才保存候选结果。体验目标是在受控演示条件下点击后 5 秒内出现首个真实运行事件，随后等待阶段持续显示分片进度或模型增量，把约 20 秒的完全静默等待改为“约 5 秒初始等待 + 约 15 秒可感知处理”；若供应商没有返回真实内容，不得用伪造文本冒充模型输出，只能明确显示服务端处理阶段或心跳。
+3. **把 AI 输出并入来源资料查看弹窗**：将现有“渲染预览/原文”扩展为“渲染预览/原文/AI 输出”三个 tab，AI tab 展示本次运行的实时文本、分片进度、候选实体/关系/证据/冲突和运行元数据。没有运行记录时显示明确空态并引导点击提取；关闭弹窗后再次打开应能通过 `extractionRunId` 读取最近一次结果，而不是只依赖前端内存。卡片上的按钮状态统一为“AI 提取”→“提取中…”→“重新提取”，失败时显示“重试提取”；若实现取消，则使用独立的“取消提取”操作，不把取消伪装成成功。
+4. **收窄来源资料卡片并简化删除入口**：桌面端改为更窄的竖直长方形卡片，保留文件名、类型、解析状态、摘要和主要操作，移动端继续单列自适应；删除按钮移至卡片右上角，仅显示删除 icon，补充 `aria-label`、`title` 和现有二次确认，避免误触和图标含义不清。查看、AI 提取和删除三类操作要能区分正常、处理中、失败和已删除状态。
+5. **为流式和交互状态补齐最小验证**：使用 Fake AI 客户端固定输出多分片增量、空输出、结构化 JSON 不完整、连接中断和重试场景，验证前端状态机、服务端运行记录幂等、部分输出不落正式图谱以及重新打开弹窗后的结果恢复；真实模型流式兼容性和生产网络代理仍需单独联调。
+
+### 19.1.3 AI/RAG 核心链路
+
+1. 在本地通过环境变量提供 `AI_API_KEY`，对 `gpt-5.4-mini` 执行一条受控的真实结构化抽取请求，验证 Chat Completions 协议、模型权限、超时、重试和 Prompt 结构化输出；不得把密钥写入仓库。
+2. 确认自定义端点实际支持的 Embedding 模型，再启用 `AI_EMBEDDING_ENABLED`；分别验证文档向量化、查询向量化、维度一致性和最小相似度检索。
+3. 建立 `document_sections`、`document_chunks` 和 `ai_extraction_runs`，持久化章节、分片、Embedding 缓存、模型/Prompt/Schema 版本和失败上下文。
+4. 将 PRD Markdown 章节解析和分片接入导入后的显式 AI 处理动作，通过 RAG 检索上下文后调用 `AiExtractionClient`。
+5. 将 AI 候选节点、候选关系和证据保存到当前知识空间，关系默认保持 `suggested`，不直接生成正式关系。
+6. 增加待审核关系接口和前端真实审核列表，支持接受、拒绝和修改，并记录 `review_actions`。
+7. 保持当前来源资料、图谱查询和空间隔离边界，补充模型不可用、召回为空、结构化输出非法、证据无效和重试错误态。
 
 ## 19.2 后续主线
 
 1. 将前端演示图谱替换为后端图谱查询结果。
 2. 实现孤立、失效来源、缺字段和冲突检查。
 3. 增加 DOCX/PDF 解析、增量导入和 Markdown/JSON/PNG 导出。
+4. 设计文档标签表和文档-标签关联表，支持人工标签、AI 建议标签、按标签筛选和 RAG 元数据过滤；共同标签只生成候选关联，不直接生成已确认关系。
 
 ## 19.3 提交约定
 
