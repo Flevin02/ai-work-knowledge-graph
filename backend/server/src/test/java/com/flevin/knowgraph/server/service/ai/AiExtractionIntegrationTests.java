@@ -105,6 +105,7 @@ class AiExtractionIntegrationTests {
                 .andExpect(jsonPath("$.data.documentType").value("prd"))
                 .andExpect(jsonPath("$.data.sectionCount").value(2))
                 .andExpect(jsonPath("$.data.chunkCount").value(2))
+                .andExpect(jsonPath("$.data.summary").value("用户中心；登录功能支持手机号验证码。"))
                 .andExpect(jsonPath("$.data.chunks[0].extraction.entities.length()").value(2))
                 .andReturn();
 
@@ -116,6 +117,7 @@ class AiExtractionIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[0].latestExtraction.extractionId").value(extractionId))
                 .andExpect(jsonPath("$.data.items[0].latestExtraction.status").value("completed"))
+                .andExpect(jsonPath("$.data.items[0].excerpt").value("用户中心；登录功能支持手机号验证码。"))
                 .andExpect(jsonPath("$.data.items[0].latestCompletedExtractionId").value(extractionId));
 
         String failedExtractionId = "failed-after-completed";
@@ -150,6 +152,7 @@ class AiExtractionIntegrationTests {
                 .andExpect(jsonPath("$.data.items[0].latestExtraction.extractionId").value(failedExtractionId))
                 .andExpect(jsonPath("$.data.items[0].latestExtraction.status").value("failed"))
                 .andExpect(jsonPath("$.data.items[0].latestExtraction.errorMessage").value("模型返回内容未通过结构校验"))
+                .andExpect(jsonPath("$.data.items[0].excerpt").value("用户中心；登录功能支持手机号验证码。"))
                 .andExpect(jsonPath("$.data.items[0].latestCompletedExtractionId").value(extractionId));
 
         // 查询历史抽取记录摘要，验证最近失败和此前成功结果都保持可追溯
@@ -175,7 +178,57 @@ class AiExtractionIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.summary.extractionId").value(extractionId))
                 .andExpect(jsonPath("$.data.result.documentId").value(documentId))
+                .andExpect(jsonPath("$.data.result.summary").value("用户中心；登录功能支持手机号验证码。"))
                 .andExpect(jsonPath("$.data.result.chunks.length()").value(2));
+    }
+
+    @Test
+    void fallsBackToImportedExcerptWhenHistoricalCompletedRunHasNoSummary() throws Exception {
+        MockMultipartFile documentFile = new MockMultipartFile(
+                "files",
+                "旧版资料.txt",
+                "text/plain",
+                "旧版资料仍应展示导入时生成的原文预览。".getBytes(StandardCharsets.UTF_8)
+        );
+
+        // 导入来源资料，准备确定性的原文预览兜底值
+        DocumentImportResponse importResponse = documentService.importDocuments(
+                SPACE_ID,
+                "general",
+                List.of(documentFile)
+        );
+        String documentId = importResponse.results().getFirst().document().id();
+        String extractionId = "legacy-completed-without-summary";
+
+        // 模拟升级前已完成但尚未保存 document_summary 的历史抽取运行
+        jdbcTemplate.update(
+                """
+                INSERT INTO ai_extraction_runs (
+                    id, space_id, source_document_id, provider, model,
+                    prompt_version, schema_version, status, section_count,
+                    chunk_count, result_json, created_at, completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                extractionId,
+                SPACE_ID,
+                documentId,
+                "fake",
+                "fake-model",
+                "prd-extraction-v1",
+                "extraction-v1",
+                "completed",
+                1,
+                1,
+                "{}",
+                Instant.now().toString(),
+                Instant.now().plusSeconds(1).toString()
+        );
+
+        // 查询资料列表，验证旧成功运行无摘要时仍返回导入原文预览
+        mockMvc.perform(get("/v1/spaces/{spaceId}/documents", SPACE_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].excerpt").value("旧版资料仍应展示导入时生成的原文预览。"))
+                .andExpect(jsonPath("$.data.items[0].latestCompletedExtractionId").value(extractionId));
     }
 
     private AiExtractionResult fakeResult(AiExtractionRequest request) {
@@ -210,6 +263,9 @@ class AiExtractionIntegrationTests {
                 List.of("evidence-1")
         );
         return new AiExtractionResult(
+                request.content().contains("登录功能支持手机号验证码")
+                        ? "登录功能支持手机号验证码。"
+                        : "用户中心",
                 List.of(project, feature),
                 List.of(relation),
                 List.of(evidence),

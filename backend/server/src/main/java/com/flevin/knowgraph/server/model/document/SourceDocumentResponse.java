@@ -13,7 +13,7 @@ import java.time.Instant;
  * @param kind 文件类型
  * @param documentType 文档业务类型
  * @param contentHash SHA-256 内容指纹
- * @param excerpt 文本预览
+ * @param excerpt 最近成功 AI 摘要；尚无可用摘要时为导入原文预览
  * @param status 来源资料状态
  * @param fileSize 文件字节数
  * @param importedAt 首次导入时间
@@ -35,7 +35,7 @@ public record SourceDocumentResponse(
         SourceDocumentType documentType,
         @Schema(description = "SHA-256 内容指纹", example = "d7439bee24773b8b381b9f68f45745c2f1222683b7449f1f25c7c7efea20f005")
         String contentHash,
-        @Schema(description = "解析文本预览", example = "会议确认年会主题和首批行动项。")
+        @Schema(description = "最近成功 AI 摘要；尚无可用摘要时返回导入原文预览", example = "会议确认年会主题和首批行动项。")
         String excerpt,
         @Schema(description = "来源资料状态", example = "active")
         String status,

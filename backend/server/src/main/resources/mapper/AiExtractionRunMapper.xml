@@ -6,7 +6,7 @@
 
     <!--
         在当前页文档范围内一次计算最近运行和最近成功记录，避免 Service 按文档逐条查询。
-        FIRST_VALUE 先把 completed 状态排在前面，再按创建时间和主键选择最近成功记录。
+        FIRST_VALUE 先把 completed 状态排在前面，再按创建时间和主键选择最近成功记录及其摘要。
     -->
     <select id="findLatestByDocumentIds"
             resultType="com.flevin.knowgraph.server.repository.entity.AiExtractionRunEntity">
@@ -18,6 +18,7 @@
                    error_message,
                    created_at,
                    completed_at,
+                   document_summary,
                    ROW_NUMBER() OVER (
                        PARTITION BY source_document_id
                        ORDER BY created_at DESC, id DESC
@@ -27,7 +28,13 @@
                        ORDER BY CASE WHEN status = 'completed' THEN 0 ELSE 1 END,
                                 created_at DESC,
                                 id DESC
-                   ) AS latest_completed_extraction_id
+                   ) AS latest_completed_extraction_id,
+                   FIRST_VALUE(CASE WHEN status = 'completed' THEN document_summary END) OVER (
+                       PARTITION BY source_document_id
+                       ORDER BY CASE WHEN status = 'completed' THEN 0 ELSE 1 END,
+                                created_at DESC,
+                                id DESC
+                   ) AS latest_completed_summary
             FROM ai_extraction_runs
             WHERE space_id = #{spaceId}
               AND source_document_id IN
@@ -42,7 +49,8 @@
                error_message,
                created_at,
                completed_at,
-               latest_completed_extraction_id
+               latest_completed_extraction_id,
+               latest_completed_summary
         FROM ranked_runs
         WHERE latest_rank = 1
     </select>

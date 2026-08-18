@@ -1,6 +1,6 @@
 ---
 title: AI 工作知识图谱维护助手 PRD
-version: v0.10
+version: v0.11
 status: 开发中
 created: 2026-08-17
 updated: 2026-08-18
@@ -601,14 +601,14 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 已实现 OpenAI-compatible 模型配置，默认 Base URL 为 `https://api.psydo.top/v1`、模型名为 `gpt-5.4-mini`；真实密钥仅从 `AI_API_KEY` 环境变量读取，不进入仓库。
 - 已将真实 AI 调用默认设为关闭，只有显式配置 `AI_ENABLED=true` 且提供密钥时才创建真实客户端；模型、Base URL、Prompt 版本、Schema 版本、超时、重试和输出长度均已配置化。
 - 已将聊天模型和 Embedding 模型拆成独立配置；Embedding 默认关闭，避免在尚未确认端点支持模型前把聊天模型错误用于向量化。
-- 已定义实体、关系、证据和冲突的结构化抽取 DTO，实体类型固定包含项目、部门、人员、任务、文档、会议、风险、决策、需求和功能。
+- 已定义分片摘要、实体、关系、证据和冲突的结构化抽取 DTO，实体类型固定包含项目、部门、人员、任务、文档、会议、风险、决策、需求和功能。
 - 已实现结构化结果校验器，覆盖 Bean Validation、候选标识唯一性、关系实体引用、证据引用、来源资料/分片/章节一致性和逐字原文证据反查。
 - 已增加 PRD Markdown 确定性章节解析器，能够保留 Front Matter 前言、标题层级、章节路径、代码围栏边界和原文偏移。
 - 已增加章节感知分片器，短章节保持完整，长章节优先按换行边界切分并保留受控重叠和原文绝对偏移。
 - 已增加 PRD 业务类型导入、非法文档类型、章节解析、长文分片、有效证据、幻觉引用和错误实体引用测试。
-- 已使用 Java 21 执行根 Reactor `mvn test`，共 30 项测试通过；新增覆盖 MyBatis-Plus 两页分页、默认分页元数据、Jakarta Validation、OpenAPI 分页模型、`not_started`、最近失败与历史成功结果并存；真实模型和真实 Embedding 调用未纳入默认自动测试。
+- 已使用 Java 21 执行根 Reactor `mvn test`，共 33 项测试通过；覆盖 MyBatis-Plus 两页分页、默认分页元数据、Jakarta Validation、OpenAPI 分页模型、`not_started`、最近失败与历史成功结果并存、AI 摘要聚合与回退；真实模型和真实 Embedding 调用未纳入默认自动测试。
 - 已增加 RESTful AI 抽取资源入口 `POST /api/v1/spaces/{spaceId}/documents/{documentId}/extractions`：按章节解析和分片调用 `AiExtractionClient`，返回候选实体、关系、证据和冲突，但暂不写入正式图谱。
-- 已增加 `ai_extraction_runs` 持久化运行记录，保存供应商、模型、Prompt/Schema 版本、状态、章节/分片数量、完整结果 JSON、脱敏错误摘要和完成时间；同步提供抽取历史列表和按 `extractionId` 查询详情的 RESTful 接口。
+- 已增加 `ai_extraction_runs` 持久化运行记录，保存供应商、模型、Prompt/Schema 版本、状态、章节/分片数量、文档级 AI 摘要、完整结果 JSON、脱敏错误摘要和完成时间；旧 SQLite 数据库会幂等补充 `document_summary`，并同步提供抽取历史列表和按 `extractionId` 查询详情的 RESTful 接口。
 - 已将系统提示词迁移为结构清晰的 `prompts/prd-extraction-system.md`，并增加 classpath 资源测试，避免打包后出现 Prompt 资源缺失。
 - 已接入 MyBatis-Plus 3.5.17；知识空间、来源资料、导入批次和图谱节点/关系/证据 Repository 已统一使用 Entity/Mapper，业务 Repository 不再使用 JdbcTemplate 手写查询。
 - 需要明确 SQL 的图谱节点、关系和证据查询已迁移到 `backend/server/src/main/resources/mapper/*.xml`，Mapper 接口只保留方法签名和 Javadoc。
@@ -619,8 +619,11 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - “查看结果”不再通过额外历史列表请求首次发现状态：最近完成时直接读取结果，最近失败但存在历史成功结果时明确显示“查看上次结果”，没有可用结果时禁用并提示先点击当前卡片上的“AI 提取”或“重新提取”；禁用态不再显示加载光标。
 - 后端来源资料列表已使用 MyBatis-Plus `PaginationInnerInterceptor` 生成 SQLite 分页和总数查询，默认每页 12 条、单页上限 100；`page` 和 `pageSize` 由 Jakarta Validation 校验。
 - 当前页资料的最近抽取运行和最近成功结果标识使用一条窗口查询批量组装，未执行过抽取时显式返回 `not_started`，列表不返回完整 AI 结果 JSON，也不会对每份资料逐条查询抽取历史。
+- 结构化输出和 Prompt 已升级为 `prd-extraction-v2` / `extraction-v2`：每个分片必须返回只基于当前原文的非空短摘要，服务端使用 Jakarta Validation 校验非空和 160 字边界，再按分片顺序去重、拼接并截断为文档摘要，不额外发起模型请求。
+- 来源资料列表的 `excerpt` 已优先返回最近一次成功运行保存的文档摘要；未提取、旧版成功运行无摘要或从未成功时回退导入原文预览，后续重新提取失败不会覆盖历史成功摘要；前端在提取成功后重新读取当前页。
+- AI 提取预览中的稳定关系类型编码已映射为中文业务文案，例如 `department_responsible_for_project` 展示为“部门负责项目”；未知编码统一展示为“关联”，不直接暴露技术标识。
 - 已在运行中的本地服务上完成 HTTP 联调：`GET /api/health`、知识空间查询、带 `Origin=http://localhost:3010` 的 CORS GET 和 multipart 预检均返回 200；临时知识空间上传虚构 Markdown PRD 后，`documentType=prd` 能正确持久化并在来源资料列表返回，临时空间随后已软删除清理。
-- 已在 4010 服务完成真实 RESTful 联调：首次请求疑似因 API 额度不足约 2 秒返回 503，并正确持久化失败运行；额度恢复后重试真实 `gpt-5.4-mini`，约 37 秒返回 HTTP 200，产生 6 个实体、5 条关系、6 条可反查逐字证据和 0 个冲突，历史列表与详情恢复成功，临时资料和空间随后已软删除。
+- 已在 4010 服务使用上一版 `prd-extraction-v1` / `extraction-v1` 完成真实 RESTful 联调：首次请求疑似因 API 额度不足约 2 秒返回 503，并正确持久化失败运行；额度恢复后重试真实 `gpt-5.4-mini`，约 37 秒返回 HTTP 200，产生 6 个实体、5 条关系、6 条可反查逐字证据和 0 个冲突，历史列表与详情恢复成功，临时资料和空间随后已软删除。
 
 ## 18.2 当前验证边界
 
@@ -631,6 +634,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 当前后端只解析 UTF-8 Markdown/TXT；Apache POI 和 PDFBox 依赖已经进入 Maven 管理，但 DOCX/PDF 解析器尚未实现。
 - `AiExtractionClient`、OpenAI-compatible 适配层、结构化 DTO 和校验器已经实现，但尚未从导入接口触发，也没有把候选节点、关系和证据写入图谱表。
 - 已验证当前账号和端点能够调用 `gpt-5.4-mini` 并返回 Prompt 约束的结构化输出；仍未验证原生 JSON Schema 模式、Responses API 结构化抽取或 `text-embedding-3-small`。
+- 新增的 `prd-extraction-v2` / `extraction-v2` 分片摘要已通过 Fake AI、结构校验和 SQLite/MockMvc 集成测试，但尚未对真实 `gpt-5.4-mini` 验证摘要质量、160 字遵循程度和不同分片的重复表达；摘要是生成性展示内容，不能替代逐字证据和人工审核。
 - `AI_JSON_SCHEMA_ENABLED` 默认关闭；当前可使用 LangChain4j 的 Prompt 约束结构化输出，但自定义端点是否支持原生 JSON Schema 需要真实请求后单独验证。
 - Embedding 真实客户端默认关闭，尚未生成、缓存或检索任何真实向量；`document_sections` 和 `document_chunks` 也尚未持久化。当前只持久化抽取运行元数据和完整结果 JSON，尚未把章节、分片、候选实体、关系和证据拆成正式领域表记录。
 - PRD Markdown 章节解析和分片目前只在纯 Java 单元测试中验证，尚未接入导入后的自动处理流程，也未验证超长真实 PRD、DOCX 或 PDF。
@@ -656,7 +660,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 
 ### 19.1.1 最高优先级：来源资料列表状态与服务端分页
 
-v0.10 已完成分页接口、MyBatis-Plus SQLite 分页插件、最近运行与最近成功结果分离、当前页批量抽取摘要、首屏按钮状态、前端页码交互、无结果提示和 OpenAPI/TypeScript 契约同步。下一会话不要重做这些能力，只处理以下剩余验收项：
+v0.11 已完成分页接口、MyBatis-Plus SQLite 分页插件、最近运行与最近成功结果分离、当前页批量抽取状态、最近成功 AI 摘要替换列表预览、首屏按钮状态、前端页码交互、无结果提示和 OpenAPI/TypeScript 契约同步。下一会话不要重做这些能力，只处理以下剩余验收项：
 
 1. **处理中状态轻量刷新**：仅当当前页存在 `processing` 记录时定时刷新当前页；全部结束、切换空间、切换页面或组件卸载时停止刷新，避免对未处理资料和历史页面持续发请求。
 2. **浏览器交互回归**：在真实前后端本地服务上验证多页翻页、切换空间、导入后第一页刷新、删除第二页最后一条、无结果悬浮提示、最近失败但存在历史成功结果时的“查看上次结果”。当前只有自动测试、类型检查和生产构建证据。

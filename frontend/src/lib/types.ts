@@ -117,6 +117,7 @@ export type AiConflictCandidate = {
 };
 
 export type AiExtractionResult = {
+  summary: string;
   entities: AiEntityCandidate[];
   relations: AiRelationCandidate[];
   evidences: AiEvidenceCandidate[];
@@ -137,6 +138,7 @@ export type AiDocumentExtraction = {
   schemaVersion: string;
   sectionCount: number;
   chunkCount: number;
+  summary?: string | null;
   chunks: Array<{
     chunkId: string;
     sectionPath: string;

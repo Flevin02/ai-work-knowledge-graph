@@ -62,6 +62,13 @@ public class DatabaseSchemaInitializer {
                 "ALTER TABLE source_documents ADD COLUMN document_type TEXT NOT NULL DEFAULT 'general'"
         );
 
+        // 为旧版本数据库补充成功抽取运行的文档级 AI 摘要字段
+        addColumnIfMissing(
+                "ai_extraction_runs",
+                "document_summary",
+                "ALTER TABLE ai_extraction_runs ADD COLUMN document_summary TEXT"
+        );
+
         // 将升级前已有批次归入默认知识空间
         jdbcTemplate.update(
                 "UPDATE import_batches SET space_id = ? WHERE space_id IS NULL OR space_id = ''",

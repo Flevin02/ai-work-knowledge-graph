@@ -45,6 +45,9 @@ public class AiExtractionRunEntity {
     @TableField("result_json")
     private String resultJson;
 
+    @TableField("document_summary")
+    private String documentSummary;
+
     @TableField("error_message")
     private String errorMessage;
 
@@ -56,4 +59,7 @@ public class AiExtractionRunEntity {
 
     @TableField(exist = false)
     private String latestCompletedExtractionId;
+
+    @TableField(exist = false)
+    private String latestCompletedSummary;
 }

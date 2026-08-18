@@ -573,6 +573,10 @@ public class DocumentServiceImpl implements DocumentService {
                         extractionOverview.completedAt(),
                         extractionOverview.errorMessage()
                 );
+        // 优先使用最近成功运行生成的摘要，旧版运行无摘要时回退导入原文预览
+        String excerpt = extractionOverview == null || extractionOverview.latestCompletedSummary() == null
+                ? document.excerpt()
+                : extractionOverview.latestCompletedSummary();
         return new SourceDocumentResponse(
                 document.id(),
                 document.spaceId(),
@@ -580,7 +584,7 @@ public class DocumentServiceImpl implements DocumentService {
                 document.kind(),
                 document.documentType(),
                 document.contentHash(),
-                document.excerpt(),
+                excerpt,
                 document.status(),
                 document.fileSize(),
                 document.importedAt(),

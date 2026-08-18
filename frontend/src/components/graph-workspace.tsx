@@ -57,9 +57,22 @@ type DeleteConfirmation =
 
 const allTypes: Array<NodeType | 'all'> = ['all', 'project', 'department', 'person', 'task', 'document', 'meeting', 'risk', 'decision'];
 const DOCUMENT_PAGE_SIZE = 12;
+const relationTypeLabels: Record<string, string> = {
+  project_contains_feature: '项目包含功能',
+  feature_contains_requirement: '功能包含需求',
+  requirement_has_task: '需求包含任务',
+  requirement_has_risk: '需求存在风险',
+  task_assigned_to_person: '任务分配给人员',
+  department_responsible_for_project: '部门负责项目',
+  decision_affects_requirement: '决策影响需求',
+};
 
 function formatStatus(status: EdgeStatus) {
   return { suggested: '待审核', confirmed: '已采纳', rejected: '已拒绝', stale: '已失效' }[status];
+}
+
+function formatRelationType(relationType: string) {
+  return relationTypeLabels[relationType] ?? '关联';
 }
 
 function issueCount(graph: GraphData) {
@@ -351,6 +364,8 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
           message: `${extraction.chunkCount} 个分片，${entityCount} 个候选实体，${relationCount} 条候选关系`,
         },
       }));
+      // 重新读取当前页，让成功运行保存的 AI 摘要替换资料卡片原始预览
+      setDocumentRefreshKey((current) => current + 1);
     } catch (error) {
       setDocumentExtractionStates((current) => ({
         ...current,
@@ -844,7 +859,7 @@ function AiExtractionPreviewModal({
           <div className="ai-result-section">
             <h3>候选关系</h3>
             {chunk.extraction.relations.length
-              ? <div className="ai-relation-list">{chunk.extraction.relations.map((relation, index) => <div key={`${chunk.chunkId}-relation-${index}`}><strong>{entityNames.get(relation.sourceEntityId) ?? relation.sourceEntityId}</strong><span>{relation.relationType}</span><strong>{entityNames.get(relation.targetEntityId) ?? relation.targetEntityId}</strong><em>{Math.round(relation.confidence * 100)}%</em></div>)}</div>
+              ? <div className="ai-relation-list">{chunk.extraction.relations.map((relation, index) => <div key={`${chunk.chunkId}-relation-${index}`}><strong>{entityNames.get(relation.sourceEntityId) ?? relation.sourceEntityId}</strong><span>{formatRelationType(relation.relationType)}</span><strong>{entityNames.get(relation.targetEntityId) ?? relation.targetEntityId}</strong><em>{Math.round(relation.confidence * 100)}%</em></div>)}</div>
               : <p className="ai-empty-result">当前分片未识别出关系</p>}
           </div>
           {chunk.extraction.evidences.length > 0 && <div className="ai-result-section"><h3>原文证据</h3><div className="ai-evidence-list">{chunk.extraction.evidences.map((evidence) => <blockquote key={evidence.evidenceId}>“{evidence.quote}”<span>{evidence.sectionPath}</span></blockquote>)}</div></div>}

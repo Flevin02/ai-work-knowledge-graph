@@ -63,6 +63,7 @@ class AiExtractionResultValidatorTests {
                 List.of("evidence-1")
         );
         AiExtractionResult invalidResult = new AiExtractionResult(
+                validResult.summary(),
                 validResult.entities(),
                 List.of(invalidRelation),
                 validResult.evidences(),
@@ -101,6 +102,54 @@ class AiExtractionResultValidatorTests {
             assertThatThrownBy(() -> validator.validateRequest(invalidRequest))
                     .isInstanceOf(AiExtractionValidationException.class)
                     .hasMessageContaining("content");
+        }
+    }
+
+    @Test
+    void rejectsBlankChunkSummaryThroughBeanValidation() {
+        AiExtractionRequest request = request();
+        AiExtractionResult validResult = validResult("用户中心包含登录功能");
+        AiExtractionResult invalidResult = new AiExtractionResult(
+                " ",
+                validResult.entities(),
+                validResult.relations(),
+                validResult.evidences(),
+                validResult.conflicts()
+        );
+
+        try (ValidatorFactory validatorFactory = Validation.buildDefaultValidatorFactory()) {
+            AiExtractionResultValidator validator = new AiExtractionResultValidator(
+                    validatorFactory.getValidator()
+            );
+
+            // 验证空白摘要由 Jakarta Validation 在业务引用校验前统一拒绝
+            assertThatThrownBy(() -> validator.validate(request, invalidResult))
+                    .isInstanceOf(AiExtractionValidationException.class)
+                    .hasMessageContaining("分片摘要不能为空");
+        }
+    }
+
+    @Test
+    void rejectsChunkSummaryLongerThanCardBoundary() {
+        AiExtractionRequest request = request();
+        AiExtractionResult validResult = validResult("用户中心包含登录功能");
+        AiExtractionResult invalidResult = new AiExtractionResult(
+                "摘".repeat(161),
+                validResult.entities(),
+                validResult.relations(),
+                validResult.evidences(),
+                validResult.conflicts()
+        );
+
+        try (ValidatorFactory validatorFactory = Validation.buildDefaultValidatorFactory()) {
+            AiExtractionResultValidator validator = new AiExtractionResultValidator(
+                    validatorFactory.getValidator()
+            );
+
+            // 验证超长摘要由 Jakarta Validation 按结构化输出边界统一拒绝
+            assertThatThrownBy(() -> validator.validate(request, invalidResult))
+                    .isInstanceOf(AiExtractionValidationException.class)
+                    .hasMessageContaining("分片摘要不能超过 160 个字符");
         }
     }
 
@@ -145,6 +194,7 @@ class AiExtractionResultValidatorTests {
                 List.of("evidence-1")
         );
         return new AiExtractionResult(
+                "用户中心包含登录功能并支持手机号验证码。",
                 List.of(project, feature),
                 List.of(relation),
                 List.of(evidence),

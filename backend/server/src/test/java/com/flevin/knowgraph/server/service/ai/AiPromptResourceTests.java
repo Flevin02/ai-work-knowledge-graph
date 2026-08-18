@@ -26,6 +26,7 @@ class AiPromptResourceTests {
         String promptContent = promptResource.getContentAsString(StandardCharsets.UTF_8);
         assertThat(promptContent)
                 .contains("# 工作知识图谱结构化抽取器")
+                .contains("## 分片摘要规则")
                 .contains("## 证据规则")
                 .contains("## 输出约束");
     }

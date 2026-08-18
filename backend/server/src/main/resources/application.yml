@@ -31,8 +31,8 @@ ai:
   json-schema-enabled: ${AI_JSON_SCHEMA_ENABLED:true}
   embedding-enabled: ${AI_EMBEDDING_ENABLED:true}
   embedding-model: ${AI_EMBEDDING_MODEL:text-embedding-3-small}
-  prompt-version: ${AI_PROMPT_VERSION:prd-extraction-v1}
-  schema-version: ${AI_SCHEMA_VERSION:extraction-v1}
+  prompt-version: ${AI_PROMPT_VERSION:prd-extraction-v2}
+  schema-version: ${AI_SCHEMA_VERSION:extraction-v2}
   temperature: ${AI_TEMPERATURE:0.0}
   max-output-tokens: ${AI_MAX_OUTPUT_TOKENS:4096}
   max-retries: ${AI_MAX_RETRIES:0}

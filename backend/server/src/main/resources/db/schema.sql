@@ -195,6 +195,8 @@ CREATE TABLE IF NOT EXISTS ai_extraction_runs (
     chunk_count INTEGER NOT NULL DEFAULT 0,
     -- 成功运行的完整结构化结果 JSON；失败时为空。
     result_json TEXT,
+    -- 成功运行按分片顺序聚合的文档摘要，供来源资料列表展示；失败或旧版运行可为空。
+    document_summary TEXT,
     -- 失败或校验错误摘要；成功时为空。
     error_message TEXT,
     -- 运行创建时间，使用 ISO-8601 UTC 字符串。

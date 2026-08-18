@@ -40,6 +40,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AiExtractionServiceImpl implements AiExtractionService {
 
+    private static final int DOCUMENT_SUMMARY_MAX_LENGTH = 160;
+
     private final SourceDocumentRepository sourceDocumentRepository;
     private final KnowledgeSpaceService knowledgeSpaceService;
     private final PrdMarkdownSectionParser sectionParser;
@@ -105,6 +107,9 @@ public class AiExtractionServiceImpl implements AiExtractionService {
                     .map(chunk -> extractChunk(document, chunk, extractionClient))
                     .toList();
 
+            // 按原文分片顺序聚合模型摘要，形成来源资料卡片使用的文档级摘要
+            String documentSummary = buildDocumentSummary(chunkResults);
+
             Instant completedAt = Instant.now();
             AiDocumentExtractionResponse response = new AiDocumentExtractionResponse(
                     extractionId,
@@ -120,6 +125,7 @@ public class AiExtractionServiceImpl implements AiExtractionService {
                     aiProperties.getSchemaVersion(),
                     sections.size(),
                     chunks.size(),
+                    documentSummary,
                     chunkResults
             );
 
@@ -128,6 +134,7 @@ public class AiExtractionServiceImpl implements AiExtractionService {
                     extractionId,
                     sections.size(),
                     chunks.size(),
+                    documentSummary,
                     writeResultJson(response),
                     completedAt.toString()
             );
@@ -236,6 +243,31 @@ public class AiExtractionServiceImpl implements AiExtractionService {
                 Instant.parse(entity.getCreatedAt()),
                 entity.getCompletedAt() == null ? null : Instant.parse(entity.getCompletedAt())
         );
+    }
+
+    /**
+     * 按来源分片顺序聚合模型摘要，并限制为资料列表可展示的长度。
+     *
+     * @param chunkResults 已通过结构和证据校验的分片抽取结果
+     * @return 去除重复内容后不超过 160 个字符的文档摘要
+     */
+    private String buildDocumentSummary(List<AiChunkExtractionResult> chunkResults) {
+        // 规范化每个分片摘要并去除完全重复内容，保留原始分片顺序
+        List<String> summaries = chunkResults.stream()
+                .map(chunk -> chunk.extraction().summary().replaceAll("\\s+", " ").strip())
+                .distinct()
+                .toList();
+
+        // 使用中文分号连接分片摘要，避免再次产生模型调用和额外费用
+        String documentSummary = String.join("；", summaries);
+
+        // 未超过列表摘要边界时保留完整聚合结果
+        if (documentSummary.length() <= DOCUMENT_SUMMARY_MAX_LENGTH) {
+            return documentSummary;
+        }
+
+        // 截取超长聚合结果，保持与来源资料卡片现有 160 字边界一致
+        return documentSummary.substring(0, DOCUMENT_SUMMARY_MAX_LENGTH);
     }
 
     private String writeResultJson(AiDocumentExtractionResponse response) {

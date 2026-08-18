@@ -37,6 +37,7 @@ public class AiExtractionRunRepository {
      * @param extractionId 抽取记录标识
      * @param sectionCount 章节数量
      * @param chunkCount 分片数量
+     * @param documentSummary 按分片顺序聚合的文档摘要
      * @param resultJson 完整结构化结果 JSON
      * @param completedAt 完成时间
      */
@@ -44,6 +45,7 @@ public class AiExtractionRunRepository {
             String extractionId,
             int sectionCount,
             int chunkCount,
+            String documentSummary,
             String resultJson,
             String completedAt
     ) {
@@ -51,6 +53,7 @@ public class AiExtractionRunRepository {
         updateEntity.setStatus("completed");
         updateEntity.setSectionCount(sectionCount);
         updateEntity.setChunkCount(chunkCount);
+        updateEntity.setDocumentSummary(documentSummary);
         updateEntity.setResultJson(resultJson);
         updateEntity.setErrorMessage(null);
         updateEntity.setCompletedAt(completedAt);
@@ -133,7 +136,7 @@ public class AiExtractionRunRepository {
     }
 
     /**
-     * 批量查询当前页来源资料的最近抽取运行和最近成功结果标识。
+     * 批量查询当前页来源资料的最近抽取运行、最近成功结果标识和摘要。
      *
      * @param spaceId 知识空间标识
      * @param documentIds 当前页来源资料标识
@@ -162,7 +165,8 @@ public class AiExtractionRunRepository {
                         Instant.parse(entity.getCreatedAt()),
                         entity.getCompletedAt() == null ? null : Instant.parse(entity.getCompletedAt()),
                         entity.getErrorMessage(),
-                        entity.getLatestCompletedExtractionId()
+                        entity.getLatestCompletedExtractionId(),
+                        entity.getLatestCompletedSummary()
                 ))
                 .toList();
     }

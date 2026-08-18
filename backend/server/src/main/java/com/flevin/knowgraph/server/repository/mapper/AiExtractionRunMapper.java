@@ -14,7 +14,7 @@ import java.util.List;
 public interface AiExtractionRunMapper extends BaseMapper<AiExtractionRunEntity> {
 
     /**
-     * 批量查询当前页来源资料的最近运行和最近成功抽取标识。
+     * 批量查询当前页来源资料的最近运行、最近成功抽取标识和摘要。
      *
      * @param spaceId 知识空间标识
      * @param documentIds 当前页来源资料标识
