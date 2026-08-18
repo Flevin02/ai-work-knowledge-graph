@@ -6,20 +6,24 @@ import com.flevin.knowgraph.server.model.ai.AiExtractionRunDetail;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRunSummary;
 import com.flevin.knowgraph.server.model.document.DocumentImportResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentContentResponse;
-import com.flevin.knowgraph.server.model.document.SourceDocumentResponse;
+import com.flevin.knowgraph.server.model.document.SourceDocumentPageResponse;
 import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.flevin.knowgraph.server.service.ai.AiExtractionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -29,19 +33,31 @@ import java.util.List;
 @RequestMapping("/v1/spaces/{spaceId}/documents")
 @Tag(name = "来源资料", description = "导入和查询作为知识图谱事实源的办公资料")
 @RequiredArgsConstructor
+@Validated
 public class DocumentController {
 
 	private final DocumentService documentService;
 	private final AiExtractionService aiExtractionService;
 
 	@GetMapping(value = "", name = "查询来源资料列表")
-	@Operation(summary = "查询来源资料列表", description = "返回已经成功解析并持久化的来源资料摘要。")
-	public ApiResponse<List<SourceDocumentResponse>> listDocuments(
+	@Operation(summary = "查询来源资料列表", description = "分页返回来源资料及最近一次 AI 抽取摘要，默认每页 12 条。")
+	public ApiResponse<SourceDocumentPageResponse> listDocuments(
 			@Parameter(description = "知识空间标识", example = "default-space")
-			@PathVariable String spaceId
+			@PathVariable String spaceId,
+			@Parameter(description = "页码，从 1 开始", example = "1")
+			@Min(value = 1, message = "页码必须从 1 开始")
+			@RequestParam(defaultValue = "1") int page,
+			@Parameter(description = "每页数量，最大 100", example = "12")
+			@Min(value = 1, message = "每页数量必须至少为 1")
+			@Max(value = 100, message = "每页数量不能超过 100")
+			@RequestParam(defaultValue = "12") int pageSize
 	) {
-		// 查询指定知识空间已持久化的来源资料摘要
-		List<SourceDocumentResponse> documents = documentService.listDocuments(spaceId);
+		// 分页查询指定知识空间的来源资料和最近 AI 抽取摘要
+		SourceDocumentPageResponse documents = documentService.listDocuments(
+				spaceId,
+				page,
+				pageSize
+		);
 
 		// 使用统一响应结构返回来源资料列表
 		return ApiResponse.success(documents);

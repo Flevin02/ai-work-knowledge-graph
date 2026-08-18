@@ -53,4 +53,7 @@ public class AiExtractionRunEntity {
 
     @TableField("completed_at")
     private String completedAt;
+
+    @TableField(exist = false)
+    private String latestCompletedExtractionId;
 }

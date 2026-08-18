@@ -18,6 +18,8 @@ import java.time.Instant;
  * @param fileSize 文件字节数
  * @param importedAt 首次导入时间
  * @param updatedAt 最近更新时间
+ * @param latestExtraction 最近一次 AI 抽取摘要
+ * @param latestCompletedExtractionId 最近一次成功抽取记录标识；从未成功时为空
  */
 @Schema(description = "已持久化的来源资料摘要")
 public record SourceDocumentResponse(
@@ -42,6 +44,10 @@ public record SourceDocumentResponse(
         @Schema(description = "首次导入时间")
         Instant importedAt,
         @Schema(description = "最近更新时间")
-        Instant updatedAt
+        Instant updatedAt,
+        @Schema(description = "最近一次 AI 抽取摘要")
+        SourceDocumentExtractionSummary latestExtraction,
+        @Schema(description = "最近一次成功抽取记录标识；从未成功时为空")
+        String latestCompletedExtractionId
 ) {
 }

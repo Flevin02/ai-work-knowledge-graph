@@ -2,7 +2,7 @@ package com.flevin.knowgraph.server.service.document;
 
 import com.flevin.knowgraph.server.model.document.DocumentImportResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentContentResponse;
-import com.flevin.knowgraph.server.model.document.SourceDocumentResponse;
+import com.flevin.knowgraph.server.model.document.SourceDocumentPageResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentType;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -43,12 +43,18 @@ public interface DocumentService {
     );
 
     /**
-     * 查询当前数据库中已成功持久化的来源资料摘要。
+     * 分页查询已成功持久化的来源资料及最近 AI 抽取摘要。
      *
      * @param spaceId 知识空间标识
-     * @return 按首次导入时间倒序排列的来源资料列表
+     * @param page 页码，从 1 开始
+     * @param pageSize 每页数量，最大 100
+     * @return 按最近更新时间倒序排列的来源资料分页结果
      */
-    List<SourceDocumentResponse> listDocuments(String spaceId);
+    SourceDocumentPageResponse listDocuments(
+            String spaceId,
+            int page,
+            int pageSize
+    );
 
     /**
      * 查询指定来源资料的解析原文，用于安全的纯文本预览。

@@ -2,11 +2,13 @@ package com.flevin.knowgraph.server.repository.ai;
 
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.flevin.knowgraph.server.model.ai.DocumentExtractionOverview;
 import com.flevin.knowgraph.server.repository.entity.AiExtractionRunEntity;
 import com.flevin.knowgraph.server.repository.mapper.AiExtractionRunMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -128,5 +130,40 @@ public class AiExtractionRunRepository {
                         .eq(AiExtractionRunEntity::getId, extractionId)
         );
         return Optional.ofNullable(entity);
+    }
+
+    /**
+     * 批量查询当前页来源资料的最近抽取运行和最近成功结果标识。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentIds 当前页来源资料标识
+     * @return 存在抽取记录的资料概览；未开始资料不返回记录
+     */
+    public List<DocumentExtractionOverview> findLatestByDocuments(
+            String spaceId,
+            List<String> documentIds
+    ) {
+        if (documentIds.isEmpty()) {
+            return List.of();
+        }
+
+        // 使用窗口查询一次读取当前页全部文档的最近运行和最近成功记录
+        List<AiExtractionRunEntity> entities = aiExtractionRunMapper.findLatestByDocumentIds(
+                spaceId,
+                documentIds
+        );
+
+        // 将持久化查询结果转换为不携带完整模型输出的领域概览
+        return entities.stream()
+                .map(entity -> new DocumentExtractionOverview(
+                        entity.getSourceDocumentId(),
+                        entity.getId(),
+                        entity.getStatus(),
+                        Instant.parse(entity.getCreatedAt()),
+                        entity.getCompletedAt() == null ? null : Instant.parse(entity.getCompletedAt()),
+                        entity.getErrorMessage(),
+                        entity.getLatestCompletedExtractionId()
+                ))
+                .toList();
     }
 }

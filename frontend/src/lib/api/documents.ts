@@ -1,4 +1,4 @@
-import type { AiDocumentExtraction, AiExtractionRunDetail, AiExtractionRunSummary, SourceDocument, SourceDocumentContent } from '@/lib/types';
+import type { AiDocumentExtraction, AiExtractionRunDetail, AiExtractionRunSummary, SourceDocument, SourceDocumentContent, SourceDocumentPage } from '@/lib/types';
 import { backendApiUrl, readApiResponse } from '@/lib/api/client';
 
 export type DocumentImportFileResult = {
@@ -18,12 +18,17 @@ export type DocumentImportResponse = {
   results: DocumentImportFileResult[];
 };
 
-export async function listSourceDocuments(spaceId: string): Promise<SourceDocument[]> {
-  const response = await fetch(`${backendApiUrl}/v1/spaces/${encodeURIComponent(spaceId)}/documents`, {
+export async function listSourceDocuments(
+  spaceId: string,
+  page = 1,
+  pageSize = 12
+): Promise<SourceDocumentPage> {
+  const searchParams = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  const response = await fetch(`${backendApiUrl}/v1/spaces/${encodeURIComponent(spaceId)}/documents?${searchParams}`, {
     method: 'GET',
     cache: 'no-store',
   });
-  return readApiResponse<SourceDocument[]>(response);
+  return readApiResponse<SourceDocumentPage>(response);
 }
 
 export async function getSourceDocumentContent(spaceId: string, documentId: string): Promise<SourceDocumentContent> {

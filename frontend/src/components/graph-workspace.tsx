@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Archive,
   Check,
+  ChevronLeft,
   ChevronRight,
   CircleHelp,
   Eye,
@@ -26,7 +27,7 @@ import {
 import GraphCanvas from './graph-canvas';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { createDocumentExtraction, deleteSourceDocument, getDocumentExtraction, getSourceDocumentContent, importSourceDocuments, listDocumentExtractions, listSourceDocuments } from '@/lib/api/documents';
+import { createDocumentExtraction, deleteSourceDocument, getDocumentExtraction, getSourceDocumentContent, importSourceDocuments, listSourceDocuments } from '@/lib/api/documents';
 import { createKnowledgeSpace, deleteKnowledgeSpace, listKnowledgeSpaces } from '@/lib/api/spaces';
 import {
   nodeTypeColors,
@@ -55,6 +56,7 @@ type DeleteConfirmation =
   | { kind: 'document'; item: SourceDocument };
 
 const allTypes: Array<NodeType | 'all'> = ['all', 'project', 'department', 'person', 'task', 'document', 'meeting', 'risk', 'decision'];
+const DOCUMENT_PAGE_SIZE = 12;
 
 function formatStatus(status: EdgeStatus) {
   return { suggested: '待审核', confirmed: '已采纳', rejected: '已拒绝', stale: '已失效' }[status];
@@ -72,6 +74,18 @@ function mergeDocuments(current: SourceDocument[], incoming: SourceDocument[]) {
   const documentsById = new Map(current.map((document) => [document.id, document]));
   incoming.forEach((document) => documentsById.set(document.id, document));
   return Array.from(documentsById.values());
+}
+
+function toExtractionState(document: SourceDocument): DocumentExtractionState | undefined {
+  const extraction = document.latestExtraction;
+  if (!extraction || extraction.status === 'not_started') return undefined;
+  if (extraction.status === 'processing') {
+    return { status: 'processing', extractionId: extraction.extractionId, message: '服务端正在执行 AI 提取' };
+  }
+  if (extraction.status === 'completed') {
+    return { status: 'success', extractionId: extraction.extractionId, message: '最近一次 AI 提取已完成' };
+  }
+  return { status: 'error', extractionId: extraction.extractionId, message: extraction.errorMessage || '最近一次 AI 提取失败' };
 }
 
 export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
@@ -96,6 +110,10 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation | null>(null);
   const [documentExtractionStates, setDocumentExtractionStates] = useState<Record<string, DocumentExtractionState>>({});
   const [loadingExtractionResultId, setLoadingExtractionResultId] = useState<string | null>(null);
+  const [documentPage, setDocumentPage] = useState(1);
+  const [documentTotal, setDocumentTotal] = useState(0);
+  const [documentTotalPages, setDocumentTotalPages] = useState(0);
+  const [documentRefreshKey, setDocumentRefreshKey] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -128,23 +146,41 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
       setNotice('正在加载当前知识空间的真实来源资料。');
       setNoticeTone('loading');
       try {
-        const documents = await listSourceDocuments(currentSpaceId);
+        const response = await listSourceDocuments(currentSpaceId, documentPage, DOCUMENT_PAGE_SIZE);
         if (cancelled) return;
-        setPersistedDocuments(documents);
+
+        if (!response.items.length && documentPage > 1 && response.totalPages > 0) {
+          setDocumentPage(response.totalPages);
+          return;
+        }
+
+        setPersistedDocuments(response.items);
+        setDocumentPage(response.page);
+        setDocumentTotal(response.total);
+        setDocumentTotalPages(response.totalPages);
+        setDocumentExtractionStates(Object.fromEntries(
+          response.items.flatMap((document) => {
+            const state = toExtractionState(document);
+            return state ? [[document.id, state]] : [];
+          }),
+        ));
         setGraph((current) => ({
           ...current,
           documents: mergeDocuments(
             current.documents.filter((document) => !document.spaceId),
-            documents,
+            response.items,
           ),
         }));
-        setNotice(documents.length
-          ? `已加载当前空间的 ${documents.length} 份真实来源资料；图谱节点仍为虚构演示数据。`
+        setNotice(response.total
+          ? `已加载当前空间第 ${response.page} 页，共 ${response.total} 份真实来源资料；图谱节点仍为虚构演示数据。`
           : '当前知识空间尚未导入真实来源资料；图谱节点仍为虚构演示数据。');
         setNoticeTone('success');
       } catch (error) {
         if (cancelled) return;
         setPersistedDocuments([]);
+        setDocumentTotal(0);
+        setDocumentTotalPages(0);
+        setDocumentExtractionStates({});
         setNotice(`来源资料加载失败：${error instanceof Error ? error.message : '未知错误'}`);
         setNoticeTone('error');
       }
@@ -152,7 +188,7 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
 
     void loadPersistedDocuments();
     return () => { cancelled = true; };
-  }, [currentSpaceId]);
+  }, [currentSpaceId, documentPage, documentRefreshKey]);
 
   const currentSpace = spaces.find((space) => space.id === currentSpaceId) ?? null;
 
@@ -199,6 +235,7 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
         description: newSpaceDescription.trim() || undefined,
       });
       setSpaces((current) => [...current, createdSpace]);
+      setDocumentPage(1);
       setCurrentSpaceId(createdSpace.id);
       setNewSpaceName('');
       setNewSpaceDescription('');
@@ -224,6 +261,7 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
       await deleteKnowledgeSpace(space.id);
       const remainingSpaces = spaces.filter((item) => item.id !== space.id);
       setSpaces(remainingSpaces);
+      setDocumentPage(1);
       setCurrentSpaceId(remainingSpaces[0]?.id ?? null);
       setNotice(`知识空间“${space.name}”已移除，历史事实仍保留。`);
       setNoticeTone('success');
@@ -248,9 +286,9 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
 
     try {
       const response = await importSourceDocuments(currentSpaceId, Array.from(files));
-      const returnedDocuments = response.results.flatMap((result) => result.document ? [result.document] : []);
-      setPersistedDocuments((current) => mergeDocuments(current, returnedDocuments));
-      setGraph((current) => ({ ...current, documents: mergeDocuments(current.documents, returnedDocuments) }));
+
+      setDocumentPage(1);
+      setDocumentRefreshKey((current) => current + 1);
 
       const summary = `导入完成：新增 ${response.importedCount} 份，重复 ${response.duplicateCount} 份，失败 ${response.failedCount} 份。`;
       const failureDetails = response.results
@@ -273,11 +311,10 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
     setDeletingDocumentId(document.id);
     try {
       await deleteSourceDocument(currentSpaceId, document.id);
-      setPersistedDocuments((current) => current.filter((item) => item.id !== document.id));
-      setGraph((current) => ({
-        ...current,
-        documents: current.documents.filter((item) => item.id !== document.id),
-      }));
+      const remainingTotal = Math.max(0, documentTotal - 1);
+      const remainingPages = Math.ceil(remainingTotal / DOCUMENT_PAGE_SIZE);
+      setDocumentPage(Math.min(documentPage, Math.max(1, remainingPages)));
+      setDocumentRefreshKey((current) => current + 1);
       setDocumentExtractionStates((current) => {
         const nextStates = { ...current };
         delete nextStates[document.id];
@@ -330,19 +367,17 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
 
     setLoadingExtractionResultId(document.id);
     try {
-      // 查询该文档历史抽取记录，优先选择最近一次成功结果
-      const runs = await listDocumentExtractions(currentSpaceId, document.id);
-      const latestCompletedRun = runs.find((run) => run.status === 'completed');
-      if (!latestCompletedRun) {
-        const latestRun = runs[0];
-        throw new Error(latestRun?.errorMessage || '当前文档还没有可查看的成功抽取结果');
-      }
+      const currentState = documentExtractionStates[document.id];
+      const completedExtractionId = currentState?.status === 'success'
+        ? currentState.extractionId
+        : document.latestCompletedExtractionId;
+      if (!completedExtractionId) throw new Error('当前文档还没有可查看的成功抽取结果');
 
       // 查询完整抽取结果，支持页面刷新后重新打开历史结果
       const detail = await getDocumentExtraction(
         currentSpaceId,
         document.id,
-        latestCompletedRun.extractionId
+        completedExtractionId
       );
       if (!detail.result) {
         throw new Error('抽取记录没有保存完整结果');
@@ -405,7 +440,7 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
           <section className="space-card">
             <div className="eyebrow">当前知识空间</div>
             <div className="space-switcher">
-              <select aria-label="选择知识空间" value={currentSpaceId ?? ''} onChange={(event) => setCurrentSpaceId(event.target.value)} disabled={!spaces.length || isManagingSpace}>
+              <select aria-label="选择知识空间" value={currentSpaceId ?? ''} onChange={(event) => { setDocumentPage(1); setCurrentSpaceId(event.target.value); }} disabled={!spaces.length || isManagingSpace}>
                 {!spaces.length && <option value="">后端未连接</option>}
                 {spaces.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
               </select>
@@ -423,7 +458,7 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
 
           <nav className="side-nav" aria-label="主导航">
             <button className={view === 'graph' ? 'nav-item active' : 'nav-item'} onClick={() => setView('graph')}><LayoutDashboard size={17} /> 工作图谱 <span>{graph.nodes.length}</span></button>
-            <button className={view === 'documents' ? 'nav-item active' : 'nav-item'} onClick={() => setView('documents')}><FileText size={17} /> 来源资料 <span>{persistedDocuments.length}</span></button>
+            <button className={view === 'documents' ? 'nav-item active' : 'nav-item'} onClick={() => setView('documents')}><FileText size={17} /> 来源资料 <span>{documentTotal}</span></button>
             <button className={view === 'review' ? 'nav-item active' : 'nav-item'} onClick={() => setView('review')}><Inbox size={17} /> 关系审核 <span className="warning-count">{pendingEdges.length}</span></button>
             <button className={view === 'health' ? 'nav-item active' : 'nav-item'} onClick={() => setView('health')}><ShieldCheck size={17} /> 知识健康 <span className="warning-count">{issueCount(graph)}</span></button>
           </nav>
@@ -445,7 +480,7 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
             <div className="section-heading">真实来源资料</div>
             {persistedDocuments.length ? <div className="persisted-source-list">
               {persistedDocuments.slice(0, 4).map((document) => <button className="persisted-source" key={document.id} title={document.name} onClick={() => setView('documents')}><FileText size={14} /><span>{document.name}</span><em>{document.kind === 'markdown' ? 'MD' : 'TXT'}</em></button>)}
-              {persistedDocuments.length > 4 && <div className="persisted-source-more">另有 {persistedDocuments.length - 4} 份已持久化资料</div>}
+              {documentTotal > 4 && <div className="persisted-source-more">当前空间共 {documentTotal} 份已持久化资料</div>}
             </div> : <div className="persisted-source-empty">尚未导入真实资料</div>}
           </section>
 
@@ -455,7 +490,7 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
         <section className="content-area">
           <div className="page-heading">
             <div><div className="eyebrow">工作台 / {currentSpace?.name ?? '未连接知识空间'}</div><h1>{pageTitle}</h1><p>{pageDescription}</p></div>
-            <div className="page-stats"><div><strong>{graph.nodes.length}</strong><span>演示节点</span></div><div><strong>{confirmedEdgeCount}</strong><span>演示关系</span></div><div><strong>{persistedDocuments.length}</strong><span>真实资料</span></div></div>
+            <div className="page-stats"><div><strong>{graph.nodes.length}</strong><span>演示节点</span></div><div><strong>{confirmedEdgeCount}</strong><span>演示关系</span></div><div><strong>{documentTotal}</strong><span>真实资料</span></div></div>
           </div>
 
           {notice && <div className={`notice ${noticeTone}`}>{noticeTone === 'loading' ? <LoaderCircle className="spin" size={16} /> : noticeTone === 'error' ? <AlertTriangle size={16} /> : <Check size={16} />} {notice}<button onClick={() => setNotice('')} aria-label="关闭提示"><X size={15} /></button></div>}
@@ -479,6 +514,10 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
             deletingDocumentId={deletingDocumentId}
             extractionStates={documentExtractionStates}
             loadingExtractionResultId={loadingExtractionResultId}
+            page={documentPage}
+            total={documentTotal}
+            totalPages={documentTotalPages}
+            onPageChange={setDocumentPage}
           />}
           {view === 'review' && <ReviewPanel graph={graph} pendingEdges={pendingEdges} onUpdateEdge={updateEdge} />}
           {view === 'health' && <HealthPanel graph={graph} onSelectNode={(id) => { setSelectedNodeId(id); setView('graph'); }} />}
@@ -542,6 +581,10 @@ function DocumentPanel({
   deletingDocumentId,
   extractionStates,
   loadingExtractionResultId,
+  page,
+  total,
+  totalPages,
+  onPageChange,
 }: {
   documents: SourceDocument[];
   onPreview: (document: SourceDocument) => void;
@@ -551,29 +594,67 @@ function DocumentPanel({
   deletingDocumentId: string | null;
   extractionStates: Record<string, DocumentExtractionState>;
   loadingExtractionResultId: string | null;
+  page: number;
+  total: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
 }) {
   if (!documents.length) {
     return <div className="state-card document-empty"><FileText size={28} /><h3>尚未导入来源资料</h3><p>点击右上角“导入资料”，选择 UTF-8 Markdown 或 TXT 文件。</p></div>;
   }
 
-  return <div className="document-grid">
-    {documents.map((document) => {
-      const extractionState = extractionStates[document.id];
-      const isExtracting = extractionState?.status === 'processing';
-      return <article className="document-card" key={document.id}>
-      <div className="document-card-head"><span className="document-kind"><FileText size={16} />{document.kind === 'markdown' ? 'Markdown' : 'TXT'}</span><div className="document-status-group"><span className="document-status">已解析</span>{extractionState && <span className={`ai-document-status ${extractionState.status}`} title={extractionState.message}>{isExtracting && <LoaderCircle className="spin" size={11} />}{extractionState.status === 'processing' ? 'AI 提取中' : extractionState.status === 'success' ? 'AI 已完成' : 'AI 提取失败'}</span>}</div></div>
-      <h3 title={document.name}>{document.name}</h3>
-      <p>{document.excerpt}</p>
-      <div className="document-meta"><span>{formatFileSize(document.fileSize)}</span><span>{formatImportedAt(document.importedAt)}</span></div>
-      <div className="document-hash" title={document.contentHash}>SHA-256 · {document.contentHash.slice(0, 16)}…</div>
-      <div className="document-card-actions">
-        <button className="secondary-button" onClick={() => onPreview(document)}><Eye size={14} /> 查看</button>
-        <button className="secondary-button" disabled={isExtracting} onClick={() => onExtract(document)}>{isExtracting ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />} {isExtracting ? '提取中' : extractionState?.status === 'error' ? '重新提取' : extractionState?.status === 'success' ? '再次提取' : 'AI 提取'}</button>
-        <button className="secondary-button" disabled={loadingExtractionResultId === document.id} onClick={() => onViewExtraction(document)}>{loadingExtractionResultId === document.id ? <LoaderCircle className="spin" size={14} /> : <FileText size={14} />} {loadingExtractionResultId === document.id ? '加载中' : '查看结果'}</button>
-        <button className="secondary-button danger-button" disabled={deletingDocumentId === document.id || isExtracting} onClick={() => onDelete(document)}>{deletingDocumentId === document.id ? <LoaderCircle className="spin" size={14} /> : <Trash2 size={14} />} 删除</button>
-      </div>
-    </article>;})}
-  </div>;
+  return <>
+    <div className="document-grid">
+      {documents.map((document) => {
+        const extractionState = extractionStates[document.id];
+        const isExtracting = extractionState?.status === 'processing';
+        const completedExtractionId = extractionState?.status === 'success'
+          ? extractionState.extractionId
+          : document.latestCompletedExtractionId;
+        const latestRunCompleted = extractionState?.status === 'success'
+          || (!extractionState && document.latestExtraction?.status === 'completed');
+        const isLoadingResult = loadingExtractionResultId === document.id;
+        const extractionButtonLabel = isExtracting
+          ? '提取中'
+          : extractionState?.status === 'error'
+            ? '重新提取'
+            : extractionState?.status === 'success'
+              ? '再次提取'
+              : 'AI 提取';
+        const resultButtonLabel = isLoadingResult
+          ? '加载中'
+          : completedExtractionId && !latestRunCompleted
+            ? '查看上次结果'
+            : '查看结果';
+        const resultUnavailableMessage = completedExtractionId
+          ? undefined
+          : isExtracting
+            ? 'AI 正在提取，请稍后查看结果'
+            : extractionState?.status === 'error'
+              ? `AI 提取失败，请先点击“${extractionButtonLabel}”`
+              : `暂无可查看结果，请先点击“${extractionButtonLabel}”`;
+        return <article className="document-card" key={document.id}>
+        <div className="document-card-head"><span className="document-kind"><FileText size={16} />{document.kind === 'markdown' ? 'Markdown' : 'TXT'}</span><div className="document-status-group"><span className="document-status">已解析</span>{extractionState && <span className={`ai-document-status ${extractionState.status}`} title={extractionState.message}>{isExtracting && <LoaderCircle className="spin" size={11} />}{extractionState.status === 'processing' ? 'AI 提取中' : extractionState.status === 'success' ? 'AI 已完成' : 'AI 提取失败'}</span>}</div></div>
+        <h3 title={document.name}>{document.name}</h3>
+        <p>{document.excerpt}</p>
+        <div className="document-meta"><span>{formatFileSize(document.fileSize)}</span><span>{formatImportedAt(document.importedAt)}</span></div>
+        <div className="document-hash" title={document.contentHash}>SHA-256 · {document.contentHash.slice(0, 16)}…</div>
+        <div className="document-card-actions">
+          <button className="secondary-button" onClick={() => onPreview(document)}><Eye size={14} /> 查看</button>
+          <button className="secondary-button" disabled={isExtracting} onClick={() => onExtract(document)}>{isExtracting ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />} {extractionButtonLabel}</button>
+          <span className="result-button-tip" data-tooltip={resultUnavailableMessage}>
+            <button className="secondary-button" aria-label={resultUnavailableMessage || resultButtonLabel} disabled={!completedExtractionId || isLoadingResult} onClick={() => onViewExtraction(document)}>{isLoadingResult ? <LoaderCircle className="spin" size={14} /> : <FileText size={14} />} {resultButtonLabel}</button>
+          </span>
+          <button className="secondary-button danger-button" disabled={deletingDocumentId === document.id || isExtracting} onClick={() => onDelete(document)}>{deletingDocumentId === document.id ? <LoaderCircle className="spin" size={14} /> : <Trash2 size={14} />} 删除</button>
+        </div>
+      </article>;})}
+    </div>
+    {totalPages > 1 && <nav className="document-pagination" aria-label="来源资料分页">
+      <button className="secondary-button" disabled={page <= 1} onClick={() => onPageChange(page - 1)}><ChevronLeft size={15} /> 上一页</button>
+      <span>第 {page} / {totalPages} 页 · 共 {total} 份</span>
+      <button className="secondary-button" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>下一页 <ChevronRight size={15} /></button>
+    </nav>}
+  </>;
 }
 
 function DeleteConfirmationDialog({

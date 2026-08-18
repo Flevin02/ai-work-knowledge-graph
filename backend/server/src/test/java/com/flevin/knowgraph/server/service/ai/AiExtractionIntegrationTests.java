@@ -22,6 +22,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -110,16 +111,59 @@ class AiExtractionIntegrationTests {
         JsonNode extractionJson = objectMapper.readTree(extractionResult.getResponse().getContentAsString());
         String extractionId = extractionJson.path("data").path("extractionId").asText();
 
-        // 查询历史抽取记录摘要，验证结果已脱离首次弹窗持久化
+        // 查询来源资料分页列表，验证最近成功抽取状态已随列表首屏返回
+        mockMvc.perform(get("/v1/spaces/{spaceId}/documents", SPACE_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].latestExtraction.extractionId").value(extractionId))
+                .andExpect(jsonPath("$.data.items[0].latestExtraction.status").value("completed"))
+                .andExpect(jsonPath("$.data.items[0].latestCompletedExtractionId").value(extractionId));
+
+        String failedExtractionId = "failed-after-completed";
+
+        // 写入一条更新的失败运行，验证最近状态和可查看历史成功结果彼此独立
+        jdbcTemplate.update(
+                """
+                INSERT INTO ai_extraction_runs (
+                    id, space_id, source_document_id, provider, model,
+                    prompt_version, schema_version, status, section_count,
+                    chunk_count, error_message, created_at, completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                failedExtractionId,
+                SPACE_ID,
+                documentId,
+                "fake",
+                "fake-model",
+                "prompt-v1",
+                "schema-v1",
+                "failed",
+                0,
+                0,
+                "模型返回内容未通过结构校验",
+                Instant.now().plusSeconds(60).toString(),
+                Instant.now().plusSeconds(61).toString()
+        );
+
+        // 再次查询列表，验证本次失败不会覆盖最近一次可用成功结果标识
+        mockMvc.perform(get("/v1/spaces/{spaceId}/documents", SPACE_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].latestExtraction.extractionId").value(failedExtractionId))
+                .andExpect(jsonPath("$.data.items[0].latestExtraction.status").value("failed"))
+                .andExpect(jsonPath("$.data.items[0].latestExtraction.errorMessage").value("模型返回内容未通过结构校验"))
+                .andExpect(jsonPath("$.data.items[0].latestCompletedExtractionId").value(extractionId));
+
+        // 查询历史抽取记录摘要，验证最近失败和此前成功结果都保持可追溯
         mockMvc.perform(get(
                         "/v1/spaces/{spaceId}/documents/{documentId}/extractions",
                         SPACE_ID,
                         documentId
                 ))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(1))
-                .andExpect(jsonPath("$.data[0].extractionId").value(extractionId))
-                .andExpect(jsonPath("$.data[0].status").value("completed"));
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].extractionId").value(failedExtractionId))
+                .andExpect(jsonPath("$.data[0].status").value("failed"))
+                .andExpect(jsonPath("$.data[1].extractionId").value(extractionId))
+                .andExpect(jsonPath("$.data[1].status").value("completed"));
 
         // 查询历史抽取完整结果，验证页面刷新后仍可重新打开候选结果
         mockMvc.perform(get(

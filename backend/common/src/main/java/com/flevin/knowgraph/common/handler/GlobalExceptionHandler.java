@@ -4,6 +4,8 @@ import com.flevin.knowgraph.common.enums.ErrorCode;
 import com.flevin.knowgraph.common.exception.BusinessException;
 import com.flevin.knowgraph.common.exception.TipsException;
 import com.flevin.knowgraph.common.model.ApiResponse;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -75,6 +77,23 @@ public class GlobalExceptionHandler {
                 .map(FieldError::getDefaultMessage)
                 .collect(Collectors.joining("; "));
         log.warn("参数校验失败: {}", message);
+        return ApiResponse.error(ErrorCode.PARAM_VALID_ERROR, message);
+    }
+
+    /**
+     * 处理 Controller 简单参数上的 Jakarta Validation 约束失败。
+     *
+     * @param exception 参数约束异常
+     * @return 失败响应
+     */
+    @ExceptionHandler(ConstraintViolationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ApiResponse<Void> handleConstraintViolationException(ConstraintViolationException exception) {
+        // 汇总请求参数约束消息，保持与 DTO 校验一致的前端展示格式
+        String message = exception.getConstraintViolations().stream()
+                .map(ConstraintViolation::getMessage)
+                .collect(Collectors.joining("; "));
+        log.warn("请求参数约束失败: {}", message);
         return ApiResponse.error(ErrorCode.PARAM_VALID_ERROR, message);
     }
 

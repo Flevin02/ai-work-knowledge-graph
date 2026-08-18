@@ -2,6 +2,7 @@ package com.flevin.knowgraph.server.service.document.impl;
 
 import com.flevin.knowgraph.common.enums.ErrorCode;
 import com.flevin.knowgraph.common.exception.TipsException;
+import com.flevin.knowgraph.server.model.ai.DocumentExtractionOverview;
 import com.flevin.knowgraph.server.model.document.DocumentImportBatchStatus;
 import com.flevin.knowgraph.server.model.document.DocumentImportFileResult;
 import com.flevin.knowgraph.server.model.document.DocumentImportFileStatus;
@@ -9,10 +10,14 @@ import com.flevin.knowgraph.server.model.document.DocumentImportResponse;
 import com.flevin.knowgraph.server.model.document.ImportBatch;
 import com.flevin.knowgraph.server.model.document.SourceDocument;
 import com.flevin.knowgraph.server.model.document.SourceDocumentContentResponse;
+import com.flevin.knowgraph.server.model.document.SourceDocumentExtractionSummary;
+import com.flevin.knowgraph.server.model.document.SourceDocumentPage;
+import com.flevin.knowgraph.server.model.document.SourceDocumentPageResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentType;
 import com.flevin.knowgraph.server.repository.document.ImportBatchRepository;
 import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
+import com.flevin.knowgraph.server.repository.ai.AiExtractionRunRepository;
 import com.flevin.knowgraph.server.repository.graph.GraphRepository;
 import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
@@ -35,8 +40,11 @@ import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 来源资料服务实现，维护原始文件、解析文本、内容指纹和导入批次的一致边界。
@@ -54,6 +62,7 @@ public class DocumentServiceImpl implements DocumentService {
     private final KnowledgeSpaceService knowledgeSpaceService;
     private final LocalFileStorage localFileStorage;
     private final GraphRepository graphRepository;
+    private final AiExtractionRunRepository aiExtractionRunRepository;
 
     /**
      * 导入一批 Markdown/TXT 来源资料，逐文件返回成功、重复或失败结果。
@@ -148,17 +157,49 @@ public class DocumentServiceImpl implements DocumentService {
      * 查询当前数据库中已成功持久化的来源资料摘要。
      *
      * @param spaceId 知识空间标识
-     * @return 按首次导入时间倒序排列的来源资料列表
+     * @param page 页码，从 1 开始
+     * @param pageSize 每页数量，最大 100
+     * @return 按最近更新时间倒序排列的来源资料分页结果
      */
     @Override
-    public List<SourceDocumentResponse> listDocuments(String spaceId) {
+    public SourceDocumentPageResponse listDocuments(
+            String spaceId,
+            int page,
+            int pageSize
+    ) {
         // 校验来源资料所属知识空间当前有效
         knowledgeSpaceService.requireActive(spaceId);
 
-        // 查询指定空间来源资料并转换为不暴露存储路径和完整文本的接口响应
-        return sourceDocumentRepository.findAll(spaceId).stream()
-                .map(this::toResponse)
+        // 通过 MyBatis-Plus 分页插件查询当前页资料和总数
+        SourceDocumentPage documentPage = sourceDocumentRepository.findPage(
+                spaceId,
+                page,
+                pageSize
+        );
+
+        // 提取当前页文档标识，限定最近抽取摘要的批量查询范围
+        List<String> documentIds = documentPage.items().stream()
+                .map(SourceDocument::id)
                 .toList();
+
+        // 一次批量查询当前页全部文档的最近运行和最近成功结果
+        Map<String, DocumentExtractionOverview> extractionOverviews = aiExtractionRunRepository
+                .findLatestByDocuments(spaceId, documentIds)
+                .stream()
+                .collect(Collectors.toMap(DocumentExtractionOverview::documentId, Function.identity()));
+
+        // 将资料摘要与最近抽取状态按文档标识组装，未开始资料返回显式 not_started
+        List<SourceDocumentResponse> items = documentPage.items().stream()
+                .map(document -> toResponse(document, extractionOverviews.get(document.id())))
+                .toList();
+
+        return new SourceDocumentPageResponse(
+                items,
+                documentPage.page(),
+                documentPage.pageSize(),
+                documentPage.total(),
+                documentPage.totalPages()
+        );
     }
 
     /**
@@ -509,6 +550,29 @@ public class DocumentServiceImpl implements DocumentService {
      * @return 不含存储路径和完整文本的接口响应
      */
     private SourceDocumentResponse toResponse(SourceDocument document) {
+        return toResponse(document, null);
+    }
+
+    /**
+     * 将内部来源资料和可选抽取概览转换为安全的接口摘要。
+     *
+     * @param document 内部来源资料模型
+     * @param extractionOverview 最近抽取概览；未执行过抽取时为空
+     * @return 不含存储路径、完整文本和完整模型输出的接口响应
+     */
+    private SourceDocumentResponse toResponse(
+            SourceDocument document,
+            DocumentExtractionOverview extractionOverview
+    ) {
+        SourceDocumentExtractionSummary extractionSummary = extractionOverview == null
+                ? SourceDocumentExtractionSummary.notStarted()
+                : new SourceDocumentExtractionSummary(
+                        extractionOverview.extractionId(),
+                        extractionOverview.status(),
+                        extractionOverview.startedAt(),
+                        extractionOverview.completedAt(),
+                        extractionOverview.errorMessage()
+                );
         return new SourceDocumentResponse(
                 document.id(),
                 document.spaceId(),
@@ -520,7 +584,9 @@ public class DocumentServiceImpl implements DocumentService {
                 document.status(),
                 document.fileSize(),
                 document.importedAt(),
-                document.updatedAt()
+                document.updatedAt(),
+                extractionSummary,
+                extractionOverview == null ? null : extractionOverview.latestCompletedExtractionId()
         );
     }
 

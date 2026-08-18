@@ -138,9 +138,15 @@ button { cursor: pointer; }
 .document-hash { margin-top: 9px; overflow: hidden; color: #64748b; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .document-card-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 14px; }
 .document-card-actions .secondary-button { justify-content: center; min-width: 0; padding: 8px 6px; font-size: 10px; white-space: nowrap; }
+.result-button-tip { position: relative; display: flex; min-width: 0; }
+.result-button-tip > .secondary-button { width: 100%; }
+.result-button-tip[data-tooltip]:hover::after { position: absolute; z-index: 5; left: 50%; bottom: calc(100% + 8px); width: max-content; max-width: 220px; padding: 7px 9px; transform: translateX(-50%); border: 1px solid #334155; border-radius: 7px; color: var(--text); background: #172033; box-shadow: 0 8px 24px rgba(0, 0, 0, .3); content: attr(data-tooltip); font-size: 10px; line-height: 1.45; white-space: normal; pointer-events: none; }
 .danger-button { color: #fecaca; border-color: rgba(248, 113, 113, .28); background: rgba(127, 29, 29, .18); }
 .danger-button:hover { background: rgba(153, 27, 27, .28); }
-.danger-button:disabled, .document-card-actions .secondary-button:disabled { cursor: wait; opacity: .58; }
+.danger-button:disabled, .document-card-actions .secondary-button:disabled { cursor: not-allowed; opacity: .58; }
+.document-pagination { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 0 0 24px; color: var(--muted); font-size: 11px; }
+.document-pagination .secondary-button { padding: 8px 11px; }
+.document-pagination .secondary-button:disabled { cursor: not-allowed; opacity: .5; }
 .document-empty { margin-top: 18px; }
 .document-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 22px; }
 .document-summary-grid div { display: flex; flex-direction: column; gap: 4px; padding: 11px; border: 1px solid var(--line); border-radius: 8px; background: rgba(17, 26, 45, .7); }

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.flevin.knowgraph.server.repository.mapper.AiExtractionRunMapper">
+
+    <!--
+        在当前页文档范围内一次计算最近运行和最近成功记录，避免 Service 按文档逐条查询。
+        FIRST_VALUE 先把 completed 状态排在前面，再按创建时间和主键选择最近成功记录。
+    -->
+    <select id="findLatestByDocumentIds"
+            resultType="com.flevin.knowgraph.server.repository.entity.AiExtractionRunEntity">
+        WITH ranked_runs AS (
+            SELECT id,
+                   space_id,
+                   source_document_id,
+                   status,
+                   error_message,
+                   created_at,
+                   completed_at,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY source_document_id
+                       ORDER BY created_at DESC, id DESC
+                   ) AS latest_rank,
+                   FIRST_VALUE(CASE WHEN status = 'completed' THEN id END) OVER (
+                       PARTITION BY source_document_id
+                       ORDER BY CASE WHEN status = 'completed' THEN 0 ELSE 1 END,
+                                created_at DESC,
+                                id DESC
+                   ) AS latest_completed_extraction_id
+            FROM ai_extraction_runs
+            WHERE space_id = #{spaceId}
+              AND source_document_id IN
+              <foreach collection="documentIds" item="documentId" open="(" separator="," close=")">
+                  #{documentId}
+              </foreach>
+        )
+        SELECT id,
+               space_id,
+               source_document_id,
+               status,
+               error_message,
+               created_at,
+               completed_at,
+               latest_completed_extraction_id
+        FROM ranked_runs
+        WHERE latest_rank = 1
+    </select>
+
+</mapper>

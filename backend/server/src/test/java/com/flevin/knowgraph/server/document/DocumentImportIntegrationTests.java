@@ -17,6 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -70,6 +71,7 @@ class DocumentImportIntegrationTests {
         storagePaths.forEach(this::deleteTestFile);
 
         // 清理可能引用来源资料的图谱证据和关系
+        jdbcTemplate.update("DELETE FROM ai_extraction_runs");
         jdbcTemplate.update("DELETE FROM review_actions");
         jdbcTemplate.update("DELETE FROM evidences");
         jdbcTemplate.update("DELETE FROM graph_edges");
@@ -171,10 +173,80 @@ class DocumentImportIntegrationTests {
         // 查询来源资料列表，验证 Controller 返回真实持久化结果
         mockMvc.perform(get("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(1))
-                .andExpect(jsonPath("$.data[0].name").value("人员分工.txt"))
-                .andExpect(jsonPath("$.data[0].documentType").value("prd"))
-                .andExpect(jsonPath("$.data[0].excerpt").value("行政部负责统筹，张三负责场地。"));
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.pageSize").value(12))
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.totalPages").value(1))
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].name").value("人员分工.txt"))
+                .andExpect(jsonPath("$.data.items[0].documentType").value("prd"))
+                .andExpect(jsonPath("$.data.items[0].excerpt").value("行政部负责统筹，张三负责场地。"))
+                .andExpect(jsonPath("$.data.items[0].latestExtraction.status").value("not_started"))
+                .andExpect(jsonPath("$.data.items[0].latestCompletedExtractionId").doesNotExist());
+    }
+
+    @Test
+    void controllerPaginatesPersistedDocumentsWithMybatisPlusPlugin() throws Exception {
+        List<MultipartFile> files = java.util.stream.IntStream.rangeClosed(1, 13)
+                .mapToObj(index -> (MultipartFile) new MockMultipartFile(
+                        "files",
+                        "分页资料-%02d.txt".formatted(index),
+                        "text/plain",
+                        "第 %02d 份分页资料".formatted(index).getBytes(StandardCharsets.UTF_8)
+                ))
+                .toList();
+
+        // 一次导入 13 份唯一资料，形成默认每页 12 条的两页数据
+        documentService.importDocuments(
+                DEFAULT_SPACE_ID,
+                files
+        );
+
+        // 查询第一页，验证分页插件同时返回当前页记录和总数元数据
+        mockMvc.perform(get("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(12))
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.pageSize").value(12))
+                .andExpect(jsonPath("$.data.total").value(13))
+                .andExpect(jsonPath("$.data.totalPages").value(2));
+
+        // 查询第二页，验证接口不会回退为一次返回空间内全部资料
+        mockMvc.perform(get("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID)
+                        .queryParam("page", "2")
+                        .queryParam("pageSize", "12"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.page").value(2))
+                .andExpect(jsonPath("$.data.total").value(13))
+                .andExpect(jsonPath("$.data.totalPages").value(2));
+    }
+
+    @Test
+    void controllerValidatesPaginationParametersWithJakartaValidation() throws Exception {
+        // 使用非法页码调用列表接口，验证 Jakarta Validation 返回统一 400 响应
+        mockMvc.perform(get("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID)
+                        .queryParam("page", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(true))
+                .andExpect(jsonPath("$.msg").value("页码必须从 1 开始"));
+
+        // 使用超过插件上限的每页数量，验证参数在进入 Service 前被拒绝
+        mockMvc.perform(get("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID)
+                        .queryParam("pageSize", "101"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(true))
+                .andExpect(jsonPath("$.msg").value("每页数量不能超过 100"));
+    }
+
+    @Test
+    void openApiPublishesDocumentPaginationAndExtractionSummaryModels() throws Exception {
+        // 查询运行时 OpenAPI，验证分页响应和最近抽取摘要已进入接口契约
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paths['/v1/spaces/{spaceId}/documents'].get").exists())
+                .andExpect(jsonPath("$.components.schemas.SourceDocumentPageResponse").exists())
+                .andExpect(jsonPath("$.components.schemas.SourceDocumentExtractionSummary").exists());
     }
 
     @Test
@@ -359,7 +431,8 @@ class DocumentImportIntegrationTests {
         // 来源资料列表不再返回已删除记录
         mockMvc.perform(get("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(0));
+                .andExpect(jsonPath("$.data.items.length()").value(0))
+                .andExpect(jsonPath("$.data.total").value(0));
 
         // 已删除资料不能继续通过原文接口预览
         mockMvc.perform(get(

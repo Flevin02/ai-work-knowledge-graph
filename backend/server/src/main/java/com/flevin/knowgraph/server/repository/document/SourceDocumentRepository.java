@@ -1,8 +1,10 @@
 package com.flevin.knowgraph.server.repository.document;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.flevin.knowgraph.server.model.document.SourceDocument;
+import com.flevin.knowgraph.server.model.document.SourceDocumentPage;
 import com.flevin.knowgraph.server.model.document.SourceDocumentType;
 import com.flevin.knowgraph.server.repository.entity.SourceDocumentEntity;
 import com.flevin.knowgraph.server.repository.mapper.SourceDocumentMapper;
@@ -94,6 +96,46 @@ public class SourceDocumentRepository {
 
         // 将 ORM 实体转换为领域模型，避免 Service 感知 MyBatis-Plus
         return entities.stream().map(this::toDomain).toList();
+    }
+
+    /**
+     * 使用 MyBatis-Plus 分页插件查询有效来源资料。
+     *
+     * @param spaceId 知识空间标识
+     * @param page 页码，从 1 开始
+     * @param pageSize 每页数量
+     * @return 当前页来源资料和分页元数据
+     */
+    public SourceDocumentPage findPage(
+            String spaceId,
+            int page,
+            int pageSize
+    ) {
+        Page<SourceDocumentEntity> pageRequest = new Page<>(page, pageSize);
+
+        // 通过分页插件执行总数统计和当前页查询，并保持更新时间、主键倒序稳定
+        Page<SourceDocumentEntity> entityPage = sourceDocumentMapper.selectPage(
+                pageRequest,
+                Wrappers.<SourceDocumentEntity>lambdaQuery()
+                        .eq(SourceDocumentEntity::getSpaceId, spaceId)
+                        .eq(SourceDocumentEntity::getStatus, "active")
+                        .orderByDesc(SourceDocumentEntity::getUpdatedAt)
+                        .orderByDesc(SourceDocumentEntity::getId)
+        );
+
+        // 将 ORM 分页记录转换为领域模型，避免 Service 感知 MyBatis-Plus
+        List<SourceDocument> documents = entityPage.getRecords().stream()
+                .map(this::toDomain)
+                .toList();
+
+        // 返回领域分页结果，并保留插件计算的总数和总页数
+        return new SourceDocumentPage(
+                documents,
+                Math.toIntExact(entityPage.getCurrent()),
+                Math.toIntExact(entityPage.getSize()),
+                entityPage.getTotal(),
+                entityPage.getPages()
+        );
     }
 
     /**

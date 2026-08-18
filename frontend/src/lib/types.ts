@@ -54,6 +54,24 @@ export type SourceDocument = {
   fileSize?: number;
   importedAt: string;
   updatedAt: string;
+  latestExtraction?: SourceDocumentExtractionSummary;
+  latestCompletedExtractionId?: string;
+};
+
+export type SourceDocumentExtractionSummary = {
+  extractionId?: string;
+  status: 'not_started' | 'processing' | 'completed' | 'failed';
+  startedAt?: string;
+  completedAt?: string;
+  errorMessage?: string;
+};
+
+export type SourceDocumentPage = {
+  items: SourceDocument[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
 };
 
 export type SourceDocumentContent = {
