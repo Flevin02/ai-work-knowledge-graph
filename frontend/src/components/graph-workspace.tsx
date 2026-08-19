@@ -181,12 +181,28 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     const [documentExtractionStates, setDocumentExtractionStates] = useState<Record<string, DocumentExtractionState>>({});
     const [loadingExtractionResultId, setLoadingExtractionResultId] = useState<string | null>(null);
     const [documentPage, setDocumentPage] = useState(1);
+    const [documentSearch, setDocumentSearch] = useState('');
+    const [documentSearchQuery, setDocumentSearchQuery] = useState('');
     const [documentTotal, setDocumentTotal] = useState(0);
     const [documentTotalPages, setDocumentTotalPages] = useState(0);
     const [documentRefreshKey, setDocumentRefreshKey] = useState(0);
     const [graphRefreshKey, setGraphRefreshKey] = useState(0);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const preservedDocumentNoticeSpaceIdRef = useRef<string | null>(null);
+    const suppressDocumentSearchNoticeRef = useRef(false);
+    const documentSearchPendingRef = useRef(false);
+
+    useEffect(() => {
+        // 等待用户停止输入后再提交搜索条件，避免每个字符都请求列表接口
+        const debounceTimer = window.setTimeout(() => {
+            documentSearchPendingRef.current = false;
+            const normalizedSearch = documentSearch.trim();
+            if (normalizedSearch !== documentSearchQuery) {
+                setDocumentSearchQuery(normalizedSearch);
+            }
+        }, 300);
+        return () => window.clearTimeout(debounceTimer);
+    }, [documentSearch, documentSearchQuery]);
 
     useEffect(() => {
         let cancelled = false;
@@ -214,6 +230,13 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
 
     useEffect(() => {
         if (!currentSpaceId) return;
+        if (
+            documentSearchPendingRef.current
+            || (documentSearch !== documentSearchQuery && documentSearch.trim() === documentSearchQuery)
+        ) {
+            // 搜索词仍在防抖窗口内时，跳过页码归一化触发的中间请求
+            return;
+        }
         let cancelled = false;
         let pollingErrorVisible = false;
         let pollingTimer: ReturnType<typeof setTimeout> | undefined;
@@ -222,7 +245,8 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
         const loadPersistedDocuments = async (isPolling = false) => {
             const shouldPreserveNotice = !isPolling
                 && preservedDocumentNoticeSpaceIdRef.current === currentSpaceId;
-            if (!isPolling && !shouldPreserveNotice) {
+            const isSearchRequest = suppressDocumentSearchNoticeRef.current;
+            if (!isPolling && !shouldPreserveNotice && !isSearchRequest) {
                 setNotice('正在加载当前知识空间的真实来源资料。');
                 setNoticeTone('loading');
             }
@@ -231,6 +255,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                     currentSpaceId,
                     documentPage,
                     DOCUMENT_PAGE_SIZE,
+                    documentSearchQuery,
                     abortController.signal
                 );
                 if (cancelled) return;
@@ -260,7 +285,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 const hasProcessingDocument = response.items.some(
                     (document) => document.latestExtraction?.status === 'processing'
                 );
-                if (!isPolling && !shouldPreserveNotice) {
+                if (!isPolling && !shouldPreserveNotice && !isSearchRequest) {
                     setNotice(response.total
                         ? `已加载当前空间第 ${response.page} 页，共 ${response.total} 份真实来源资料；图谱节点仍为虚构演示数据。`
                         : '当前知识空间尚未导入真实来源资料；图谱节点仍为虚构演示数据。');
@@ -273,6 +298,10 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 if (!isPolling && shouldPreserveNotice) {
                     // 资料变更后的列表刷新只同步分页数据，保留导入或删除结果提示
                     preservedDocumentNoticeSpaceIdRef.current = null;
+                }
+                if (!isPolling && isSearchRequest) {
+                    // 名称搜索只更新列表和空态，不切换顶部全局消息，避免输入时提示框闪烁
+                    suppressDocumentSearchNoticeRef.current = false;
                 }
 
                 if (hasProcessingDocument) {
@@ -299,6 +328,8 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 setDocumentTotalPages(0);
                 setDocumentExtractionStates({});
                 preservedDocumentNoticeSpaceIdRef.current = null;
+                // 搜索请求不显示中间加载态，但最终失败仍保留一次稳定错误提示
+                suppressDocumentSearchNoticeRef.current = false;
                 setNotice(`来源资料加载失败：${error instanceof Error ? error.message : '未知错误'}`);
                 setNoticeTone('error');
             }
@@ -310,7 +341,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
             abortController.abort();
             if (pollingTimer) clearTimeout(pollingTimer);
         };
-    }, [currentSpaceId, documentPage, documentRefreshKey]);
+    }, [currentSpaceId, documentPage, documentSearch, documentSearchQuery, documentRefreshKey]);
 
     useEffect(() => {
         if (!currentSpaceId) return;
@@ -783,6 +814,8 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                         <div className="eyebrow">当前知识空间</div>
                         <div className="space-switcher">
                             <select aria-label="选择知识空间" value={currentSpaceId ?? ''} onChange={(event) => {
+                                suppressDocumentSearchNoticeRef.current = false;
+                                documentSearchPendingRef.current = false;
                                 setDocumentPage(1);
                                 setCurrentSpaceId(event.target.value);
                             }} disabled={!spaces.length || isManagingSpace}>
@@ -890,6 +923,19 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
 
                     {view === 'documents' && <DocumentPanel
                         documents={persistedDocuments}
+                        search={documentSearch}
+                        onSearchChange={(value) => {
+                            const normalizedSearch = value.trim();
+                            if (normalizedSearch !== documentSearchQuery) {
+                                suppressDocumentSearchNoticeRef.current = true;
+                                documentSearchPendingRef.current = true;
+                            } else {
+                                suppressDocumentSearchNoticeRef.current = false;
+                                documentSearchPendingRef.current = false;
+                            }
+                            setDocumentSearch(value);
+                            setDocumentPage(1);
+                        }}
                         onPreview={setPreviewDocument}
                         onDelete={(document) => setDeleteConfirmation({kind: 'document', item: document})}
                         onExtract={(document) => void extractDocument(document)}
@@ -964,6 +1010,8 @@ function formatImportedAt(importedAt: string) {
 
 function DocumentPanel({
                            documents,
+                           search,
+                           onSearchChange,
                            onPreview,
                            onDelete,
                            onExtract,
@@ -977,6 +1025,8 @@ function DocumentPanel({
                            onPageChange,
                        }: {
     documents: SourceDocument[];
+    search: string;
+    onSearchChange: (value: string) => void;
     onPreview: (document: SourceDocument) => void;
     onDelete: (document: SourceDocument) => void;
     onExtract: (document: SourceDocument) => void;
@@ -990,11 +1040,18 @@ function DocumentPanel({
     onPageChange: (page: number) => void;
 }) {
     if (!documents.length) {
-        return <div className="state-card document-empty"><FileText size={28}/><h3>尚未导入来源资料</h3>
-            <p>点击右上角“导入资料”，选择 UTF-8 Markdown、TXT 或可复制文本 PDF 文件。</p></div>;
+        return <>
+            <DocumentSearchBox value={search} onChange={onSearchChange}/>
+            <div className="state-card document-empty">
+                <FileText size={28}/>
+                <h3>{search.trim() ? '未找到匹配资料' : '尚未导入来源资料'}</h3>
+                <p>{search.trim() ? '请尝试其他文件名，或清空搜索条件恢复完整列表。' : '点击右上角“导入资料”，选择 UTF-8 Markdown、TXT 或可复制文本 PDF 文件。'}</p>
+            </div>
+        </>;
     }
 
     return <>
+        <DocumentSearchBox value={search} onChange={onSearchChange}/>
         <div className="document-grid">
             {documents.map((document) => {
                 const extractionState = extractionStates[document.id];
@@ -1073,6 +1130,25 @@ function DocumentPanel({
                 onClick={() => onPageChange(page + 1)}>下一页 <ChevronRight size={15}/></button>
         </nav>}
     </>;
+}
+
+function DocumentSearchBox({value, onChange}: { value: string; onChange: (value: string) => void }) {
+    return <div className="document-search-box">
+        <Search size={16}/>
+        <input
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            placeholder="按文件名搜索来源资料"
+            aria-label="按文件名搜索来源资料"
+        />
+        {value && <button
+            type="button"
+            className="space-icon-button"
+            onClick={() => onChange('')}
+            aria-label="清空来源资料搜索"
+            title="清空搜索"
+        ><X size={14}/></button>}
+    </div>;
 }
 
 function DeleteConfirmationDialog({

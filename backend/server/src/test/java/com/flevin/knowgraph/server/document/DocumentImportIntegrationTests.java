@@ -394,6 +394,93 @@ class DocumentImportIntegrationTests {
     }
 
     @Test
+    void controllerFiltersDocumentsByNameWithinCurrentSpace() throws Exception {
+        MockMultipartFile chineseDocument = new MockMultipartFile(
+                "files",
+                "年度会议-Alpha计划.txt",
+                "text/plain",
+                "年度会议 Alpha 计划".getBytes(StandardCharsets.UTF_8)
+        );
+        MockMultipartFile specialCharacterDocument = new MockMultipartFile(
+                "files",
+                "年度会议-设计?.txt",
+                "text/plain",
+                "年度会议设计稿".getBytes(StandardCharsets.UTF_8)
+        );
+        MockMultipartFile wildcardCharacterDocument = new MockMultipartFile(
+                "files",
+                "预算_100%.txt",
+                "text/plain",
+                "预算一百百分比".getBytes(StandardCharsets.UTF_8)
+        );
+        MockMultipartFile otherSpaceDocument = new MockMultipartFile(
+                "files",
+                "年度会议-其他空间.txt",
+                "text/plain",
+                "其他空间中的同名资料".getBytes(StandardCharsets.UTF_8)
+        );
+
+        // 导入当前空间的中文、大小写和特殊字符名称资料
+        documentService.importDocuments(
+                DEFAULT_SPACE_ID,
+                List.of(chineseDocument, specialCharacterDocument, wildcardCharacterDocument)
+        );
+
+        // 创建隔离空间并导入同一名称前缀资料，验证搜索不会跨空间召回
+        KnowledgeSpaceResponse otherSpace = knowledgeSpaceService.createSpace(
+                new CreateKnowledgeSpaceRequest("名称搜索隔离空间", "模糊搜索测试")
+        );
+        documentService.importDocuments(otherSpace.id(), List.of(otherSpaceDocument));
+
+        // 使用小写英文查询，验证 SQLite 名称匹配保持大小写不敏感
+        mockMvc.perform(get("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID)
+                        .queryParam("name", "alpha"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.items[0].name").value("年度会议-Alpha计划.txt"));
+
+        // 使用中文名称前缀和每页一条查询，验证分页元数据与过滤条件同时生效
+        mockMvc.perform(get("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID)
+                        .queryParam("name", "年度会议")
+                        .queryParam("page", "2")
+                        .queryParam("pageSize", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(2))
+                .andExpect(jsonPath("$.data.totalPages").value(2))
+                .andExpect(jsonPath("$.data.items.length()").value(1));
+
+        // 使用文件名中的问号，验证特殊字符通过参数绑定参与模糊匹配
+        mockMvc.perform(get("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID)
+                        .queryParam("name", "设计?"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.items[0].name").value("年度会议-设计?.txt"));
+
+        // 搜索百分号和下划线时按文件名字符匹配，而不是展开成 LIKE 通配符
+        mockMvc.perform(get("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID)
+                        .queryParam("name", "%"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.items[0].name").value("预算_100%.txt"));
+        mockMvc.perform(get("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID)
+                        .queryParam("name", "_"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.items[0].name").value("预算_100%.txt"));
+
+        // 查询当前空间不存在的名称，验证空结果仍保留分页结构
+        mockMvc.perform(get("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID)
+                        .queryParam("name", "不存在的资料"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(0))
+                .andExpect(jsonPath("$.data.totalPages").value(0))
+                .andExpect(jsonPath("$.data.items.length()").value(0));
+
+        // 清理测试创建的隔离空间，避免污染后续测试和本地演示数据
+        knowledgeSpaceService.deleteSpace(otherSpace.id());
+    }
+
+    @Test
     void controllerValidatesPaginationParametersWithJakartaValidation() throws Exception {
         // 使用非法页码调用列表接口，验证 Jakarta Validation 返回统一 400 响应
         mockMvc.perform(get("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID)
@@ -416,6 +503,10 @@ class DocumentImportIntegrationTests {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paths['/v1/spaces/{spaceId}/documents'].get").exists())
+                .andExpect(jsonPath(
+                        "$.paths['/v1/spaces/{spaceId}/documents'].get.parameters[*].name",
+                        org.hamcrest.Matchers.hasItem("name")
+                ))
                 .andExpect(jsonPath("$.components.schemas.SourceDocumentPageResponse").exists())
                 .andExpect(jsonPath("$.components.schemas.SourceDocumentExtractionSummary").exists())
                 .andExpect(jsonPath(

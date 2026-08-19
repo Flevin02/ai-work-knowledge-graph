@@ -35,9 +35,11 @@ export async function listSourceDocuments(
   spaceId: string,
   page = 1,
   pageSize = 12,
+  name = '',
   signal?: AbortSignal
 ): Promise<SourceDocumentPage> {
   const searchParams = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (name.trim()) searchParams.set('name', name.trim());
   const response = await fetch(`${backendApiUrl}/v1/spaces/${encodeURIComponent(spaceId)}/documents?${searchParams}`, {
     method: 'GET',
     cache: 'no-store',

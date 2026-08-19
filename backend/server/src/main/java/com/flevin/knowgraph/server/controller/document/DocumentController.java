@@ -52,6 +52,8 @@ public class DocumentController {
 	public ApiResponse<SourceDocumentPageResponse> listDocuments(
 			@Parameter(description = "知识空间标识", example = "default-space")
 			@PathVariable String spaceId,
+			@Parameter(description = "按原始文件名模糊查询；为空时返回当前空间全部资料", example = "会议")
+			@RequestParam(required = false) String name,
 			@Parameter(description = "页码，从 1 开始", example = "1")
 			@Min(value = 1, message = "页码必须从 1 开始")
 			@RequestParam(defaultValue = "1") int page,
@@ -63,6 +65,7 @@ public class DocumentController {
 		// 分页查询指定知识空间的来源资料和最近 AI 抽取摘要
 		SourceDocumentPageResponse documents = documentService.listDocuments(
 				spaceId,
+				name,
 				page,
 				pageSize
 		);

@@ -162,6 +162,7 @@ public class DocumentServiceImpl implements DocumentService {
      * 查询当前数据库中已成功持久化的来源资料摘要。
      *
      * @param spaceId 知识空间标识
+     * @param name 按原始文件名模糊查询；为空时返回当前空间全部资料
      * @param page 页码，从 1 开始
      * @param pageSize 每页数量，最大 100
      * @return 按最近更新时间倒序排列的来源资料分页结果
@@ -169,6 +170,7 @@ public class DocumentServiceImpl implements DocumentService {
     @Override
     public SourceDocumentPageResponse listDocuments(
             String spaceId,
+            String name,
             int page,
             int pageSize
     ) {
@@ -178,6 +180,7 @@ public class DocumentServiceImpl implements DocumentService {
         // 通过 MyBatis-Plus 分页插件查询当前页资料和总数
         SourceDocumentPage documentPage = sourceDocumentRepository.findPage(
                 spaceId,
+                name,
                 page,
                 pageSize
         );

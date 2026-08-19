@@ -46,12 +46,14 @@ public interface DocumentService {
      * 分页查询已成功持久化的来源资料及最近 AI 抽取摘要。
      *
      * @param spaceId 知识空间标识
+     * @param name 按原始文件名模糊查询；为空时返回当前空间全部资料
      * @param page 页码，从 1 开始
      * @param pageSize 每页数量，最大 100
      * @return 按最近更新时间倒序排列的来源资料分页结果
      */
     SourceDocumentPageResponse listDocuments(
             String spaceId,
+            String name,
             int page,
             int pageSize
     );

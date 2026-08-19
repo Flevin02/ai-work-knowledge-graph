@@ -1,5 +1,6 @@
 package com.flevin.knowgraph.server.repository.document;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -102,25 +103,40 @@ public class SourceDocumentRepository {
      * 使用 MyBatis-Plus 分页插件查询有效来源资料。
      *
      * @param spaceId 知识空间标识
+     * @param name 按原始文件名模糊查询；为空时不增加名称条件
      * @param page 页码，从 1 开始
      * @param pageSize 每页数量
      * @return 当前页来源资料和分页元数据
      */
     public SourceDocumentPage findPage(
             String spaceId,
+            String name,
             int page,
             int pageSize
     ) {
         Page<SourceDocumentEntity> pageRequest = new Page<>(page, pageSize);
 
-        // 通过分页插件执行总数统计和当前页查询，并保持更新时间、主键倒序稳定
+        // 规范化名称筛选条件，空白输入按未筛选处理
+        String normalizedName = name == null ? null : name.trim();
+
+        // 组装当前空间和名称条件，避免将用户输入拼接进 SQL
+        LambdaQueryWrapper<SourceDocumentEntity> queryWrapper = Wrappers.lambdaQuery();
+        queryWrapper.eq(SourceDocumentEntity::getSpaceId, spaceId)
+                .eq(SourceDocumentEntity::getStatus, "active");
+        if (normalizedName != null && !normalizedName.isEmpty()) {
+            // 转义 LIKE 元字符，确保搜索百分号和下划线时按文件名字符匹配
+            queryWrapper.apply(
+                    "name LIKE {0} ESCAPE '\\'",
+                    "%" + escapeLikePattern(normalizedName) + "%"
+            );
+        }
+        queryWrapper.orderByDesc(SourceDocumentEntity::getUpdatedAt)
+                .orderByDesc(SourceDocumentEntity::getId);
+
+        // 通过分页插件执行当前空间内的名称模糊查询，并保持更新时间、主键倒序稳定
         Page<SourceDocumentEntity> entityPage = sourceDocumentMapper.selectPage(
                 pageRequest,
-                Wrappers.<SourceDocumentEntity>lambdaQuery()
-                        .eq(SourceDocumentEntity::getSpaceId, spaceId)
-                        .eq(SourceDocumentEntity::getStatus, "active")
-                        .orderByDesc(SourceDocumentEntity::getUpdatedAt)
-                        .orderByDesc(SourceDocumentEntity::getId)
+                queryWrapper
         );
 
         // 将 ORM 分页记录转换为领域模型，避免 Service 感知 MyBatis-Plus
@@ -136,6 +152,19 @@ public class SourceDocumentRepository {
                 entityPage.getTotal(),
                 entityPage.getPages()
         );
+    }
+
+    /**
+     * 转义 SQLite LIKE 查询中的通配符，保留用户输入的文件名语义。
+     *
+     * @param value 原始名称筛选条件
+     * @return 可作为 LIKE 参数使用的转义文本
+     */
+    private String escapeLikePattern(String value) {
+        return value
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
     }
 
     /**
