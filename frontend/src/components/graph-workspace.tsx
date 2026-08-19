@@ -129,6 +129,7 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
   const [documentTotalPages, setDocumentTotalPages] = useState(0);
   const [documentRefreshKey, setDocumentRefreshKey] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const preservedDocumentNoticeSpaceIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,7 +161,9 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
     const abortController = new AbortController();
 
     const loadPersistedDocuments = async (isPolling = false) => {
-      if (!isPolling) {
+      const shouldPreserveNotice = !isPolling
+        && preservedDocumentNoticeSpaceIdRef.current === currentSpaceId;
+      if (!isPolling && !shouldPreserveNotice) {
         setNotice('正在加载当前知识空间的真实来源资料。');
         setNoticeTone('loading');
       }
@@ -198,7 +201,7 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
         const hasProcessingDocument = response.items.some(
           (document) => document.latestExtraction?.status === 'processing'
         );
-        if (!isPolling) {
+        if (!isPolling && !shouldPreserveNotice) {
           setNotice(response.total
             ? `已加载当前空间第 ${response.page} 页，共 ${response.total} 份真实来源资料；图谱节点仍为虚构演示数据。`
             : '当前知识空间尚未导入真实来源资料；图谱节点仍为虚构演示数据。');
@@ -207,6 +210,10 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
           pollingErrorVisible = false;
           setNotice(hasProcessingDocument ? 'AI 提取状态刷新已恢复。' : 'AI 提取状态已更新。');
           setNoticeTone('success');
+        }
+        if (!isPolling && shouldPreserveNotice) {
+          // 资料变更后的列表刷新只同步分页数据，保留导入或删除结果提示
+          preservedDocumentNoticeSpaceIdRef.current = null;
         }
 
         if (hasProcessingDocument) {
@@ -232,6 +239,7 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
         setDocumentTotal(0);
         setDocumentTotalPages(0);
         setDocumentExtractionStates({});
+        preservedDocumentNoticeSpaceIdRef.current = null;
         setNotice(`来源资料加载失败：${error instanceof Error ? error.message : '未知错误'}`);
         setNoticeTone('error');
       }
@@ -342,6 +350,8 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
     try {
       const response = await importSourceDocuments(currentSpaceId, Array.from(files));
 
+      // 标记当前空间的下一次列表刷新，避免覆盖本批次导入结果摘要
+      preservedDocumentNoticeSpaceIdRef.current = currentSpaceId;
       setDocumentPage(1);
       setDocumentRefreshKey((current) => current + 1);
 
@@ -368,6 +378,8 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
       await deleteSourceDocument(currentSpaceId, document.id);
       const remainingTotal = Math.max(0, documentTotal - 1);
       const remainingPages = Math.ceil(remainingTotal / DOCUMENT_PAGE_SIZE);
+      // 删除后的列表刷新只同步有效页码和资料数据，保留本次删除结果提示
+      preservedDocumentNoticeSpaceIdRef.current = currentSpaceId;
       setDocumentPage(Math.min(documentPage, Math.max(1, remainingPages)));
       setDocumentRefreshKey((current) => current + 1);
       setDocumentExtractionStates((current) => {
