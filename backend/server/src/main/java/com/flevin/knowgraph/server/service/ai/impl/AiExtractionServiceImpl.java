@@ -9,6 +9,7 @@ import com.flevin.knowgraph.server.model.ai.AiExtractionRequest;
 import com.flevin.knowgraph.server.model.ai.AiExtractionResult;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRunDetail;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRunSummary;
+import com.flevin.knowgraph.server.model.ai.AiExtractionStreamEvents;
 import com.flevin.knowgraph.server.model.ai.rag.DocumentChunk;
 import com.flevin.knowgraph.server.model.ai.rag.DocumentSection;
 import com.flevin.knowgraph.server.model.document.SourceDocument;
@@ -16,6 +17,7 @@ import com.flevin.knowgraph.server.repository.ai.AiExtractionRunRepository;
 import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
 import com.flevin.knowgraph.server.repository.entity.AiExtractionRunEntity;
 import com.flevin.knowgraph.server.service.ai.AiExtractionClient;
+import com.flevin.knowgraph.server.service.ai.AiExtractionEventPublisher;
 import com.flevin.knowgraph.server.service.ai.AiExtractionService;
 import com.flevin.knowgraph.server.service.ai.AiExtractionValidationException;
 import com.flevin.knowgraph.server.service.ai.rag.PrdMarkdownSectionParser;
@@ -28,8 +30,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -63,49 +66,155 @@ public class AiExtractionServiceImpl implements AiExtractionService {
             String spaceId,
             String documentId
     ) {
-        // 校验来源资料所属知识空间当前有效
-        knowledgeSpaceService.requireActive(spaceId);
+        // 使用空事件发布器复用同一编排逻辑，保持同步服务调用兼容
+        return executeExtraction(spaceId, documentId, (eventName, payload) -> {
+        });
+    }
 
-        // 查询指定知识空间内的完整来源资料，防止跨空间抽取
-        SourceDocument document = sourceDocumentRepository.findById(spaceId, documentId)
-                .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "来源资料不存在"));
-
-        String extractionId = UUID.randomUUID().toString();
-        Instant createdAt = Instant.now();
-        AiExtractionRunEntity extractionRun = createProcessingRun(
-                extractionId,
-                spaceId,
-                document,
-                createdAt
-        );
-        extractionRunRepository.save(extractionRun);
-
-        // 获取当前已启用并完成配置的真实模型客户端
-        AiExtractionClient extractionClient = extractionClientProvider.getIfAvailable();
-        if (extractionClient == null) {
-            // 记录未启用 AI 的失败运行，方便页面查看历史状态
-            extractionRunRepository.fail(
-                    extractionId,
-                    "AI 服务未启用，请检查 AI_ENABLED 和 AI_API_KEY",
-                    Instant.now().toString()
-            );
-            throw new TipsException(
-                    ErrorCode.AI_SERVICE_UNAVAILABLE,
-                    "AI 服务未启用，请检查 AI_ENABLED 和 AI_API_KEY"
+    /**
+     * 对已导入来源资料执行流式结构化抽取预览，并把运行事件交给传输层。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 来源资料标识
+     * @param eventPublisher 抽取运行事件发布器
+     */
+    @Override
+    public void streamDocument(
+            String spaceId,
+            String documentId,
+            AiExtractionEventPublisher eventPublisher
+    ) {
+        try {
+            // 执行完整抽取编排；失败事件由核心流程在持久化失败状态后发布
+            executeExtraction(spaceId, documentId, eventPublisher);
+        } catch (RuntimeException exception) {
+            log.debug(
+                    "AI 流式抽取已通过 error 事件结束: spaceId={}, documentId={}",
+                    spaceId,
+                    documentId,
+                    exception
             );
         }
+    }
+
+    /**
+     * 执行可同时服务同步响应和流式事件的抽取核心流程。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 来源资料标识
+     * @param eventPublisher 抽取运行事件发布器
+     * @return 完整结构化抽取结果
+     */
+    private AiDocumentExtractionResponse executeExtraction(
+            String spaceId,
+            String documentId,
+            AiExtractionEventPublisher eventPublisher
+    ) {
+        String extractionId = UUID.randomUUID().toString();
+        SourceDocument document = null;
+        DocumentChunk currentChunk = null;
+        boolean runSaved = false;
 
         try {
+            // 校验来源资料所属知识空间当前有效
+            knowledgeSpaceService.requireActive(spaceId);
+
+            // 查询指定知识空间内的完整来源资料，防止跨空间抽取
+            document = sourceDocumentRepository.findById(spaceId, documentId)
+                    .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "来源资料不存在"));
+
+            Instant createdAt = Instant.now();
+
+            // 创建包含模型和版本快照的 processing 运行记录
+            AiExtractionRunEntity extractionRun = createProcessingRun(
+                    extractionId,
+                    spaceId,
+                    document,
+                    createdAt
+            );
+
+            // 先持久化运行记录，使后续每个事件都能通过 extractionRunId 恢复状态
+            extractionRunRepository.save(extractionRun);
+            runSaved = true;
+
+            // 立即发布真实运行创建事件，避免模型首个 Token 前完全静默
+            eventPublisher.publish(
+                    AiExtractionStreamEvents.RUN_STARTED,
+                    new AiExtractionStreamEvents.RunStarted(
+                            extractionId,
+                            document.id(),
+                            document.name(),
+                            aiProperties.getProvider(),
+                            aiProperties.getModel(),
+                            aiProperties.getPromptVersion(),
+                            aiProperties.getSchemaVersion(),
+                            createdAt,
+                            true
+                    )
+            );
+
+            // 获取当前已启用并完成配置的真实模型客户端
+            AiExtractionClient extractionClient = extractionClientProvider.getIfAvailable();
+            if (extractionClient == null) {
+                throw new TipsException(
+                        ErrorCode.AI_SERVICE_UNAVAILABLE,
+                        "AI 服务未启用，请检查 AI_ENABLED 和 AI_API_KEY"
+                );
+            }
+
             // 使用确定性 Markdown 规则解析章节路径和原文偏移
             List<DocumentSection> sections = sectionParser.parse(document.contentText());
 
             // 按章节边界生成可追溯文本分片
             List<DocumentChunk> chunks = documentChunker.chunk(sections);
 
-            // 逐分片串行调用模型，避免一次预览产生不可控并发和费用
-            List<AiChunkExtractionResult> chunkResults = chunks.stream()
-                    .map(chunk -> extractChunk(document, chunk, extractionClient))
-                    .toList();
+            // 保存确定性章节和分片总数，处理中或失败后仍可恢复计划边界
+            extractionRunRepository.plan(extractionId, sections.size(), chunks.size());
+
+            List<AiChunkExtractionResult> chunkResults = new ArrayList<>(chunks.size());
+            for (int index = 0; index < chunks.size(); index++) {
+                currentChunk = chunks.get(index);
+                int chunkIndex = index + 1;
+
+                // 在真实模型调用前发布分片定位和总进度
+                eventPublisher.publish(
+                        AiExtractionStreamEvents.CHUNK_STARTED,
+                        new AiExtractionStreamEvents.ChunkStarted(
+                                extractionId,
+                                document.id(),
+                                currentChunk.chunkId(),
+                                currentChunk.sectionPath(),
+                                chunkIndex,
+                                chunks.size(),
+                                Instant.now()
+                        )
+                );
+
+                // 串行调用当前分片模型，并只转发供应商真实返回的文本增量
+                AiChunkExtractionResult chunkResult = extractChunk(
+                        extractionId,
+                        document,
+                        currentChunk,
+                        extractionClient,
+                        eventPublisher
+                );
+                chunkResults.add(chunkResult);
+
+                // 完整分片通过结构和证据校验后再发布候选结果
+                eventPublisher.publish(
+                        AiExtractionStreamEvents.CHUNK_COMPLETED,
+                        new AiExtractionStreamEvents.ChunkCompleted(
+                                extractionId,
+                                document.id(),
+                                currentChunk.chunkId(),
+                                currentChunk.sectionPath(),
+                                chunkIndex,
+                                chunks.size(),
+                                chunkResult,
+                                Instant.now()
+                        )
+                );
+            }
 
             // 按原文分片顺序聚合模型摘要，形成来源资料卡片使用的文档级摘要
             String documentSummary = buildDocumentSummary(chunkResults);
@@ -126,7 +235,7 @@ public class AiExtractionServiceImpl implements AiExtractionService {
                     sections.size(),
                     chunks.size(),
                     documentSummary,
-                    chunkResults
+                    List.copyOf(chunkResults)
             );
 
             // 序列化完整结果并保存，保证刷新页面后仍可重新查看
@@ -138,13 +247,37 @@ public class AiExtractionServiceImpl implements AiExtractionService {
                     writeResultJson(response),
                     completedAt.toString()
             );
+
+            // 只有完整结果落库成功后才发布最终完成事件
+            eventPublisher.publish(
+                    AiExtractionStreamEvents.COMPLETED,
+                    new AiExtractionStreamEvents.Completed(
+                            extractionId,
+                            document.id(),
+                            response,
+                            completedAt
+                    )
+            );
             return response;
         } catch (RuntimeException exception) {
-            // 保存失败状态后继续抛出原有业务错误，前端可通过历史记录查看原因
-            extractionRunRepository.fail(
+            String errorMessage = resolveErrorMessage(exception);
+            if (runSaved) {
+                // 已持久化运行在失败时保存稳定错误摘要，部分模型文本不写入 result_json
+                extractionRunRepository.fail(
+                        extractionId,
+                        errorMessage,
+                        Instant.now().toString()
+                );
+            }
+
+            // 以稳定 error 事件结束流；发布失败不能覆盖原始抽取异常
+            publishFailureEvent(
+                    eventPublisher,
                     extractionId,
-                    resolveErrorMessage(exception),
-                    Instant.now().toString()
+                    document == null ? documentId : document.id(),
+                    currentChunk == null ? null : currentChunk.chunkId(),
+                    errorMessage,
+                    runSaved
             );
             throw exception;
         }
@@ -294,17 +427,62 @@ public class AiExtractionServiceImpl implements AiExtractionService {
     }
 
     /**
+     * 发布稳定失败事件，并避免传输层异常覆盖原始抽取错误。
+     *
+     * @param eventPublisher 抽取运行事件发布器
+     * @param extractionId 抽取记录标识
+     * @param documentId 来源资料标识
+     * @param chunkId 失败发生时正在处理的分片标识
+     * @param errorMessage 面向用户的稳定错误摘要
+     * @param recoverable 当前运行是否已经持久化
+     */
+    private void publishFailureEvent(
+            AiExtractionEventPublisher eventPublisher,
+            String extractionId,
+            String documentId,
+            String chunkId,
+            String errorMessage,
+            boolean recoverable
+    ) {
+        try {
+            // 发布可由前端状态机识别的终止事件，不包含异常堆栈或敏感模型正文
+            eventPublisher.publish(
+                    AiExtractionStreamEvents.ERROR,
+                    new AiExtractionStreamEvents.Error(
+                            extractionId,
+                            documentId,
+                            chunkId,
+                            errorMessage,
+                            recoverable,
+                            Instant.now()
+                    )
+            );
+        } catch (RuntimeException publishException) {
+            log.warn(
+                    "AI 抽取失败事件发送异常: extractionId={}, documentId={}",
+                    extractionId,
+                    documentId,
+                    publishException
+            );
+        }
+    }
+
+    /**
      * 对单个来源分片执行真实模型调用和服务端结果校验。
      *
+     * @param extractionId 抽取记录标识
      * @param document 来源资料
      * @param chunk 来源分片
      * @param extractionClient 已启用模型客户端
+     * @param eventPublisher 抽取运行事件发布器
      * @return 当前分片结构化候选结果
      */
     private AiChunkExtractionResult extractChunk(
+            String extractionId,
             SourceDocument document,
             DocumentChunk chunk,
-            AiExtractionClient extractionClient
+            AiExtractionClient extractionClient,
+            AiExtractionEventPublisher eventPublisher
     ) {
         AiExtractionRequest request = new AiExtractionRequest(
                 document.id(),
@@ -316,8 +494,21 @@ public class AiExtractionServiceImpl implements AiExtractionService {
         );
 
         try {
-            // 调用领域抽取客户端并完成结构、引用和证据校验
-            AiExtractionResult extraction = extractionClient.extract(request);
+            // 调用领域抽取客户端，把供应商实际文本增量发布到当前分片事件流
+            AiExtractionResult extraction = extractionClient.extract(
+                    request,
+                    delta -> eventPublisher.publish(
+                            AiExtractionStreamEvents.DELTA,
+                            new AiExtractionStreamEvents.Delta(
+                                    extractionId,
+                                    document.id(),
+                                    chunk.chunkId(),
+                                    chunk.sectionPath(),
+                                    delta,
+                                    Instant.now()
+                            )
+                    )
+            );
             return new AiChunkExtractionResult(
                     chunk.chunkId(),
                     chunk.sectionPath(),

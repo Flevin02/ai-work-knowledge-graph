@@ -24,6 +24,21 @@ public interface AiExtractionService {
     );
 
     /**
+     * 对已导入来源资料执行流式结构化抽取预览，并发布真实运行阶段和模型增量。
+     *
+     * <p>失败会通过 {@code error} 事件结束，不向传输层继续抛出；部分模型文本不会写入正式图谱或完整结果字段。</p>
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 来源资料标识
+     * @param eventPublisher 抽取运行事件发布器
+     */
+    void streamDocument(
+            String spaceId,
+            String documentId,
+            AiExtractionEventPublisher eventPublisher
+    );
+
+    /**
      * 查询来源资料的历史 AI 抽取记录摘要。
      *
      * @param spaceId 知识空间标识

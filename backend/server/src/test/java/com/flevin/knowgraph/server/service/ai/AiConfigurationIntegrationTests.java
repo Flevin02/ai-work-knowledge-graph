@@ -2,8 +2,10 @@ package com.flevin.knowgraph.server.service.ai;
 
 import com.flevin.knowgraph.server.config.properties.AiProperties;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -35,6 +37,10 @@ class AiConfigurationIntegrationTests {
     private ChatModel chatModel;
 
     @Autowired
+    @Qualifier("openAiCompatibleStreamingChatModel")
+    private StreamingChatModel streamingChatModel;
+
+    @Autowired
     private AiExtractionClient aiExtractionClient;
 
     @Test
@@ -43,6 +49,7 @@ class AiConfigurationIntegrationTests {
         assertThat(aiProperties.getBaseUrl()).isEqualTo("https://api.psydo.top/v1");
         assertThat(aiProperties.getModel()).isEqualTo("gpt-5.4-mini");
         assertThat(chatModel).isInstanceOf(OpenAiChatModel.class);
+        assertThat(streamingChatModel).isInstanceOf(OpenAiStreamingChatModel.class);
         assertThat(aiExtractionClient).isInstanceOf(
                 com.flevin.knowgraph.server.service.ai.openai.OpenAiCompatibleAiExtractionClient.class
         );

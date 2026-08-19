@@ -125,6 +125,12 @@ export type AiExtractionResult = {
   conflicts: AiConflictCandidate[];
 };
 
+export type AiChunkExtraction = {
+  chunkId: string;
+  sectionPath: string;
+  extraction: AiExtractionResult;
+};
+
 export type AiDocumentExtraction = {
   extractionId: string;
   status: 'processing' | 'completed' | 'failed';
@@ -140,11 +146,65 @@ export type AiDocumentExtraction = {
   sectionCount: number;
   chunkCount: number;
   summary?: string | null;
-  chunks: Array<{
-    chunkId: string;
-    sectionPath: string;
-    extraction: AiExtractionResult;
-  }>;
+  chunks: AiChunkExtraction[];
+};
+
+export type AiExtractionRunStartedEvent = {
+  extractionRunId: string;
+  documentId: string;
+  documentName: string;
+  provider: string;
+  model: string;
+  promptVersion: string;
+  schemaVersion: string;
+  createdAt: string;
+  recoverable: boolean;
+};
+
+export type AiExtractionChunkStartedEvent = {
+  extractionRunId: string;
+  documentId: string;
+  chunkId: string;
+  sectionPath: string;
+  chunkIndex: number;
+  chunkCount: number;
+  occurredAt: string;
+};
+
+export type AiExtractionDeltaEvent = {
+  extractionRunId: string;
+  documentId: string;
+  chunkId: string;
+  sectionPath: string;
+  delta: string;
+  occurredAt: string;
+};
+
+export type AiExtractionChunkCompletedEvent = {
+  extractionRunId: string;
+  documentId: string;
+  chunkId: string;
+  sectionPath: string;
+  chunkIndex: number;
+  chunkCount: number;
+  chunk: AiChunkExtraction;
+  occurredAt: string;
+};
+
+export type AiExtractionCompletedEvent = {
+  extractionRunId: string;
+  documentId: string;
+  result: AiDocumentExtraction;
+  occurredAt: string;
+};
+
+export type AiExtractionErrorEvent = {
+  extractionRunId: string;
+  documentId: string;
+  chunkId?: string;
+  message: string;
+  recoverable: boolean;
+  occurredAt: string;
 };
 
 export type AiExtractionRunSummary = {

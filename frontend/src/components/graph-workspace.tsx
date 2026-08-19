@@ -27,12 +27,13 @@ import {
 import GraphCanvas from './graph-canvas';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { createDocumentExtraction, deleteSourceDocument, getDocumentExtraction, getSourceDocumentContent, importSourceDocuments, listSourceDocuments } from '@/lib/api/documents';
+import { deleteSourceDocument, getDocumentExtraction, getSourceDocumentContent, importSourceDocuments, listSourceDocuments, streamDocumentExtraction } from '@/lib/api/documents';
 import { createKnowledgeSpace, deleteKnowledgeSpace, listKnowledgeSpaces } from '@/lib/api/spaces';
 import {
   nodeTypeColors,
   nodeTypeLabels,
   type EdgeStatus,
+  type AiChunkExtraction,
   type AiDocumentExtraction,
   type GraphData,
   type GraphEdge,
@@ -51,6 +52,24 @@ type DocumentExtractionState = {
   status: 'processing' | 'success' | 'error';
   message?: string;
   extractionId?: string;
+};
+type AiExtractionViewState = {
+  documentId: string;
+  documentName: string;
+  status: 'connecting' | 'processing' | 'completed' | 'error';
+  extractionId?: string;
+  provider?: string;
+  model?: string;
+  promptVersion?: string;
+  schemaVersion?: string;
+  currentChunkId?: string;
+  currentSectionPath?: string;
+  currentChunkIndex: number;
+  chunkCount: number;
+  chunks: AiChunkExtraction[];
+  rawOutput: string;
+  message: string;
+  result?: AiDocumentExtraction;
 };
 type DeleteConfirmation =
   | { kind: 'space'; item: KnowledgeSpace }
@@ -130,7 +149,8 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
   const [isManagingSpace, setIsManagingSpace] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [previewDocument, setPreviewDocument] = useState<SourceDocument | null>(null);
-  const [extractionPreview, setExtractionPreview] = useState<AiDocumentExtraction | null>(null);
+  const [extractionView, setExtractionView] = useState<AiExtractionViewState | null>(null);
+  const [isExtractionViewOpen, setIsExtractionViewOpen] = useState(false);
   const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation | null>(null);
   const [documentExtractionStates, setDocumentExtractionStates] = useState<Record<string, DocumentExtractionState>>({});
@@ -412,31 +432,141 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
   const extractDocument = async (document: SourceDocument) => {
     if (!currentSpaceId) return;
 
+    setExtractionView({
+      documentId: document.id,
+      documentName: document.name,
+      status: 'connecting',
+      currentChunkIndex: 0,
+      chunkCount: 0,
+      chunks: [],
+      rawOutput: '',
+      message: '正在建立 AI 抽取事件流',
+    });
+    setIsExtractionViewOpen(true);
     setDocumentExtractionStates((current) => ({
       ...current,
-      [document.id]: { status: 'processing', message: '正在提取实体、关系和原文证据' },
+      [document.id]: { status: 'processing', message: '正在建立 AI 抽取事件流' },
     }));
     try {
-      const extraction = await createDocumentExtraction(currentSpaceId, document.id);
-      const entityCount = extraction.chunks.reduce((count, chunk) => count + chunk.extraction.entities.length, 0);
-      const relationCount = extraction.chunks.reduce((count, chunk) => count + chunk.extraction.relations.length, 0);
-      setExtractionPreview(extraction);
-      setDocumentExtractionStates((current) => ({
-        ...current,
-        [document.id]: {
-          status: 'success',
-          extractionId: extraction.extractionId,
-          message: `${extraction.chunkCount} 个分片，${entityCount} 个候选实体，${relationCount} 条候选关系`,
+      await streamDocumentExtraction(currentSpaceId, document.id, {
+        onRunStarted: (event) => {
+          setExtractionView((current) => current?.documentId === document.id ? {
+            ...current,
+            status: 'processing',
+            extractionId: event.extractionRunId,
+            provider: event.provider,
+            model: event.model,
+            promptVersion: event.promptVersion,
+            schemaVersion: event.schemaVersion,
+            message: '抽取运行已创建，正在解析来源资料',
+          } : current);
+          setDocumentExtractionStates((current) => ({
+            ...current,
+            [document.id]: {
+              status: 'processing',
+              extractionId: event.extractionRunId,
+              message: '抽取运行已创建，正在解析来源资料',
+            },
+          }));
         },
-      }));
-      // 重新读取当前页，让成功运行保存的 AI 摘要替换资料卡片原始预览
-      setDocumentRefreshKey((current) => current + 1);
+        onChunkStarted: (event) => {
+          setExtractionView((current) => current?.documentId === document.id ? {
+            ...current,
+            status: 'processing',
+            extractionId: event.extractionRunId,
+            currentChunkId: event.chunkId,
+            currentSectionPath: event.sectionPath,
+            currentChunkIndex: event.chunkIndex,
+            chunkCount: event.chunkCount,
+            rawOutput: '',
+            message: `正在处理第 ${event.chunkIndex} / ${event.chunkCount} 个分片`,
+          } : current);
+          setDocumentExtractionStates((current) => ({
+            ...current,
+            [document.id]: {
+              status: 'processing',
+              extractionId: event.extractionRunId,
+              message: `正在处理第 ${event.chunkIndex} / ${event.chunkCount} 个分片`,
+            },
+          }));
+        },
+        onDelta: (event) => {
+          setExtractionView((current) => current?.documentId === document.id ? {
+            ...current,
+            extractionId: event.extractionRunId,
+            currentChunkId: event.chunkId,
+            currentSectionPath: event.sectionPath,
+            rawOutput: current.rawOutput + event.delta,
+          } : current);
+        },
+        onChunkCompleted: (event) => {
+          setExtractionView((current) => current?.documentId === document.id ? {
+            ...current,
+            extractionId: event.extractionRunId,
+            chunkCount: event.chunkCount,
+            chunks: [
+              ...current.chunks.filter((chunk) => chunk.chunkId !== event.chunk.chunkId),
+              event.chunk,
+            ],
+            message: `第 ${event.chunkIndex} / ${event.chunkCount} 个分片已通过结构和证据校验`,
+          } : current);
+        },
+        onCompleted: (event) => {
+          const entityCount = event.result.chunks.reduce((count, chunk) => count + chunk.extraction.entities.length, 0);
+          const relationCount = event.result.chunks.reduce((count, chunk) => count + chunk.extraction.relations.length, 0);
+          setExtractionView((current) => current?.documentId === document.id ? {
+            ...current,
+            status: 'completed',
+            extractionId: event.extractionRunId,
+            currentChunkIndex: event.result.chunkCount,
+            chunkCount: event.result.chunkCount,
+            chunks: event.result.chunks,
+            message: '完整结果已通过校验并保存',
+            result: event.result,
+          } : current);
+          setDocumentExtractionStates((current) => ({
+            ...current,
+            [document.id]: {
+              status: 'success',
+              extractionId: event.extractionRunId,
+              message: `${event.result.chunkCount} 个分片，${entityCount} 个候选实体，${relationCount} 条候选关系`,
+            },
+          }));
+          // 重新读取当前页，让成功运行保存的 AI 摘要替换资料卡片原始预览
+          setDocumentRefreshKey((current) => current + 1);
+        },
+        onError: (event) => {
+          setExtractionView((current) => current?.documentId === document.id ? {
+            ...current,
+            status: 'error',
+            extractionId: event.extractionRunId,
+            currentChunkId: event.chunkId ?? current.currentChunkId,
+            message: event.message,
+          } : current);
+          setDocumentExtractionStates((current) => ({
+            ...current,
+            [document.id]: {
+              status: 'error',
+              extractionId: event.extractionRunId,
+              message: event.message,
+            },
+          }));
+          // 重新读取当前页，恢复服务端已经持久化的失败状态和历史成功结果
+          setDocumentRefreshKey((current) => current + 1);
+        },
+      });
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'AI 抽取流连接异常中断';
+      setExtractionView((current) => current?.documentId === document.id ? {
+        ...current,
+        status: 'error',
+        message,
+      } : current);
       setDocumentExtractionStates((current) => ({
         ...current,
         [document.id]: {
           status: 'error',
-          message: error instanceof Error ? error.message : '未知错误',
+          message,
         },
       }));
     }
@@ -462,7 +592,23 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
       if (!detail.result) {
         throw new Error('抽取记录没有保存完整结果');
       }
-      setExtractionPreview(detail.result);
+      setExtractionView({
+        documentId: document.id,
+        documentName: document.name,
+        status: 'completed',
+        extractionId: detail.result.extractionId,
+        provider: detail.result.provider,
+        model: detail.result.model,
+        promptVersion: detail.result.promptVersion,
+        schemaVersion: detail.result.schemaVersion,
+        currentChunkIndex: detail.result.chunkCount,
+        chunkCount: detail.result.chunkCount,
+        chunks: detail.result.chunks,
+        rawOutput: '',
+        message: '已恢复服务端保存的完整抽取结果',
+        result: detail.result,
+      });
+      setIsExtractionViewOpen(true);
     } catch (error) {
       setDocumentExtractionStates((current) => ({
         ...current,
@@ -616,9 +762,9 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
         spaceId={currentSpaceId}
         onClose={() => setPreviewDocument(null)}
       />}
-      {extractionPreview && <AiExtractionPreviewModal
-        extraction={extractionPreview}
-        onClose={() => setExtractionPreview(null)}
+      {isExtractionViewOpen && extractionView && <AiExtractionViewModal
+        view={extractionView}
+        onClose={() => setIsExtractionViewOpen(false)}
       />}
       {deleteConfirmation && <DeleteConfirmationDialog
         target={deleteConfirmation}
@@ -870,6 +1016,97 @@ function DocumentPreviewModal({
           ? <article className="document-preview-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{content.contentText}</ReactMarkdown></article>
           : <pre className="document-preview-content">{content.contentText}</pre>}
       </>}
+    </section>
+  </div>;
+}
+
+function AiExtractionViewModal({
+  view,
+  onClose,
+}: {
+  view: AiExtractionViewState;
+  onClose: () => void;
+}) {
+  if (view.result) {
+    return <AiExtractionPreviewModal extraction={view.result} onClose={onClose} />;
+  }
+
+  return <AiExtractionProgressModal view={view} onClose={onClose} />;
+}
+
+function AiExtractionProgressModal({
+  view,
+  onClose,
+}: {
+  view: AiExtractionViewState;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  const entities = view.chunks.flatMap((chunk) => chunk.extraction.entities);
+  const relations = view.chunks.flatMap((chunk) => chunk.extraction.relations);
+  const isFailed = view.status === 'error';
+
+  return <div className="document-preview-backdrop" role="presentation" onClick={onClose}>
+    <section className="document-preview-dialog ai-extraction-dialog" role="dialog" aria-modal="true" aria-labelledby="ai-extraction-progress-title" onClick={(event) => event.stopPropagation()}>
+      <header className="document-preview-header">
+        <div>
+          <div className="eyebrow">来源资料 / AI 流式提取</div>
+          <h2 id="ai-extraction-progress-title" title={view.documentName}>{view.documentName}</h2>
+        </div>
+        <button className="space-icon-button" aria-label="关闭 AI 流式提取" title="关闭" onClick={onClose}><X size={16} /></button>
+      </header>
+      <div className="ai-extraction-meta">
+        <span>{view.provider && view.model ? `${view.provider} · ${view.model}` : '正在建立 text/event-stream 连接'}</span>
+        <span>{view.promptVersion && view.schemaVersion ? `Prompt ${view.promptVersion} · Schema ${view.schemaVersion}` : '运行标识将在服务端创建后显示'}</span>
+      </div>
+      <div className={`ai-stream-status ${isFailed ? 'error' : 'processing'}`}>
+        {isFailed ? <AlertTriangle size={16} /> : <LoaderCircle className="spin" size={16} />}
+        <div><strong>{isFailed ? 'AI 提取失败' : view.message}</strong><span>{isFailed ? view.message : view.currentSectionPath || '等待来源资料分片'}</span></div>
+      </div>
+      <div className="ai-extraction-summary ai-stream-summary">
+        <div><strong>{view.chunkCount ? `${view.currentChunkIndex}/${view.chunkCount}` : '—'}</strong><span>当前分片</span></div>
+        <div><strong>{view.chunks.length}</strong><span>已校验分片</span></div>
+        <div><strong>{entities.length}</strong><span>候选实体</span></div>
+        <div><strong>{relations.length}</strong><span>候选关系</span></div>
+        <div><strong>{view.rawOutput.length}</strong><span>当前分片已接收字符</span></div>
+      </div>
+      <div className="ai-extraction-content ai-stream-content">
+        <section className="ai-stream-output">
+          <div className="ai-stream-section-heading"><h3>实时识别进展</h3><span>{view.currentChunkId || '等待分片'}</span></div>
+          <div className="ai-stream-readable-progress">
+            <strong>{view.currentSectionPath ? `正在识别「${view.currentSectionPath}」` : '正在准备来源资料'}</strong>
+            <p>{view.rawOutput
+              ? `模型正在生成结构化候选，当前分片已接收 ${view.rawOutput.length} 个字符。完整返回并通过校验后，下方会展示可读结果。`
+              : isFailed
+                ? '失败前供应商未返回完整的可校验结果。'
+                : '等待模型返回内容；这里只展示真实运行状态，不生成虚假识别结果。'}</p>
+          </div>
+        </section>
+        {view.chunks.length > 0 && <section className="ai-stream-validated">
+          <div className="ai-stream-section-heading"><h3>已识别并通过校验</h3><span>候选结果，尚未写入正式图谱</span></div>
+          {view.chunks.map((chunk) => <article className="ai-stream-validated-item" key={chunk.chunkId}>
+            <div>
+              <span>{chunk.sectionPath}</span>
+              <strong>{chunk.extraction.entities.length} 个实体 · {chunk.extraction.relations.length} 条关系 · {chunk.extraction.evidences.length} 条证据</strong>
+            </div>
+            <p>{chunk.extraction.summary || '该分片没有返回摘要。'}</p>
+            {chunk.extraction.entities.length > 0 && <div className="ai-stream-entity-names">
+              {chunk.extraction.entities.map((entity) => <span key={entity.candidateId}>{entity.name}</span>)}
+            </div>}
+          </article>)}
+        </section>}
+        {view.rawOutput && <details className="ai-stream-technical-output">
+          <summary>技术详情：查看当前分片的模型原始 JSON（{view.rawOutput.length} 字符）</summary>
+          <pre>{view.rawOutput}</pre>
+        </details>}
+      </div>
     </section>
   </div>;
 }

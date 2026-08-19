@@ -32,6 +32,30 @@ public class AiExtractionRunRepository {
     }
 
     /**
+     * 保存确定性解析得到的章节和分片总数，便于处理中或失败运行恢复进度边界。
+     *
+     * @param extractionId 抽取记录标识
+     * @param sectionCount 章节数量
+     * @param chunkCount 分片数量
+     */
+    public void plan(
+            String extractionId,
+            int sectionCount,
+            int chunkCount
+    ) {
+        AiExtractionRunEntity updateEntity = new AiExtractionRunEntity();
+        updateEntity.setSectionCount(sectionCount);
+        updateEntity.setChunkCount(chunkCount);
+
+        // 只按当前运行标识补充确定性解析统计，不改变 processing 状态
+        LambdaUpdateWrapper<AiExtractionRunEntity> updateWrapper = Wrappers.lambdaUpdate();
+        updateWrapper.eq(AiExtractionRunEntity::getId, extractionId);
+
+        // 使用 BaseMapper 保存可恢复的章节和分片总数
+        aiExtractionRunMapper.update(updateEntity, updateWrapper);
+    }
+
+    /**
      * 标记抽取运行完成并保存完整结果 JSON。
      *
      * @param extractionId 抽取记录标识

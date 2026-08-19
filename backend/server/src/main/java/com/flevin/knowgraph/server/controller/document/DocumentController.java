@@ -1,21 +1,23 @@
 package com.flevin.knowgraph.server.controller.document;
 
 import com.flevin.knowgraph.common.model.ApiResponse;
-import com.flevin.knowgraph.server.model.ai.AiDocumentExtractionResponse;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRunDetail;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRunSummary;
 import com.flevin.knowgraph.server.model.document.DocumentImportResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentContentResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentPageResponse;
-import com.flevin.knowgraph.server.service.document.DocumentService;
+import com.flevin.knowgraph.server.service.ai.AiExtractionEventPublisher;
 import com.flevin.knowgraph.server.service.ai.AiExtractionService;
+import com.flevin.knowgraph.server.service.document.DocumentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,6 +28,7 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import java.util.List;
 
@@ -38,6 +41,7 @@ public class DocumentController {
 
 	private final DocumentService documentService;
 	private final AiExtractionService aiExtractionService;
+	private final AiExtractionSseWriter aiExtractionSseWriter;
 
 	@GetMapping(value = "", name = "查询来源资料列表")
 	@Operation(summary = "查询来源资料列表", description = "分页返回来源资料及最近一次 AI 抽取摘要，默认每页 12 条。")
@@ -78,26 +82,40 @@ public class DocumentController {
 		return ApiResponse.success(response);
 	}
 
-	@PostMapping(value = "/{documentId}/extractions", name = "创建来源资料 AI 抽取")
+	@PostMapping(
+			value = "/{documentId}/extractions",
+			name = "创建来源资料 AI 抽取",
+			produces = MediaType.TEXT_EVENT_STREAM_VALUE
+	)
 	@Operation(
 			summary = "创建来源资料 AI 抽取",
-			description = "创建一次来源资料抽取结果，返回候选实体、关系、证据和冲突，当前阶段不直接写入正式图谱。"
+			description = "通过 SSE 返回运行、分片、真实模型增量、完成或失败事件；完整结果通过结构和证据校验后才保存，当前阶段不直接写入正式图谱。"
 	)
-    public ApiResponse<AiDocumentExtractionResponse> extractDocument(
-			@Parameter(description = "知识空间标识", example = "default-space")
-			@PathVariable String spaceId,
-			@Parameter(description = "来源资料标识")
-			@PathVariable String documentId
-	) {
-		// 对指定来源资料执行可追溯的 AI 抽取预览
-		AiDocumentExtractionResponse response = aiExtractionService.extractDocument(
-				spaceId,
-				documentId
-		);
+	public ResponseEntity<StreamingResponseBody> extractDocument(
+				@Parameter(description = "知识空间标识", example = "default-space")
+				@PathVariable String spaceId,
+				@Parameter(description = "来源资料标识")
+				@PathVariable String documentId
+		) {
+			StreamingResponseBody responseBody = outputStream -> {
+				// 为当前 HTTP 输出流创建断线安全的 SSE 事件发布器
+				AiExtractionEventPublisher eventPublisher = aiExtractionSseWriter.createPublisher(outputStream);
 
-		// 使用统一响应结构返回按分片组织的候选结果
-        return ApiResponse.success(response);
-    }
+				// 执行可持久化恢复的流式抽取，完整结果或错误均通过终止事件返回
+				aiExtractionService.streamDocument(
+						spaceId,
+						documentId,
+						eventPublisher
+				);
+			};
+
+			// 禁止中间代理缓冲 SSE，并允许前端按事件到达顺序增量消费
+			return ResponseEntity.ok()
+					.contentType(MediaType.TEXT_EVENT_STREAM)
+					.header(HttpHeaders.CACHE_CONTROL, "no-cache")
+					.header("X-Accel-Buffering", "no")
+					.body(responseBody);
+	}
 
     @GetMapping(value = "/{documentId}/extractions", name = "查询来源资料 AI 抽取记录")
     @Operation(summary = "查询来源资料 AI 抽取记录", description = "返回指定来源资料历史抽取记录摘要，最新记录优先。")

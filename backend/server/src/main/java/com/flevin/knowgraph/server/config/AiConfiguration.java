@@ -5,9 +5,11 @@ import com.flevin.knowgraph.server.service.ai.AiExtractionClient;
 import com.flevin.knowgraph.server.service.ai.AiExtractionResultValidator;
 import com.flevin.knowgraph.server.service.ai.openai.OpenAiCompatibleAiExtractionClient;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
@@ -59,6 +61,36 @@ public class AiConfiguration {
     }
 
     /**
+     * 创建使用自定义 Base URL 和模型名的 OpenAI-compatible 流式聊天模型。
+     *
+     * @param properties AI 模型配置
+     * @return LangChain4j 流式聊天模型
+     */
+    @Bean
+    public StreamingChatModel openAiCompatibleStreamingChatModel(AiProperties properties) {
+        // 校验流式模型调用需要的协议、地址和密钥配置
+        validateOpenAiCompatibleProperties(properties);
+
+        OpenAiStreamingChatModel.OpenAiStreamingChatModelBuilder builder = OpenAiStreamingChatModel.builder()
+                .apiKey(properties.getApiKey())
+                .baseUrl(properties.getBaseUrl())
+                .modelName(properties.getModel())
+                .temperature(properties.getTemperature())
+                .maxCompletionTokens(properties.getMaxOutputTokens())
+                .timeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
+                .logRequests(false)
+                .logResponses(false);
+
+        if (properties.isJsonSchemaEnabled()) {
+            // 与同步客户端保持严格 Schema 语义，具体 ResponseFormat 由流式 AI Service 显式传入
+            builder.strictJsonSchema(true);
+        }
+
+        // 构建不记录敏感请求正文的 OpenAI-compatible 流式聊天模型
+        return builder.build();
+    }
+
+    /**
      * 创建可选的 OpenAI-compatible Embedding 模型。
      *
      * @param properties AI 模型配置
@@ -93,14 +125,17 @@ public class AiConfiguration {
     @Bean
     public AiExtractionClient aiExtractionClient(
             @Qualifier("openAiCompatibleChatModel") ChatModel chatModel,
+            @Qualifier("openAiCompatibleStreamingChatModel") StreamingChatModel streamingChatModel,
             AiExtractionResultValidator validator,
             AiProperties properties
     ) {
         return new OpenAiCompatibleAiExtractionClient(
                 chatModel,
+                streamingChatModel,
                 validator,
                 properties.getPromptVersion(),
-                properties.getSchemaVersion()
+                properties.getSchemaVersion(),
+                properties.isJsonSchemaEnabled()
         );
     }
 

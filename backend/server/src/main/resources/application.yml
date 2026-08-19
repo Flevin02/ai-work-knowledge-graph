@@ -26,6 +26,10 @@ spring:
     multipart:
       max-file-size: 10MB
       max-request-size: 50MB
+  mvc:
+    async:
+      # SSE 允许多分片串行模型调用；单次模型超时仍由 AI_TIMEOUT_SECONDS 独立控制。
+      request-timeout: ${AI_STREAM_REQUEST_TIMEOUT_MS:300000}
   jackson:
     default-property-inclusion: non_null
 

@@ -17,6 +17,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -29,14 +30,18 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -101,26 +106,44 @@ class AiExtractionIntegrationTests {
         String documentId = importResponse.results().getFirst().document().id();
 
         // 使用固定结构化结果替代真实模型，验证服务端编排和证据校验
-        when(aiExtractionClient.extract(any(AiExtractionRequest.class)))
-                .thenAnswer(invocation -> fakeResult(invocation.getArgument(0)));
+        when(aiExtractionClient.extract(
+                any(AiExtractionRequest.class),
+                org.mockito.ArgumentMatchers.<Consumer<String>>any()
+        )).thenAnswer(invocation -> {
+            Consumer<String> deltaConsumer = invocation.getArgument(1);
 
-        // 调用 AI 抽取预览入口，不写入正式图谱表
-        MvcResult extractionResult = mockMvc.perform(post(
-                        "/v1/spaces/{spaceId}/documents/{documentId}/extractions",
-                        SPACE_ID,
-                        documentId
-                ))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.error").value(false))
-                .andExpect(jsonPath("$.data.documentType").value("prd"))
-                .andExpect(jsonPath("$.data.sectionCount").value(2))
-                .andExpect(jsonPath("$.data.chunkCount").value(2))
-                .andExpect(jsonPath("$.data.summary").value("用户中心；登录功能支持手机号验证码。"))
-                .andExpect(jsonPath("$.data.chunks[0].extraction.entities.length()").value(2))
-                .andReturn();
+            // 转发 Fake 模型真实提供的固定增量，验证 SSE delta 不由服务端伪造
+            deltaConsumer.accept("{\"summary\":");
+            return fakeResult(invocation.getArgument(0));
+        });
 
-        JsonNode extractionJson = objectMapper.readTree(extractionResult.getResponse().getContentAsString());
-        String extractionId = extractionJson.path("data").path("extractionId").asText();
+        // 调用 AI 抽取 SSE 入口，读取完成前的全部运行事件
+        String extractionStream = performStreamingExtraction(documentId);
+
+        assertThat(extractionStream.indexOf("event:run_started"))
+                .isLessThan(extractionStream.indexOf("event:chunk_started"));
+        assertThat(extractionStream.indexOf("event:chunk_started"))
+                .isLessThan(extractionStream.indexOf("event:delta"));
+        assertThat(extractionStream.indexOf("event:delta"))
+                .isLessThan(extractionStream.indexOf("event:chunk_completed"));
+        assertThat(extractionStream.indexOf("event:chunk_completed"))
+                .isLessThan(extractionStream.indexOf("event:completed"));
+        assertThat(countStreamEvents(extractionStream, "chunk_started")).isEqualTo(2);
+        assertThat(countStreamEvents(extractionStream, "chunk_completed")).isEqualTo(2);
+
+        // 解析终止事件，验证完整结果仍在服务端校验和持久化后返回
+        JsonNode completedEvent = readStreamEvent(extractionStream, "completed");
+        String extractionId = completedEvent.path("extractionRunId").asText();
+        assertThat(completedEvent.path("result").path("documentType").asText()).isEqualTo("prd");
+        assertThat(completedEvent.path("result").path("sectionCount").asInt()).isEqualTo(2);
+        assertThat(completedEvent.path("result").path("chunkCount").asInt()).isEqualTo(2);
+        assertThat(completedEvent.path("result").path("summary").asText())
+                .isEqualTo("用户中心；登录功能支持手机号验证码。");
+        assertThat(completedEvent.path("result").path("chunks").get(0)
+                .path("extraction").path("entities").size()).isEqualTo(2);
+
+        JsonNode deltaEvent = readStreamEvent(extractionStream, "delta");
+        assertThat(deltaEvent.path("delta").asText()).isEqualTo("{\"summary\":");
 
         // 查询来源资料分页列表，验证最近成功抽取状态已随列表首屏返回
         mockMvc.perform(get("/v1/spaces/{spaceId}/documents", SPACE_ID))
@@ -261,7 +284,10 @@ class AiExtractionIntegrationTests {
         CountDownLatch releaseModelCall = new CountDownLatch(1);
 
         // 阻塞 Fake 模型调用，模拟真实模型长耗时但不占用数据库事务
-        when(aiExtractionClient.extract(any(AiExtractionRequest.class)))
+        when(aiExtractionClient.extract(
+                any(AiExtractionRequest.class),
+                org.mockito.ArgumentMatchers.<Consumer<String>>any()
+        ))
                 .thenAnswer(invocation -> {
                     modelCallStarted.countDown();
                     if (!releaseModelCall.await(5, TimeUnit.SECONDS)) {
@@ -272,13 +298,20 @@ class AiExtractionIntegrationTests {
 
         // 在独立线程触发抽取，主测试线程同时验证唯一池连接仍可服务其他请求
         try (ExecutorService executorService = Executors.newSingleThreadExecutor()) {
-            Future<MvcResult> extractionFuture = executorService.submit(() -> mockMvc.perform(post(
+            Future<MvcResult> extractionFuture = executorService.submit(() -> {
+                MvcResult streamStarted = mockMvc.perform(post(
                             "/v1/spaces/{spaceId}/documents/{documentId}/extractions",
                             SPACE_ID,
                             documentId
-                    ))
-                    .andExpect(status().isOk())
-                    .andReturn());
+                        ).accept("text/event-stream"))
+                        .andExpect(request().asyncStarted())
+                        .andReturn();
+
+                // 等待异步 SSE 抽取完成，确保最终运行记录和终止事件均已收口
+                return mockMvc.perform(asyncDispatch(streamStarted))
+                        .andExpect(status().isOk())
+                        .andReturn();
+            });
 
             try {
                 // 等待抽取运行记录已保存且模型调用进入阻塞阶段
@@ -312,6 +345,122 @@ class AiExtractionIntegrationTests {
             // 等待抽取完成，确认阻塞恢复后运行记录能够正常收口
             extractionFuture.get(5, TimeUnit.SECONDS);
         }
+    }
+
+    @Test
+    void keepsPartialDeltaOutOfPersistedResultWhenValidationFails() throws Exception {
+        MockMultipartFile documentFile = new MockMultipartFile(
+                "files",
+                "结构校验失败.md",
+                "text/markdown",
+                "# 风险\n\n模型部分输出不能写入正式结果。".getBytes(StandardCharsets.UTF_8)
+        );
+
+        // 导入单分片虚构资料，准备可追溯的失败运行
+        DocumentImportResponse importResponse = documentService.importDocuments(
+                SPACE_ID,
+                "prd",
+                List.of(documentFile)
+        );
+        String documentId = importResponse.results().getFirst().document().id();
+
+        // Fake 模型先返回真实部分文本，再模拟完整结构校验失败
+        when(aiExtractionClient.extract(
+                any(AiExtractionRequest.class),
+                org.mockito.ArgumentMatchers.<Consumer<String>>any()
+        )).thenAnswer(invocation -> {
+            Consumer<String> deltaConsumer = invocation.getArgument(1);
+            deltaConsumer.accept("{\"summary\":\"未完成");
+            throw new AiExtractionValidationException("Fake 完整结果无效");
+        });
+
+        // 消费完整 SSE 响应，验证失败前的真实增量和稳定错误事件都可见
+        String extractionStream = performStreamingExtraction(documentId);
+        assertThat(extractionStream).contains("event:delta");
+        assertThat(extractionStream).contains("event:error");
+        assertThat(extractionStream).doesNotContain("event:completed");
+        assertThat(extractionStream.indexOf("event:delta"))
+                .isLessThan(extractionStream.indexOf("event:error"));
+
+        JsonNode errorEvent = readStreamEvent(extractionStream, "error");
+        String extractionId = errorEvent.path("extractionRunId").asText();
+        assertThat(errorEvent.path("recoverable").asBoolean()).isTrue();
+        assertThat(errorEvent.path("message").asText()).isEqualTo("AI 返回的结构化结果未通过证据校验");
+
+        // 查询运行记录，确认部分 JSON 没有进入完整结果字段且失败原因可恢复
+        mockMvc.perform(get(
+                        "/v1/spaces/{spaceId}/documents/{documentId}/extractions/{extractionId}",
+                        SPACE_ID,
+                        documentId,
+                        extractionId
+                ))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.summary.status").value("failed"))
+                .andExpect(jsonPath("$.data.summary.chunkCount").value(1))
+                .andExpect(jsonPath("$.data.summary.errorMessage").value("AI 返回的结构化结果未通过证据校验"))
+                .andExpect(jsonPath("$.data.result").doesNotExist());
+
+        Integer storedResultCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM ai_extraction_runs WHERE id = ? AND result_json IS NOT NULL",
+                Integer.class,
+                extractionId
+        );
+        assertThat(storedResultCount).isZero();
+    }
+
+    @Test
+    void openApiPublishesStreamingExtractionContract() throws Exception {
+        // 查询运行时 OpenAPI，确认抽取资源明确声明 SSE 响应媒体类型
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(
+                        "$.paths['/v1/spaces/{spaceId}/documents/{documentId}/extractions']"
+                                + ".post.responses['200'].content['text/event-stream']"
+                ).exists());
+    }
+
+    private String performStreamingExtraction(String documentId) throws Exception {
+        // 发起 SSE 请求并确认 Spring MVC 已切换到异步响应
+        MvcResult streamStarted = mockMvc.perform(post(
+                        "/v1/spaces/{spaceId}/documents/{documentId}/extractions",
+                        SPACE_ID,
+                        documentId
+                ).accept(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        // 等待流式任务结束并读取完整测试响应缓冲区
+        MvcResult streamCompleted = mockMvc.perform(asyncDispatch(streamStarted))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
+                .andReturn();
+        return streamCompleted.getResponse().getContentAsString(StandardCharsets.UTF_8);
+    }
+
+    private JsonNode readStreamEvent(
+            String extractionStream,
+            String eventName
+    ) throws Exception {
+        String eventPrefix = "event:" + eventName;
+        for (String eventBlock : extractionStream.split("\\n\\n")) {
+            if (!eventBlock.startsWith(eventPrefix)) {
+                continue;
+            }
+            for (String line : eventBlock.split("\\n")) {
+                if (line.startsWith("data:")) {
+                    // 解析单行 JSON 载荷，SSE 写出器会转义模型文本中的换行符
+                    return objectMapper.readTree(line.substring("data:".length()));
+                }
+            }
+        }
+        throw new AssertionError("未找到 SSE 事件: " + eventName);
+    }
+
+    private int countStreamEvents(
+            String extractionStream,
+            String eventName
+    ) {
+        return extractionStream.split("event:" + eventName + "\\n", -1).length - 1;
     }
 
     private AiExtractionResult fakeResult(AiExtractionRequest request) {
