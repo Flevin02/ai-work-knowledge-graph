@@ -25,7 +25,7 @@ public record SourceDocumentContentResponse(
         String spaceId,
         @Schema(description = "原始文件名")
         String name,
-        @Schema(description = "文件类型", example = "markdown")
+        @Schema(description = "文件类型", allowableValues = {"markdown", "txt", "pdf"}, example = "pdf")
         String kind,
         @Schema(description = "文档业务类型", example = "prd")
         SourceDocumentType documentType,

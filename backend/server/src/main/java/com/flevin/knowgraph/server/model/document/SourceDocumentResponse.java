@@ -29,7 +29,7 @@ public record SourceDocumentResponse(
         String spaceId,
         @Schema(description = "原始文件名", example = "第一次筹备会议纪要.md")
         String name,
-        @Schema(description = "文件类型", allowableValues = {"markdown", "txt"}, example = "markdown")
+        @Schema(description = "文件类型", allowableValues = {"markdown", "txt", "pdf"}, example = "pdf")
         String kind,
         @Schema(description = "文档业务类型", allowableValues = {"general", "prd"}, example = "prd")
         SourceDocumentType documentType,

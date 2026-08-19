@@ -14,7 +14,7 @@ import java.util.List;
 public interface DocumentService {
 
     /**
-     * 以通用文档类型导入一批 Markdown/TXT 来源资料。
+     * 以通用文档类型导入一批 Markdown、TXT 或文本型 PDF 来源资料。
      *
      * @param spaceId 知识空间标识
      * @param files 用户上传的来源资料；为空时返回参数提示
@@ -29,7 +29,7 @@ public interface DocumentService {
     }
 
     /**
-     * 导入一批 Markdown/TXT 来源资料，逐文件返回成功、重复或失败结果。
+     * 导入一批 Markdown、TXT 或文本型 PDF 来源资料，逐文件返回成功、重复或失败结果。
      *
      * @param spaceId 知识空间标识
      * @param documentType 文档业务类型；为空时按 general 处理

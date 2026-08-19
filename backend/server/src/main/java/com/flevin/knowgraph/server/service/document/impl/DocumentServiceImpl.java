@@ -24,6 +24,10 @@ import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
 import com.flevin.knowgraph.server.storage.LocalFileStorage;
 import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException;
+import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -56,6 +60,7 @@ public class DocumentServiceImpl implements DocumentService {
 
     private static final String ACTIVE_STATUS = "active";
     private static final int EXCERPT_MAX_LENGTH = 160;
+    private static final String PDF_PAGE_MARKER = "===== 第 %d 页 =====";
 
     private final SourceDocumentRepository sourceDocumentRepository;
     private final ImportBatchRepository importBatchRepository;
@@ -65,7 +70,7 @@ public class DocumentServiceImpl implements DocumentService {
     private final AiExtractionRunRepository aiExtractionRunRepository;
 
     /**
-     * 导入一批 Markdown/TXT 来源资料，逐文件返回成功、重复或失败结果。
+     * 导入一批 Markdown、TXT 或文本型 PDF 来源资料，逐文件返回成功、重复或失败结果。
      *
      * @param spaceId 知识空间标识
      * @param documentType 文档业务类型；为空时按 general 处理
@@ -85,7 +90,7 @@ public class DocumentServiceImpl implements DocumentService {
         SourceDocumentType resolvedDocumentType = resolveDocumentType(documentType);
 
         if (files == null || files.isEmpty()) {
-            throw new TipsException(ErrorCode.PARAM_ERROR, "请选择需要导入的 Markdown 或 TXT 文件");
+            throw new TipsException(ErrorCode.PARAM_ERROR, "请选择需要导入的 Markdown、TXT 或文本型 PDF 文件");
         }
 
         // 创建本次 multipart 请求的导入批次标识
@@ -289,7 +294,7 @@ public class DocumentServiceImpl implements DocumentService {
             // 读取原始文件字节，内容指纹必须基于未经转换的事实源
             byte[] contentBytes = file.getBytes();
 
-            // 校验文件类型、空内容和 UTF-8 编码，并得到解析文本
+            // 校验文件类型和内容，并按文本文件或 PDF 规则得到可预览文本
             ParsedDocument parsedDocument = parseDocument(originalName, contentBytes);
 
             // 计算原始字节内容的 SHA-256 指纹
@@ -394,30 +399,54 @@ public class DocumentServiceImpl implements DocumentService {
     }
 
     /**
-     * 校验并解析 Markdown/TXT 文件内容。
+     * 校验并解析 Markdown、TXT 或文本型 PDF 文件内容。
      *
      * @param originalName 原始文件名
      * @param contentBytes 原始文件字节
-     * @return 文件类型、扩展名和 UTF-8 文本
+     * @return 文件类型、扩展名和服务端解析文本
      * @throws DocumentParseException 文件类型、内容或编码不符合当前导入规则时抛出
      */
     private ParsedDocument parseDocument(
             String originalName,
             byte[] contentBytes
     ) throws DocumentParseException {
-        // 获取小写扩展名，用于限定当前阶段只接收 Markdown/TXT
+        // 获取小写扩展名，用于限定当前阶段接收的文件格式
         String extension = getExtension(originalName);
 
         String kind = switch (extension) {
             case "md", "markdown" -> "markdown";
             case "txt" -> "txt";
-            default -> throw new DocumentParseException("当前仅支持 Markdown 和 TXT 文件");
+            case "pdf" -> "pdf";
+            default -> throw new DocumentParseException("当前仅支持 Markdown、TXT 和文本型 PDF 文件");
         };
 
         if (contentBytes.length == 0) {
             throw new DocumentParseException("文件内容为空，未创建来源资料");
         }
 
+        if ("pdf".equals(kind)) {
+            // 使用 PDFBox 解析可复制文本，并在解析文本中保留逐页边界
+            return parsePdfDocument(contentBytes);
+        }
+
+        // 对 Markdown/TXT 执行严格 UTF-8 解码
+        return parseUtf8Document(kind, extension, contentBytes);
+    }
+
+    /**
+     * 严格解析 Markdown/TXT 文本，拒绝用替换字符掩盖编码问题。
+     *
+     * @param kind 前后端使用的文件类型
+     * @param extension 已校验的文件扩展名
+     * @param contentBytes 原始文件字节
+     * @return 文件类型、扩展名和完整 UTF-8 文本
+     * @throws DocumentParseException 编码非法或内容仅包含空白时抛出
+     */
+    private ParsedDocument parseUtf8Document(
+            String kind,
+            String extension,
+            byte[] contentBytes
+    ) throws DocumentParseException {
         try {
             // 使用严格 UTF-8 解码，拒绝用替换字符掩盖原始文本编码问题
             String contentText = StandardCharsets.UTF_8.newDecoder()
@@ -438,6 +467,81 @@ public class DocumentServiceImpl implements DocumentService {
         } catch (CharacterCodingException exception) {
             throw new DocumentParseException("文件不是有效的 UTF-8 文本", exception);
         }
+    }
+
+    /**
+     * 解析文本型 PDF，并为每一页增加稳定的页码边界标记。
+     *
+     * @param contentBytes PDF 原始文件字节
+     * @return kind 为 pdf、扩展名为 pdf 的解析结果
+     * @throws DocumentParseException PDF 损坏、受密码保护、零页或不含可提取文本时抛出
+     */
+    private ParsedDocument parsePdfDocument(byte[] contentBytes) throws DocumentParseException {
+        try {
+            // 从原始字节加载 PDF，避免依赖临时文件或客户端路径
+            try (PDDocument document = Loader.loadPDF(contentBytes)) {
+                if (document.isEncrypted()) {
+                    throw new DocumentParseException("PDF 已加密或受密码保护，当前无法导入");
+                }
+
+                // 获取真实页数，零页文件没有可追溯的页码边界
+                int pageCount = document.getNumberOfPages();
+                if (pageCount == 0) {
+                    throw new DocumentParseException("PDF 不包含任何页面，未创建来源资料");
+                }
+
+                // 逐页提取文本并写入稳定页码标记，供预览和后续证据定位
+                String contentText = extractPdfText(document, pageCount);
+                return new ParsedDocument("pdf", "pdf", contentText);
+            }
+        } catch (InvalidPasswordException exception) {
+            throw new DocumentParseException("PDF 已加密或受密码保护，当前无法导入", exception);
+        } catch (IOException exception) {
+            throw new DocumentParseException("PDF 文件已损坏或格式无效，无法解析", exception);
+        }
+    }
+
+    /**
+     * 从已打开的 PDF 逐页提取文本，并保留包含空白页在内的全部页码边界。
+     *
+     * @param document 已打开且未加密的 PDF 文档
+     * @param pageCount PDF 总页数
+     * @return 带页码标记的完整文本
+     * @throws IOException PDFBox 读取页面内容失败时抛出
+     * @throws DocumentParseException 全部页面均无可提取文本时抛出
+     */
+    private String extractPdfText(
+            PDDocument document,
+            int pageCount
+    ) throws IOException, DocumentParseException {
+        // 创建文本提取器，并在循环中限定单页范围
+        PDFTextStripper textStripper = new PDFTextStripper();
+        StringBuilder contentText = new StringBuilder();
+        boolean hasExtractableText = false;
+
+        for (int pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
+            // 将本次提取范围限定为当前页，避免丢失页码归属
+            textStripper.setStartPage(pageNumber);
+            textStripper.setEndPage(pageNumber);
+
+            // 读取当前页文本并移除 PDFBox 添加的首尾空白
+            String pageText = textStripper.getText(document).strip();
+            if (pageNumber > 1) {
+                contentText.append("\n\n");
+            }
+
+            // 无论页面是否为空都写入页码标记，保持原始分页结构可反查
+            contentText.append(PDF_PAGE_MARKER.formatted(pageNumber));
+            if (!pageText.isBlank()) {
+                hasExtractableText = true;
+                contentText.append('\n').append(pageText);
+            }
+        }
+
+        if (!hasExtractableText) {
+            throw new DocumentParseException("PDF 不含可提取文本，可能是扫描件；当前未启用 OCR");
+        }
+        return contentText.toString();
     }
 
     /**
@@ -614,11 +718,11 @@ public class DocumentServiceImpl implements DocumentService {
     }
 
     /**
-     * 已校验并解析的文本文件中间结果。
+     * 已校验并解析的来源资料中间结果。
      *
      * @param kind 前后端使用的文件类型
      * @param extension 原始文件扩展名
-     * @param contentText UTF-8 完整文本
+     * @param contentText 服务端解析后的完整文本
      */
     private record ParsedDocument(
             String kind,

@@ -140,19 +140,19 @@ public class DocumentController {
 
 	@PostMapping(
 			value = "",
-			name = "创建 Markdown 或 TXT 来源资料",
+			name = "创建文本型来源资料",
 			consumes = MediaType.MULTIPART_FORM_DATA_VALUE
 	)
 	@Operation(
-			summary = "创建 Markdown 或 TXT 来源资料",
-			description = "逐文件读取 UTF-8 文本、计算 SHA-256 内容指纹，并返回成功、重复或失败结果。"
+			summary = "创建 Markdown、TXT 或文本型 PDF 来源资料",
+			description = "逐文件解析 UTF-8 文本或带页码边界的 PDF 文本、计算原始字节的 SHA-256 内容指纹，并返回成功、重复或失败结果；扫描 PDF 暂不支持 OCR。"
 	)
 	public ApiResponse<DocumentImportResponse> importDocuments(
 			@Parameter(description = "知识空间标识", example = "default-space")
 			@PathVariable String spaceId,
 			@Parameter(description = "文档业务类型；未提供时按 general 处理", example = "prd")
 			@RequestPart(value = "documentType", required = false) String documentType,
-			@Parameter(description = "待导入的 Markdown/TXT 文件，可一次选择多份")
+			@Parameter(description = "待导入的 Markdown、TXT 或文本型 PDF 文件，可一次选择多份")
 			@RequestPart(value = "files", required = false) List<MultipartFile> files
 	) {
 		// 在指定知识空间执行来源资料批量导入和重复内容识别

@@ -10,6 +10,7 @@ export type NodeType =
 
 export type NodeStatus = 'active' | 'completed' | 'pending' | 'conflict' | 'orphan';
 export type EdgeStatus = 'suggested' | 'confirmed' | 'rejected' | 'stale';
+export type SourceDocumentKind = 'markdown' | 'txt' | 'docx' | 'pdf';
 
 export type Evidence = {
   sourceDocumentId: string;
@@ -46,7 +47,7 @@ export type SourceDocument = {
   id: string;
   spaceId?: string;
   name: string;
-  kind: 'markdown' | 'txt' | 'docx' | 'pdf';
+  kind: SourceDocumentKind;
   documentType?: 'general' | 'prd';
   contentHash: string;
   excerpt: string;
@@ -78,7 +79,7 @@ export type SourceDocumentContent = {
   id: string;
   spaceId: string;
   name: string;
-  kind: 'markdown' | 'txt' | 'docx' | 'pdf';
+  kind: SourceDocumentKind;
   documentType?: string;
   contentHash: string;
   contentText: string;

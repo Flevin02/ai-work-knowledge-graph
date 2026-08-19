@@ -41,6 +41,7 @@ import {
   type NodeType,
   type SourceDocument,
   type SourceDocumentContent,
+  type SourceDocumentKind,
 } from '@/lib/types';
 
 type GraphWorkspaceProps = { initialGraph: GraphData };
@@ -58,6 +59,12 @@ type DeleteConfirmation =
 const allTypes: Array<NodeType | 'all'> = ['all', 'project', 'department', 'person', 'task', 'document', 'meeting', 'risk', 'decision'];
 const DOCUMENT_PAGE_SIZE = 12;
 const DOCUMENT_PROCESSING_POLL_INTERVAL_MS = 3000;
+const documentKindLabels: Record<SourceDocumentKind, string> = {
+  markdown: 'Markdown',
+  txt: 'TXT',
+  docx: 'DOCX',
+  pdf: 'PDF',
+};
 const relationTypeLabels: Record<string, string> = {
   project_contains_feature: '项目包含功能',
   feature_contains_requirement: '功能包含需求',
@@ -74,6 +81,10 @@ function formatStatus(status: EdgeStatus) {
 
 function formatRelationType(relationType: string) {
   return relationTypeLabels[relationType] ?? '关联';
+}
+
+function formatCompactDocumentKind(kind: SourceDocumentKind) {
+  return kind === 'markdown' ? 'MD' : documentKindLabels[kind];
 }
 
 function issueCount(graph: GraphData) {
@@ -500,7 +511,7 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
           <span className="local-badge"><span className="status-dot" /> 本地数据模式</span>
           <button className="ghost-button" onClick={resetDemo}>恢复演示资料</button>
           <button className="primary-button" disabled={isImporting || !currentSpaceId} onClick={() => fileInputRef.current?.click()}>{isImporting ? <LoaderCircle className="spin" size={16} /> : <Upload size={16} />} {isImporting ? '正在导入' : '导入资料'}</button>
-          <input ref={fileInputRef} className="hidden-input" type="file" multiple accept=".md,.markdown,.txt" onChange={(event) => void importFiles(event.target.files)} />
+          <input ref={fileInputRef} className="hidden-input" type="file" multiple accept=".md,.markdown,.txt,.pdf,application/pdf" onChange={(event) => void importFiles(event.target.files)} />
         </div>
       </header>
 
@@ -548,7 +559,7 @@ export default function GraphWorkspace({ initialGraph }: GraphWorkspaceProps) {
           <section className="sidebar-section persisted-sources">
             <div className="section-heading">真实来源资料</div>
             {persistedDocuments.length ? <div className="persisted-source-list">
-              {persistedDocuments.slice(0, 4).map((document) => <button className="persisted-source" key={document.id} title={document.name} onClick={() => setView('documents')}><FileText size={14} /><span>{document.name}</span><em>{document.kind === 'markdown' ? 'MD' : 'TXT'}</em></button>)}
+              {persistedDocuments.slice(0, 4).map((document) => <button className="persisted-source" key={document.id} title={document.name} onClick={() => setView('documents')}><FileText size={14} /><span>{document.name}</span><em>{formatCompactDocumentKind(document.kind)}</em></button>)}
               {documentTotal > 4 && <div className="persisted-source-more">当前空间共 {documentTotal} 份已持久化资料</div>}
             </div> : <div className="persisted-source-empty">尚未导入真实资料</div>}
           </section>
@@ -669,7 +680,7 @@ function DocumentPanel({
   onPageChange: (page: number) => void;
 }) {
   if (!documents.length) {
-    return <div className="state-card document-empty"><FileText size={28} /><h3>尚未导入来源资料</h3><p>点击右上角“导入资料”，选择 UTF-8 Markdown 或 TXT 文件。</p></div>;
+    return <div className="state-card document-empty"><FileText size={28} /><h3>尚未导入来源资料</h3><p>点击右上角“导入资料”，选择 UTF-8 Markdown、TXT 或可复制文本 PDF 文件。</p></div>;
   }
 
   return <>
@@ -703,7 +714,7 @@ function DocumentPanel({
               ? `AI 提取失败，请先点击“${extractionButtonLabel}”`
               : `暂无可查看结果，请先点击“${extractionButtonLabel}”`;
         return <article className="document-card" key={document.id}>
-        <div className="document-card-head"><span className="document-kind"><FileText size={16} />{document.kind === 'markdown' ? 'Markdown' : 'TXT'}</span><div className="document-status-group"><span className="document-status">已解析</span>{extractionState && <span className={`ai-document-status ${extractionState.status}`} title={extractionState.message}>{isExtracting && <LoaderCircle className="spin" size={11} />}{extractionState.status === 'processing' ? 'AI 提取中' : extractionState.status === 'success' ? 'AI 已完成' : 'AI 提取失败'}</span>}</div></div>
+        <div className="document-card-head"><span className="document-kind"><FileText size={16} />{documentKindLabels[document.kind]}</span><div className="document-status-group"><span className="document-status">已解析</span>{extractionState && <span className={`ai-document-status ${extractionState.status}`} title={extractionState.message}>{isExtracting && <LoaderCircle className="spin" size={11} />}{extractionState.status === 'processing' ? 'AI 提取中' : extractionState.status === 'success' ? 'AI 已完成' : 'AI 提取失败'}</span>}</div></div>
         <h3 title={document.name}>{document.name}</h3>
         <p>{document.excerpt}</p>
         <div className="document-meta"><span>{formatFileSize(document.fileSize)}</span><span>{formatImportedAt(document.importedAt)}</span></div>
@@ -785,7 +796,8 @@ function DocumentPreviewModal({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<'rendered' | 'source'>('rendered');
-  const previewModeLabel = previewMode === 'rendered' ? '渲染预览' : '原文预览';
+  const renderedModeLabel = document.kind === 'pdf' ? '文本预览' : '渲染预览';
+  const previewModeLabel = previewMode === 'rendered' ? renderedModeLabel : '原文预览';
 
   useEffect(() => {
     let cancelled = false;
@@ -831,7 +843,7 @@ function DocumentPreviewModal({
       {!isLoading && error && <div className="document-preview-state error"><AlertTriangle size={22} /><span>原文加载失败：{error}</span><button className="secondary-button" onClick={onClose}>关闭</button></div>}
       {!isLoading && !error && content && <>
         <div className="document-preview-meta">
-          <div className="document-preview-mode" role="tablist" aria-label="原文预览模式">
+          <div className="document-preview-mode" role="tablist" aria-label="来源资料预览模式">
             <button
               className={previewMode === 'rendered' ? 'preview-mode-button active' : 'preview-mode-button'}
               type="button"
@@ -839,7 +851,7 @@ function DocumentPreviewModal({
               aria-selected={previewMode === 'rendered'}
               onClick={() => setPreviewMode('rendered')}
             >
-              <Eye size={13} /> 渲染预览
+              <Eye size={13} /> {renderedModeLabel}
             </button>
             <button
               className={previewMode === 'source' ? 'preview-mode-button active' : 'preview-mode-button'}
@@ -851,6 +863,7 @@ function DocumentPreviewModal({
               <FileText size={13} /> 原文预览
             </button>
           </div>
+          {content.kind === 'pdf' && <span>服务端按页提取文本 · 不包含 OCR</span>}
           <span>SHA-256 · {content.contentHash.slice(0, 16)}…</span>
         </div>
         {previewMode === 'rendered'
@@ -928,14 +941,15 @@ function AiExtractionPreviewModal({
 function DocumentSidebar({ documents, space }: { documents: SourceDocument[]; space: KnowledgeSpace | null }) {
   const markdownCount = documents.filter((document) => document.kind === 'markdown').length;
   const textCount = documents.filter((document) => document.kind === 'txt').length;
+  const pdfCount = documents.filter((document) => document.kind === 'pdf').length;
   const totalSize = documents.reduce((sum, document) => sum + (document.fileSize ?? 0), 0);
 
   return <div className="detail-content document-sidebar">
     <div className="detail-kicker"><span className="type-dot" style={{ background: '#94a3b8' }} />来源资料<span className="status-pill active">本地持久化</span></div>
     <h2>{space?.name ?? '未连接空间'}</h2>
     <p className="detail-summary">原始文件保存在当前知识空间独立目录中，SQLite 只保存结构化索引、解析文本和证据定位。</p>
-    <div className="document-summary-grid"><div><strong>{documents.length}</strong><span>全部资料</span></div><div><strong>{markdownCount}</strong><span>Markdown</span></div><div><strong>{textCount}</strong><span>TXT</span></div><div><strong>{formatFileSize(totalSize)}</strong><span>文件总量</span></div></div>
-    <div className="detail-block"><div className="detail-label">当前阶段边界</div><div className="boundary-list"><span>✓ UTF-8 文本解析</span><span>✓ SHA-256 空间内去重</span><span>✓ 原始文件独立落盘</span><span>○ AI 抽取将在下一阶段接入</span></div></div>
+    <div className="document-summary-grid"><div><strong>{documents.length}</strong><span>全部资料</span></div><div><strong>{markdownCount}</strong><span>Markdown</span></div><div><strong>{textCount}</strong><span>TXT</span></div><div><strong>{pdfCount}</strong><span>PDF</span></div><div><strong>{formatFileSize(totalSize)}</strong><span>文件总量</span></div></div>
+    <div className="detail-block"><div className="detail-label">当前阶段边界</div><div className="boundary-list"><span>✓ UTF-8 与文本型 PDF 解析</span><span>✓ PDF 页码边界可反查</span><span>✓ SHA-256 空间内去重</span><span>○ 扫描 PDF 暂不支持 OCR</span></div></div>
   </div>;
 }
 

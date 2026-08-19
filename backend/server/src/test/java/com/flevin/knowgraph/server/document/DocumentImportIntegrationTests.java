@@ -6,9 +6,19 @@ import com.flevin.knowgraph.server.model.document.SourceDocument;
 import com.flevin.knowgraph.server.model.graph.GraphEdge;
 import com.flevin.knowgraph.server.model.graph.GraphEvidence;
 import com.flevin.knowgraph.server.model.graph.GraphNode;
+import com.flevin.knowgraph.server.model.space.CreateKnowledgeSpaceRequest;
+import com.flevin.knowgraph.server.model.space.KnowledgeSpaceResponse;
 import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
 import com.flevin.knowgraph.server.repository.graph.GraphRepository;
 import com.flevin.knowgraph.server.service.document.DocumentService;
+import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.encryption.AccessPermission;
+import org.apache.pdfbox.pdmodel.encryption.StandardProtectionPolicy;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,12 +29,14 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -52,6 +64,9 @@ class DocumentImportIntegrationTests {
 
     @Autowired
     private GraphRepository graphRepository;
+
+    @Autowired
+    private KnowledgeSpaceService knowledgeSpaceService;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -132,6 +147,162 @@ class DocumentImportIntegrationTests {
 
         // 再次查询 Repository，确认重复内容未新增来源记录
         assertThat(sourceDocumentRepository.findAll(DEFAULT_SPACE_ID)).hasSize(1);
+    }
+
+    @Test
+    void controllerImportsMultiPagePdfAndReturnsPageBoundariesForPreview() throws Exception {
+        // 生成包含两页虚构年会内容的可复制文本 PDF
+        byte[] pdfBytes = createTextPdf(
+                "Annual party plan belongs to the demo project.",
+                "Budget review is scheduled for the second page."
+        );
+        MockMultipartFile pdfFile = new MockMultipartFile(
+                "files",
+                "虚构年会方案.pdf",
+                "application/pdf",
+                pdfBytes
+        );
+
+        // 通过 multipart 接口导入文本型 PDF
+        mockMvc.perform(multipart("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID)
+                        .file(pdfFile))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("completed"))
+                .andExpect(jsonPath("$.data.importedCount").value(1))
+                .andExpect(jsonPath("$.data.results[0].document.kind").value("pdf"));
+
+        // 查询持久化记录，获取原文预览接口所需标识
+        SourceDocument savedDocument = sourceDocumentRepository.findAll(DEFAULT_SPACE_ID).getFirst();
+        String expectedContent = "===== 第 1 页 =====\n"
+                + "Annual party plan belongs to the demo project.\n\n"
+                + "===== 第 2 页 =====\n"
+                + "Budget review is scheduled for the second page.";
+
+        // 读取服务端 PDF 解析文本，验证页码边界和逐页内容均可反查
+        mockMvc.perform(get(
+                        "/v1/spaces/{spaceId}/documents/{documentId}/content",
+                        DEFAULT_SPACE_ID,
+                        savedDocument.id()
+                ))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.kind").value("pdf"))
+                .andExpect(jsonPath("$.data.contentText").value(expectedContent));
+
+        MockMultipartFile duplicateFile = new MockMultipartFile(
+                "files",
+                "相同字节的年会方案副本.pdf",
+                "application/pdf",
+                pdfBytes
+        );
+
+        // 使用相同原始字节再次导入，验证 PDF 继续沿用 SHA-256 空间内去重
+        DocumentImportResponse duplicateResponse = documentService.importDocuments(
+                DEFAULT_SPACE_ID,
+                List.of(duplicateFile)
+        );
+
+        assertThat(duplicateResponse.duplicateCount()).isEqualTo(1);
+        assertThat(duplicateResponse.results().getFirst().status()).isEqualTo(DocumentImportFileStatus.DUPLICATE);
+        assertThat(sourceDocumentRepository.findAll(DEFAULT_SPACE_ID)).hasSize(1);
+    }
+
+    @Test
+    void serviceReturnsFileLevelPdfFailuresWithoutBlockingValidFile() throws Exception {
+        // 准备同批导入中的一份有效文本型 PDF
+        MockMultipartFile validPdf = new MockMultipartFile(
+                "files",
+                "有效方案.pdf",
+                "application/pdf",
+                createTextPdf("This fictional plan contains extractable text.")
+        );
+
+        // 准备损坏、受密码保护、零页和无文本 PDF，覆盖明确失败分类
+        List<MultipartFile> files = List.of(
+                validPdf,
+                new MockMultipartFile(
+                        "files",
+                        "损坏资料.pdf",
+                        "application/pdf",
+                        "not-a-pdf".getBytes(StandardCharsets.UTF_8)
+                ),
+                new MockMultipartFile(
+                        "files",
+                        "密码资料.pdf",
+                        "application/pdf",
+                        createEncryptedPdf()
+                ),
+                new MockMultipartFile(
+                        "files",
+                        "零页资料.pdf",
+                        "application/pdf",
+                        createZeroPagePdf()
+                ),
+                new MockMultipartFile(
+                        "files",
+                        "扫描资料.pdf",
+                        "application/pdf",
+                        createTextPdf((String) null)
+                )
+        );
+
+        // 执行混合批次导入，验证单文件失败不阻断有效 PDF
+        DocumentImportResponse response = documentService.importDocuments(DEFAULT_SPACE_ID, files);
+
+        assertThat(response.status().getValue()).isEqualTo("partial_failed");
+        assertThat(response.importedCount()).isEqualTo(1);
+        assertThat(response.failedCount()).isEqualTo(4);
+        assertThat(response.results())
+                .extracting(result -> result.message())
+                .containsExactly(
+                        "来源资料已导入",
+                        "PDF 文件已损坏或格式无效，无法解析",
+                        "PDF 已加密或受密码保护，当前无法导入",
+                        "PDF 不包含任何页面，未创建来源资料",
+                        "PDF 不含可提取文本，可能是扫描件；当前未启用 OCR"
+                );
+        assertThat(sourceDocumentRepository.findAll(DEFAULT_SPACE_ID)).hasSize(1);
+    }
+
+    @Test
+    void serviceKeepsPdfDuplicateDetectionIsolatedByKnowledgeSpace() throws Exception {
+        CreateKnowledgeSpaceRequest request = new CreateKnowledgeSpaceRequest(
+                "PDF 空间隔离-" + UUID.randomUUID(),
+                "仅使用虚构 PDF 验证空间内去重边界。"
+        );
+
+        // 创建第二个知识空间，验证相同 PDF 可在不同空间独立保存
+        KnowledgeSpaceResponse otherSpace = knowledgeSpaceService.createSpace(request);
+        byte[] pdfBytes = createTextPdf("Shared bytes remain isolated by knowledge space.");
+
+        try {
+            // 将相同原始字节分别导入默认空间和新空间
+            DocumentImportResponse defaultResponse = documentService.importDocuments(
+                    DEFAULT_SPACE_ID,
+                    List.of(new MockMultipartFile(
+                            "files",
+                            "默认空间.pdf",
+                            "application/pdf",
+                            pdfBytes
+                    ))
+            );
+            DocumentImportResponse otherResponse = documentService.importDocuments(
+                    otherSpace.id(),
+                    List.of(new MockMultipartFile(
+                            "files",
+                            "其他空间.pdf",
+                            "application/pdf",
+                            pdfBytes
+                    ))
+            );
+
+            assertThat(defaultResponse.importedCount()).isEqualTo(1);
+            assertThat(otherResponse.importedCount()).isEqualTo(1);
+            assertThat(sourceDocumentRepository.findAll(DEFAULT_SPACE_ID)).hasSize(1);
+            assertThat(sourceDocumentRepository.findAll(otherSpace.id())).hasSize(1);
+        } finally {
+            // 软删除测试空间，避免其继续出现在后续用例的有效空间列表中
+            knowledgeSpaceService.deleteSpace(otherSpace.id());
+        }
     }
 
     @Test
@@ -246,7 +417,11 @@ class DocumentImportIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paths['/v1/spaces/{spaceId}/documents'].get").exists())
                 .andExpect(jsonPath("$.components.schemas.SourceDocumentPageResponse").exists())
-                .andExpect(jsonPath("$.components.schemas.SourceDocumentExtractionSummary").exists());
+                .andExpect(jsonPath("$.components.schemas.SourceDocumentExtractionSummary").exists())
+                .andExpect(jsonPath(
+                        "$.components.schemas.SourceDocumentResponse.properties.kind.enum",
+                        org.hamcrest.Matchers.hasItem("pdf")
+                ));
     }
 
     @Test
@@ -484,7 +659,7 @@ class DocumentImportIntegrationTests {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value(true))
                 .andExpect(jsonPath("$.code").value(400))
-                .andExpect(jsonPath("$.msg").value("请选择需要导入的 Markdown 或 TXT 文件"));
+                .andExpect(jsonPath("$.msg").value("请选择需要导入的 Markdown、TXT 或文本型 PDF 文件"));
     }
 
     @Test
@@ -520,5 +695,108 @@ class DocumentImportIntegrationTests {
         } catch (IOException exception) {
             throw new IllegalStateException("无法清理测试来源文件: " + storagePath, exception);
         }
+    }
+
+    /**
+     * 生成只包含标准字体虚构文本的 PDF；空值页面用于模拟扫描件或图片页。
+     *
+     * @param pageTexts 每页文本；空值表示页面不写入文本内容
+     * @return 可供 multipart 测试上传的 PDF 原始字节
+     * @throws IOException PDF 生成失败时抛出
+     */
+    private byte[] createTextPdf(String... pageTexts) throws IOException {
+        try (PDDocument document = new PDDocument()) {
+            for (String pageText : pageTexts) {
+                // 逐页写入固定虚构文本，保持测试输入可重复
+                addPdfPage(document, pageText);
+            }
+
+            // 将内存 PDF 序列化为原始字节，供导入链路计算真实 SHA-256
+            return savePdf(document);
+        }
+    }
+
+    /**
+     * 生成需要用户密码才能打开的 PDF。
+     *
+     * @return 受密码保护的 PDF 原始字节
+     * @throws IOException PDF 生成失败时抛出
+     */
+    private byte[] createEncryptedPdf() throws IOException {
+        try (PDDocument document = new PDDocument()) {
+            // 写入一页文本，确保失败原因来自密码保护而不是无文本
+            addPdfPage(document, "Password protected fictional document.");
+
+            AccessPermission accessPermission = new AccessPermission();
+            StandardProtectionPolicy protectionPolicy = new StandardProtectionPolicy(
+                    "owner-password",
+                    "user-password",
+                    accessPermission
+            );
+            protectionPolicy.setEncryptionKeyLength(128);
+
+            // 对文档应用标准密码保护
+            document.protect(protectionPolicy);
+
+            // 序列化受保护 PDF
+            return savePdf(document);
+        }
+    }
+
+    /**
+     * 生成具有合法 PDF 结构但不包含页面的文件。
+     *
+     * @return 零页 PDF 原始字节
+     * @throws IOException PDF 生成失败时抛出
+     */
+    private byte[] createZeroPagePdf() throws IOException {
+        try (PDDocument document = new PDDocument()) {
+            // 直接保存未添加页面的 PDF，验证零页错误类型
+            return savePdf(document);
+        }
+    }
+
+    /**
+     * 向 PDF 添加一页可选标准字体文本。
+     *
+     * @param document 待写入 PDF
+     * @param pageText 页面文本；为空时保留空白页
+     * @throws IOException 页面内容写入失败时抛出
+     */
+    private void addPdfPage(
+            PDDocument document,
+            String pageText
+    ) throws IOException {
+        PDPage page = new PDPage();
+
+        // 将新页面加入 PDF 页面树
+        document.addPage(page);
+        if (pageText == null) {
+            return;
+        }
+
+        try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
+            // 使用 PDF 标准字体写入一行 ASCII 虚构文本，避免测试依赖外部字体文件
+            contentStream.beginText();
+            contentStream.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+            contentStream.newLineAtOffset(72, 720);
+            contentStream.showText(pageText);
+            contentStream.endText();
+        }
+    }
+
+    /**
+     * 将内存 PDF 保存为字节数组。
+     *
+     * @param document 待序列化 PDF
+     * @return PDF 原始字节
+     * @throws IOException 序列化失败时抛出
+     */
+    private byte[] savePdf(PDDocument document) throws IOException {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+        // 将完整 PDF 写入内存输出流
+        document.save(outputStream);
+        return outputStream.toByteArray();
     }
 }
