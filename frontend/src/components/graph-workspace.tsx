@@ -59,6 +59,11 @@ import {
 type GraphWorkspaceProps = { initialGraph: GraphData };
 type View = 'graph' | 'documents' | 'health';
 type NoticeTone = 'success' | 'warning' | 'error' | 'loading';
+type DocumentPreviewTab = 'rendered' | 'source' | 'ai';
+type DocumentPreviewSelection = {
+    document: SourceDocument;
+    initialTab: DocumentPreviewTab;
+};
 type DocumentExtractionState = {
     status: 'processing' | 'success' | 'error';
     message?: string;
@@ -171,9 +176,9 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     const [newSpaceDescription, setNewSpaceDescription] = useState('');
     const [isManagingSpace, setIsManagingSpace] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
-    const [previewDocument, setPreviewDocument] = useState<SourceDocument | null>(null);
+    const [documentPreview, setDocumentPreview] = useState<DocumentPreviewSelection | null>(null);
     const [extractionView, setExtractionView] = useState<AiExtractionViewState | null>(null);
-    const [isExtractionViewOpen, setIsExtractionViewOpen] = useState(false);
+    const [extractionResultLoadErrors, setExtractionResultLoadErrors] = useState<Record<string, string>>({});
     const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
     const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation | null>(null);
     const [aiRelationReviewStatuses, setAiRelationReviewStatuses] = useState<Record<string, AiRelationReviewStatus>>({});
@@ -554,7 +559,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 delete nextStates[document.id];
                 return nextStates;
             });
-            setPreviewDocument((current) => current?.id === document.id ? null : current);
+            setDocumentPreview((current) => current?.document.id === document.id ? null : current);
             setNotice(`来源资料“${document.name}”已删除，相关图谱来源贡献已同步更新。`);
             setNoticeTone('success');
         } catch (error) {
@@ -568,6 +573,13 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     const extractDocument = async (document: SourceDocument) => {
         if (!currentSpaceId) return;
 
+        // 在同一来源资料弹窗中切换到 AI 输出，后续实时事件和审核结果不再使用独立弹窗
+        setDocumentPreview({document, initialTab: 'ai'});
+        setExtractionResultLoadErrors((current) => {
+            const next = {...current};
+            delete next[document.id];
+            return next;
+        });
         setExtractionView({
             documentId: document.id,
             documentName: document.name,
@@ -578,7 +590,6 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
             rawOutput: '',
             message: '正在建立 AI 抽取事件流',
         });
-        setIsExtractionViewOpen(true);
         setDocumentExtractionStates((current) => ({
             ...current,
             [document.id]: {status: 'processing', message: '正在建立 AI 抽取事件流'},
@@ -717,7 +728,14 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     const viewExtractionResult = async (document: SourceDocument) => {
         if (!currentSpaceId) return;
 
+        // 先打开同一来源资料弹窗的 AI 输出页，历史结果读取期间保留明确加载状态
+        setDocumentPreview({document, initialTab: 'ai'});
         setLoadingExtractionResultId(document.id);
+        setExtractionResultLoadErrors((current) => {
+            const next = {...current};
+            delete next[document.id];
+            return next;
+        });
         try {
             const currentState = documentExtractionStates[document.id];
             const completedExtractionId = currentState?.status === 'success'
@@ -751,15 +769,12 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 result: detail.result,
             });
             void hydrateAiRelationReviewStatuses(currentSpaceId, document.id, detail.result.extractionId);
-            setIsExtractionViewOpen(true);
         } catch (error) {
-            setDocumentExtractionStates((current) => ({
-                ...current,
-                [document.id]: {
-                    status: 'error',
-                    message: error instanceof Error ? error.message : '历史结果加载失败',
-                },
-            }));
+            const message = error instanceof Error ? error.message : '历史结果加载失败';
+            // 历史结果读取失败不等于 AI 抽取失败，单独保留加载错误以免污染卡片运行状态
+            setExtractionResultLoadErrors((current) => ({...current, [document.id]: message}));
+            setNotice(`AI 历史结果加载失败：${message}`);
+            setNoticeTone('error');
         } finally {
             setLoadingExtractionResultId(null);
         }
@@ -936,7 +951,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                             setDocumentSearch(value);
                             setDocumentPage(1);
                         }}
-                        onPreview={setPreviewDocument}
+                        onPreview={(document) => setDocumentPreview({document, initialTab: 'rendered'})}
                         onDelete={(document) => setDeleteConfirmation({kind: 'document', item: document})}
                         onExtract={(document) => void extractDocument(document)}
                         onViewExtraction={(document) => void viewExtractionResult(document)}
@@ -963,18 +978,29 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                             : <div className="empty-detail"><Link2 size={28}/><p>选择一个节点查看它的上下文</p></div>}
                 </aside>
             </div>
-            {previewDocument && currentSpaceId && <DocumentPreviewModal
-                document={previewDocument}
+            {documentPreview && currentSpaceId && <DocumentPreviewModal
+                document={documentPreview.document}
                 spaceId={currentSpaceId}
-                onClose={() => setPreviewDocument(null)}
-            />}
-            {isExtractionViewOpen && extractionView && <AiExtractionViewModal
-                view={extractionView}
+                initialTab={documentPreview.initialTab}
+                extractionState={documentExtractionStates[documentPreview.document.id]}
+                extractionView={extractionView?.documentId === documentPreview.document.id ? extractionView : null}
+                extractionLoadError={extractionResultLoadErrors[documentPreview.document.id]}
+                isLoadingExtraction={loadingExtractionResultId === documentPreview.document.id}
                 reviewStatuses={aiRelationReviewStatuses}
                 reviewSelections={aiRelationReviewSelections}
-                onReviewRelations={(decisions) => reviewAiRelations(extractionView.extractionId ?? '', extractionView.documentId, decisions)}
+                onLoadExtraction={() => void viewExtractionResult(documentPreview.document)}
+                onExtract={() => void extractDocument(documentPreview.document)}
+                onReviewRelations={reviewAiRelations}
                 onSelectRelation={updateAiRelationReviewSelection}
-                onClose={() => setIsExtractionViewOpen(false)}
+                onClose={() => {
+                    const closingDocumentId = documentPreview.document.id;
+                    setDocumentPreview(null);
+                    setExtractionView((current) => current?.documentId === closingDocumentId
+                        && current.status !== 'connecting'
+                        && current.status !== 'processing'
+                        ? null
+                        : current);
+                }}
             />}
             {deleteConfirmation && <DeleteConfirmationDialog
                 target={deleteConfirmation}
@@ -1063,11 +1089,11 @@ function DocumentPanel({
                     || (!extractionState && document.latestExtraction?.status === 'completed');
                 const isLoadingResult = loadingExtractionResultId === document.id;
                 const extractionButtonLabel = isExtracting
-                    ? '提取中'
+                    ? '提取中…'
                     : extractionState?.status === 'error'
-                        ? '重新提取'
+                        ? '重试提取'
                         : extractionState?.status === 'success'
-                            ? '再次提取'
+                            ? '重新提取'
                             : 'AI 提取';
                 const resultButtonLabel = isLoadingResult
                     ? '加载中'
@@ -1205,18 +1231,56 @@ function DeleteConfirmationDialog({
 function DocumentPreviewModal({
                                   document,
                                   spaceId,
+                                  initialTab,
+                                  extractionState,
+                                  extractionView,
+                                  extractionLoadError,
+                                  isLoadingExtraction,
+                                  reviewStatuses,
+                                  reviewSelections,
+                                  onLoadExtraction,
+                                  onExtract,
+                                  onReviewRelations,
+                                  onSelectRelation,
                                   onClose,
                               }: {
     document: SourceDocument;
     spaceId: string;
+    initialTab: DocumentPreviewTab;
+    extractionState?: DocumentExtractionState;
+    extractionView: AiExtractionViewState | null;
+    extractionLoadError?: string;
+    isLoadingExtraction: boolean;
+    reviewStatuses: Record<string, AiRelationReviewStatus>;
+    reviewSelections: AiRelationReviewSelection;
+    onLoadExtraction: () => void;
+    onExtract: () => void;
+    onReviewRelations: (
+        extractionId: string,
+        documentId: string,
+        decisions: AiRelationReviewDecision[]
+    ) => Promise<void>;
+    onSelectRelation: (selectionKey: string, selected: boolean) => void;
     onClose: () => void;
 }) {
     const [content, setContent] = useState<SourceDocumentContent | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [previewMode, setPreviewMode] = useState<'rendered' | 'source'>('rendered');
+    const [previewMode, setPreviewMode] = useState<DocumentPreviewTab>(initialTab);
     const renderedModeLabel = document.kind === 'pdf' ? '文本预览' : '渲染预览';
-    const previewModeLabel = previewMode === 'rendered' ? renderedModeLabel : '原文预览';
+    const previewModeLabel = previewMode === 'rendered'
+        ? renderedModeLabel
+        : previewMode === 'source'
+            ? '原文预览'
+            : 'AI 输出';
+    const completedExtractionId = extractionState?.status === 'success'
+        ? extractionState.extractionId
+        : document.latestCompletedExtractionId;
+
+    useEffect(() => {
+        // 卡片操作切换同一资料的目标 Tab 时，同步弹窗当前视图
+        setPreviewMode(initialTab);
+    }, [initialTab]);
 
     useEffect(() => {
         let cancelled = false;
@@ -1251,8 +1315,32 @@ function DocumentPreviewModal({
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [onClose]);
 
+    useEffect(() => {
+        if (
+            previewMode !== 'ai'
+            || extractionView?.result
+            || extractionView?.status === 'processing'
+            || extractionView?.status === 'connecting'
+            || !completedExtractionId
+            || isLoadingExtraction
+            || extractionLoadError
+        ) {
+            return;
+        }
+
+        // AI Tab 不依赖前端内存；存在成功运行时按 extractionId 恢复服务端完整结果
+        onLoadExtraction();
+    }, [
+        completedExtractionId,
+        extractionLoadError,
+        extractionView,
+        isLoadingExtraction,
+        onLoadExtraction,
+        previewMode,
+    ]);
+
     return <div className="document-preview-backdrop" role="presentation" onClick={onClose}>
-        <section className="document-preview-dialog" role="dialog" aria-modal="true"
+        <section className={`document-preview-dialog ${previewMode === 'ai' ? 'ai-extraction-dialog' : ''}`} role="dialog" aria-modal="true"
             aria-labelledby="document-preview-title" onClick={(event) => event.stopPropagation()}>
             <header className="document-preview-header">
                 <div>
@@ -1262,90 +1350,185 @@ function DocumentPreviewModal({
                 <button className="space-icon-button" aria-label={`关闭${previewModeLabel}`} title="关闭"
                     onClick={onClose}><X size={16}/></button>
             </header>
-            {isLoading && <div className="document-preview-state"><LoaderCircle className="spin"
-                size={22}/><span>正在加载原文…</span></div>}
-            {!isLoading && error && <div className="document-preview-state error"><AlertTriangle
-                size={22}/><span>原文加载失败：{error}</span>
-                <button className="secondary-button" onClick={onClose}>关闭</button>
-            </div>}
-            {!isLoading && !error && content && <>
-                <div className="document-preview-meta">
-                    <div className="document-preview-mode" role="tablist" aria-label="来源资料预览模式">
-                        <button
-                            className={previewMode === 'rendered' ? 'preview-mode-button active' : 'preview-mode-button'}
-                            type="button"
-                            role="tab"
-                            aria-selected={previewMode === 'rendered'}
-                            onClick={() => setPreviewMode('rendered')}
-                        >
-                            <Eye size={13}/> {renderedModeLabel}
-                        </button>
-                        <button
-                            className={previewMode === 'source' ? 'preview-mode-button active' : 'preview-mode-button'}
-                            type="button"
-                            role="tab"
-                            aria-selected={previewMode === 'source'}
-                            onClick={() => setPreviewMode('source')}
-                        >
-                            <FileText size={13}/> 原文预览
-                        </button>
-                    </div>
-                    {content.kind === 'pdf' && <span>服务端按页提取文本 · 不包含 OCR</span>}
-                    <span>SHA-256 · {content.contentHash.slice(0, 16)}…</span>
+            <div className="document-preview-meta">
+                <div className="document-preview-mode" role="tablist" aria-label="来源资料查看模式">
+                    <button
+                        className={previewMode === 'rendered' ? 'preview-mode-button active' : 'preview-mode-button'}
+                        type="button"
+                        role="tab"
+                        aria-selected={previewMode === 'rendered'}
+                        onClick={() => setPreviewMode('rendered')}
+                    >
+                        <Eye size={13}/> {renderedModeLabel}
+                    </button>
+                    <button
+                        className={previewMode === 'source' ? 'preview-mode-button active' : 'preview-mode-button'}
+                        type="button"
+                        role="tab"
+                        aria-selected={previewMode === 'source'}
+                        onClick={() => setPreviewMode('source')}
+                    >
+                        <FileText size={13}/> 原文预览
+                    </button>
+                    <button
+                        className={previewMode === 'ai' ? 'preview-mode-button active' : 'preview-mode-button'}
+                        type="button"
+                        role="tab"
+                        aria-selected={previewMode === 'ai'}
+                        onClick={() => setPreviewMode('ai')}
+                    >
+                        <Sparkles size={13}/> AI 输出
+                    </button>
                 </div>
-                {previewMode === 'rendered'
-                    ? <article className="document-preview-markdown"><ReactMarkdown
-                        remarkPlugins={[remarkGfm]}>{content.contentText}</ReactMarkdown></article>
-                    : <pre className="document-preview-content">{content.contentText}</pre>}
-            </>}
+                {previewMode === 'ai'
+                    ? <span>AI 候选必须经过证据校验和人工审核</span>
+                    : content?.kind === 'pdf' && <span>服务端按页提取文本 · 不包含 OCR</span>}
+                <span>SHA-256 · {(content?.contentHash ?? document.contentHash).slice(0, 16)}…</span>
+            </div>
+            {previewMode === 'ai'
+                ? <AiExtractionTab
+                    extractionState={extractionState}
+                    view={extractionView}
+                    loadError={extractionLoadError}
+                    isLoading={isLoadingExtraction}
+                    hasCompletedResult={Boolean(completedExtractionId)}
+                    reviewStatuses={reviewStatuses}
+                    reviewSelections={reviewSelections}
+                    onLoad={onLoadExtraction}
+                    onExtract={onExtract}
+                    onReviewRelations={(decisions) => onReviewRelations(
+                        extractionView?.result?.extractionId ?? extractionView?.extractionId ?? '',
+                        document.id,
+                        decisions
+                    )}
+                    onSelectRelation={onSelectRelation}
+                    onClose={onClose}
+                />
+                : isLoading
+                    ? <div className="document-preview-state"><LoaderCircle className="spin"
+                        size={22}/><span>正在加载原文…</span></div>
+                    : error
+                        ? <div className="document-preview-state error"><AlertTriangle
+                            size={22}/><span>原文加载失败：{error}</span>
+                            <button className="secondary-button" onClick={onClose}>关闭</button>
+                        </div>
+                        : content && (previewMode === 'rendered'
+                            ? <article className="document-preview-markdown"><ReactMarkdown
+                                remarkPlugins={[remarkGfm]}>{content.contentText}</ReactMarkdown></article>
+                            : <pre className="document-preview-content">{content.contentText}</pre>)}
         </section>
     </div>;
 }
 
-function AiExtractionViewModal({
-                                   view,
-                                   reviewStatuses,
-                                   reviewSelections,
-                                   onReviewRelations,
-                                   onSelectRelation,
-                                   onClose,
-                               }: {
-    view: AiExtractionViewState;
+function AiExtractionTab({
+                             extractionState,
+                             view,
+                             loadError,
+                             isLoading,
+                             hasCompletedResult,
+                             reviewStatuses,
+                             reviewSelections,
+                             onLoad,
+                             onExtract,
+                             onReviewRelations,
+                             onSelectRelation,
+                             onClose,
+                         }: {
+    extractionState?: DocumentExtractionState;
+    view: AiExtractionViewState | null;
+    loadError?: string;
+    isLoading: boolean;
+    hasCompletedResult: boolean;
     reviewStatuses: Record<string, AiRelationReviewStatus>;
     reviewSelections: AiRelationReviewSelection;
+    onLoad: () => void;
+    onExtract: () => void;
     onReviewRelations: (decisions: AiRelationReviewDecision[]) => Promise<void>;
     onSelectRelation: (selectionKey: string, selected: boolean) => void;
     onClose: () => void;
 }) {
-    if (view.result) {
-        return <AiExtractionPreviewModal
+    if (view?.result) {
+        const historyNotice = extractionState?.status === 'error'
+            ? `最近一次提取失败，当前展示上一次成功保存的结果：${extractionState.message}`
+            : extractionState?.status === 'processing'
+                ? '新的 AI 提取仍在服务端处理中，当前先展示上一次成功保存的结果。'
+                : null;
+        return <>
+            {historyNotice && <div className="ai-history-warning">
+                <AlertTriangle size={15}/>
+                <span>{historyNotice}</span>
+            </div>}
+            <AiExtractionPreviewPanel
             extraction={view.result}
             reviewStatuses={reviewStatuses}
             reviewSelections={reviewSelections}
             onReviewRelations={onReviewRelations}
             onSelectRelation={onSelectRelation}
             onClose={onClose}
-        />;
+            />
+        </>;
     }
 
-    return <AiExtractionProgressModal view={view} onClose={onClose}/>;
+    if (loadError && hasCompletedResult) {
+        return <div className="document-preview-state error ai-output-state"><AlertTriangle size={24}/>
+            <h3>上一次成功结果加载失败</h3>
+            <p>{loadError}</p>
+            <div className="ai-output-state-actions">
+                <button className="secondary-button" onClick={onLoad}><LoaderCircle size={14}/> 重新加载结果</button>
+                <button className="secondary-button" onClick={onExtract}><Sparkles size={14}/> 重新提取</button>
+            </div>
+        </div>;
+    }
+
+    if (view) {
+        return <AiExtractionProgressPanel view={view} onRetry={onExtract}/>;
+    }
+
+    if (isLoading || (hasCompletedResult && !loadError)) {
+        return <div className="document-preview-state ai-output-state"><LoaderCircle className="spin" size={24}/>
+            <h3>正在读取 AI 输出</h3>
+            <p>通过抽取运行标识从服务端恢复完整结果和审核状态。</p>
+        </div>;
+    }
+
+    if (loadError) {
+        return <div className="document-preview-state error ai-output-state"><AlertTriangle size={24}/>
+            <h3>AI 输出加载失败</h3>
+            <p>{loadError}</p>
+            <button className="secondary-button" onClick={onLoad}><LoaderCircle size={14}/> 重新加载结果</button>
+        </div>;
+    }
+
+    if (extractionState?.status === 'processing') {
+        return <div className="document-preview-state ai-output-state"><LoaderCircle className="spin" size={24}/>
+            <h3>AI 正在提取</h3>
+            <p>{extractionState.message || '服务端正在处理来源资料；关闭弹窗不会取消本次运行。'}</p>
+        </div>;
+    }
+
+    if (extractionState?.status === 'error') {
+        return <div className="document-preview-state error ai-output-state"><AlertTriangle size={24}/>
+            <h3>最近一次 AI 提取失败</h3>
+            <p>{extractionState.message || '服务端没有保存可审核的完整结果。'}</p>
+            <button className="secondary-button" onClick={onExtract}><Sparkles size={14}/> 重试提取</button>
+        </div>;
+    }
+
+    return <div className="document-preview-state ai-output-state"><Sparkles size={26}/>
+        <h3>尚无 AI 输出</h3>
+        <p>点击下方按钮后，实时分片进度、候选实体、关系、证据和冲突会显示在当前 Tab。</p>
+        <button className="primary-button" onClick={onExtract}><Sparkles size={14}/> 开始 AI 提取</button>
+        <span className="ai-output-boundary">AI 只生成候选事实，关系仍需人工审核。</span>
+    </div>;
 }
 
-function AiExtractionProgressModal({
+function AiExtractionProgressPanel({
                                        view,
-                                       onClose,
+                                       onRetry,
                                    }: {
     view: AiExtractionViewState;
-    onClose: () => void;
+    onRetry: () => void;
 }) {
-    useEffect(() => {
-        const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') onClose();
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [onClose]);
-
     const entities = view.chunks.flatMap((chunk) => chunk.extraction.entities);
     const relations = view.chunks.flatMap((chunk) => chunk.extraction.relations);
     const isFailed = view.status === 'error';
@@ -1370,17 +1553,7 @@ function AiExtractionProgressModal({
         streamWasNearBottomRef.current = distanceToBottom < 96;
     };
 
-    return <div className="document-preview-backdrop" role="presentation" onClick={onClose}>
-        <section className="document-preview-dialog ai-extraction-dialog" role="dialog" aria-modal="true"
-            aria-labelledby="ai-extraction-progress-title" onClick={(event) => event.stopPropagation()}>
-            <header className="document-preview-header">
-                <div>
-                    <div className="eyebrow">来源资料 / AI 流式提取</div>
-                    <h2 id="ai-extraction-progress-title" title={view.documentName}>{view.documentName}</h2>
-                </div>
-                <button className="space-icon-button" aria-label="关闭 AI 流式提取" title="关闭" onClick={onClose}><X
-                    size={16}/></button>
-            </header>
+    return <div className="ai-extraction-panel">
             <div className="ai-extraction-meta">
                 <span>{view.provider && view.model ? `${view.provider} · ${view.model}` : '正在建立 text/event-stream 连接'}</span>
                 <span>{view.promptVersion && view.schemaVersion ? `Prompt ${view.promptVersion} · Schema ${view.schemaVersion}` : '运行标识将在服务端创建后显示'}</span>
@@ -1390,6 +1563,7 @@ function AiExtractionProgressModal({
                 <div>
                     <strong>{isFailed ? 'AI 提取失败' : view.message}</strong><span>{isFailed ? view.message : view.currentSectionPath || '等待来源资料分片'}</span>
                 </div>
+                {isFailed && <button className="secondary-button" onClick={onRetry}><Sparkles size={14}/> 重试提取</button>}
             </div>
             <div className="ai-extraction-summary ai-stream-summary">
                 <div>
@@ -1437,11 +1611,10 @@ function AiExtractionProgressModal({
                     <pre>{view.rawOutput}</pre>
                 </details>}
             </div>
-        </section>
     </div>;
 }
 
-function AiExtractionPreviewModal({
+function AiExtractionPreviewPanel({
                                       extraction,
                                       reviewStatuses,
                                       reviewSelections,
@@ -1456,14 +1629,6 @@ function AiExtractionPreviewModal({
     onSelectRelation: (selectionKey: string, selected: boolean) => void;
     onClose: () => void;
 }) {
-    useEffect(() => {
-        const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') onClose();
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [onClose]);
-
     const entities = extraction.chunks.flatMap((chunk) => chunk.extraction.entities);
     const relations = extraction.chunks.flatMap((chunk) => chunk.extraction.relations);
     const evidences = extraction.chunks.flatMap((chunk) => chunk.extraction.evidences);
@@ -1507,17 +1672,7 @@ function AiExtractionPreviewModal({
         ));
     };
 
-    return <div className="document-preview-backdrop" role="presentation" onClick={onClose}>
-        <section className="document-preview-dialog ai-extraction-dialog" role="dialog" aria-modal="true"
-            aria-labelledby="ai-extraction-title" onClick={(event) => event.stopPropagation()}>
-            <header className="document-preview-header">
-                <div>
-                    <div className="eyebrow">来源资料 / AI 结果审核</div>
-                    <h2 id="ai-extraction-title" title={extraction.documentName}>{extraction.documentName}</h2>
-                </div>
-                <button className="space-icon-button" aria-label="关闭 AI 结果审核" title="关闭" onClick={onClose}><X
-                    size={16}/></button>
-            </header>
+    return <div className="ai-extraction-panel">
             <div className="ai-extraction-meta">
                 <span>{extraction.provider} · {extraction.model}</span>
                 <span>Prompt {extraction.promptVersion} · Schema {extraction.schemaVersion}</span>
@@ -1646,7 +1801,6 @@ function AiExtractionPreviewModal({
                 <button className="primary-button" disabled={!reviewComplete} onClick={onClose}><Check size={15}/>
                     {reviewComplete ? '完成审核并关闭' : '完成审核'}</button>
             </footer>
-        </section>
     </div>;
 }
 

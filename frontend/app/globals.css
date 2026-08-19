@@ -180,6 +180,12 @@ button { cursor: pointer; }
 .document-preview-state svg { color: #c4b5fd; }
 .document-preview-state.error { color: #fecaca; padding: 28px; text-align: center; }
 .document-preview-state.error svg { color: var(--danger); }
+.ai-output-state { flex: 1 1 auto; min-height: 0; padding: 28px; text-align: center; }
+.ai-output-state h3 { margin: 2px 0 0; color: var(--text); font-size: 15px; }
+.ai-output-state p { max-width: 520px; margin: 0; color: var(--muted); line-height: 1.65; }
+.ai-output-state.error p { color: #fecaca; }
+.ai-output-state-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; }
+.ai-output-boundary { color: var(--muted-2); font-size: 9px; }
 .confirmation-backdrop { z-index: 30; }
 .confirmation-dialog { width: min(440px, 100%); overflow: hidden; border: 1px solid rgba(248, 113, 113, .28); border-radius: 14px; background: #111a2d; box-shadow: 0 24px 80px rgba(0, 0, 0, .52); }
 .confirmation-header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 13px; padding: 20px 20px 16px; border-bottom: 1px solid var(--line); }
@@ -194,6 +200,8 @@ button { cursor: pointer; }
 .confirmation-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px 18px; border-top: 1px solid var(--line); background: rgba(13, 22, 40, .55); }
 .confirmation-submit { display: flex; align-items: center; gap: 7px; }
 .ai-extraction-dialog { width: min(1060px, 100%); }
+.ai-extraction-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.ai-history-warning { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(245, 158, 11, .24); padding: 10px 22px; color: #fde68a; background: rgba(245, 158, 11, .08); font-size: 10px; line-height: 1.5; }
 .ai-extraction-meta { display: flex; justify-content: space-between; gap: 12px; padding: 10px 22px; border-bottom: 1px solid var(--line); color: var(--muted-2); font-size: 10px; }
 .ai-extraction-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; padding: 13px 22px; border-bottom: 1px solid var(--line); background: rgba(13, 22, 40, .72); }
 .ai-extraction-summary div { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(17, 26, 45, .85); }
@@ -206,6 +214,7 @@ button { cursor: pointer; }
 .ai-stream-status div { min-width: 0; display: grid; gap: 3px; }
 .ai-stream-status strong { color: inherit; font-size: 11px; }
 .ai-stream-status span { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.ai-stream-status .secondary-button { flex: 0 0 auto; margin-left: auto; }
 .ai-stream-content { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; align-items: stretch; gap: 14px; }
 .ai-stream-output, .ai-stream-validated { min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: rgba(17, 26, 45, .84); }
 .ai-stream-output { position: sticky; top: -18px; z-index: 3; box-shadow: 0 10px 22px rgba(3, 7, 18, .28); }
