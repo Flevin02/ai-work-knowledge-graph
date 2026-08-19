@@ -1,6 +1,7 @@
 package com.flevin.knowgraph.server;
 
 import com.flevin.knowgraph.server.config.properties.AiProperties;
+import com.flevin.knowgraph.server.config.properties.AppStorageProperties;
 import com.flevin.knowgraph.server.config.properties.RagProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -10,7 +11,7 @@ import org.mybatis.spring.annotation.MapperScan;
 
 @SpringBootApplication
 @ComponentScan(basePackages = "com.flevin.knowgraph")
-@EnableConfigurationProperties({AiProperties.class, RagProperties.class})
+@EnableConfigurationProperties({AppStorageProperties.class, AiProperties.class, RagProperties.class})
 @MapperScan("com.flevin.knowgraph.server.repository.mapper")
 public class KnowledgeGraphApplication {
 

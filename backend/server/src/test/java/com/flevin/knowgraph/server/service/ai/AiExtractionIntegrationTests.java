@@ -10,8 +10,8 @@ import com.flevin.knowgraph.server.model.document.DocumentImportResponse;
 import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -24,7 +24,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -39,6 +45,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {
         "app.database-path=target/test-data/ai-extraction.sqlite",
         "app.upload-dir=target/test-data/ai-extraction-uploads",
+        "spring.datasource.hikari.maximum-pool-size=1",
+        "spring.datasource.hikari.minimum-idle=1",
+        "spring.datasource.hikari.connection-timeout=500",
+        "spring.datasource.hikari.initialization-fail-timeout=500",
         "ai.enabled=false"
 })
 @AutoConfigureMockMvc
@@ -229,6 +239,79 @@ class AiExtractionIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[0].excerpt").value("旧版资料仍应展示导入时生成的原文预览。"))
                 .andExpect(jsonPath("$.data.items[0].latestCompletedExtractionId").value(extractionId));
+    }
+
+    @Test
+    void blockingModelCallDoesNotHoldTheOnlyDatabaseConnection() throws Exception {
+        MockMultipartFile extractionFile = new MockMultipartFile(
+                "files",
+                "并发抽取资料.txt",
+                "text/plain",
+                "并发抽取期间需要允许资料导入和查看。".getBytes(StandardCharsets.UTF_8)
+        );
+
+        // 先导入待抽取资料，准备真实来源记录和单分片原文
+        DocumentImportResponse importResponse = documentService.importDocuments(
+                SPACE_ID,
+                "general",
+                List.of(extractionFile)
+        );
+        String documentId = importResponse.results().getFirst().document().id();
+        CountDownLatch modelCallStarted = new CountDownLatch(1);
+        CountDownLatch releaseModelCall = new CountDownLatch(1);
+
+        // 阻塞 Fake 模型调用，模拟真实模型长耗时但不占用数据库事务
+        when(aiExtractionClient.extract(any(AiExtractionRequest.class)))
+                .thenAnswer(invocation -> {
+                    modelCallStarted.countDown();
+                    if (!releaseModelCall.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("等待释放 Fake 模型调用超时");
+                    }
+                    return fakeResult(invocation.getArgument(0));
+                });
+
+        // 在独立线程触发抽取，主测试线程同时验证唯一池连接仍可服务其他请求
+        try (ExecutorService executorService = Executors.newSingleThreadExecutor()) {
+            Future<MvcResult> extractionFuture = executorService.submit(() -> mockMvc.perform(post(
+                            "/v1/spaces/{spaceId}/documents/{documentId}/extractions",
+                            SPACE_ID,
+                            documentId
+                    ))
+                    .andExpect(status().isOk())
+                    .andReturn());
+
+            try {
+                // 等待抽取运行记录已保存且模型调用进入阻塞阶段
+                assertThat(modelCallStarted.await(2, TimeUnit.SECONDS)).isTrue();
+
+                MockMultipartFile concurrentFile = new MockMultipartFile(
+                        "files",
+                        "并发导入资料.txt",
+                        "text/plain",
+                        "模型处理期间导入的另一份虚构资料。".getBytes(StandardCharsets.UTF_8)
+                );
+
+                // 池上限为 1 时仍应完成另一份资料的查重、保存和批次更新
+                DocumentImportResponse concurrentImportResponse = documentService.importDocuments(
+                        SPACE_ID,
+                        "general",
+                        List.of(concurrentFile)
+                );
+                assertThat(concurrentImportResponse.importedCount()).isEqualTo(1);
+
+                // 同一阻塞窗口内查询资料列表，确认 processing 状态和两份资料均可读取
+                mockMvc.perform(get("/v1/spaces/{spaceId}/documents", SPACE_ID))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.data.total").value(2))
+                        .andExpect(jsonPath("$.data.items[1].latestExtraction.status").value("processing"));
+            } finally {
+                // 无论并发断言是否成功都释放 Fake 模型，避免后台测试线程悬挂
+                releaseModelCall.countDown();
+            }
+
+            // 等待抽取完成，确认阻塞恢复后运行记录能够正常收口
+            extractionFuture.get(5, TimeUnit.SECONDS);
+        }
     }
 
     private AiExtractionResult fakeResult(AiExtractionRequest request) {

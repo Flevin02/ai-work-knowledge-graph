@@ -54,10 +54,16 @@ Controller 内部不重复声明 `/api`，后续切换部署前缀只修改 `SER
 DATA_DIR=./data
 DATABASE_PATH=./data/knowledge-graph.sqlite
 UPLOAD_DIR=./data/uploads
+SQLITE_POOL_MAX_SIZE=4
+SQLITE_POOL_MIN_IDLE=1
+SQLITE_POOL_CONNECTION_TIMEOUT_MS=3000
+SQLITE_BUSY_TIMEOUT_MS=5000
 FRONTEND_ORIGIN=http://localhost:3010
 ```
 
 上述相对路径以 `backend/server` 作为启动工作目录，对应仓库中的 `backend/server/data/`。如果从其他工作目录启动，请使用绝对路径，或同时设置 `DATA_DIR`、`DATABASE_PATH` 和 `UPLOAD_DIR`，不要依赖调用方当前目录的隐式差异。
+
+数据库连接池由 Spring Boot JDBC Starter 默认的 HikariCP 自动配置，默认最多 4 条连接、保留 1 条空闲连接，池耗尽后最多等待 3 秒。SQLite 连接统一启用 WAL、外键和 5 秒 `busy_timeout`：WAL 允许写事务期间读取已提交快照，但不会改变 SQLite 同一时刻只有一个写事务的约束；`SQLITE_POOL_CONNECTION_TIMEOUT_MS` 处理池耗尽，`SQLITE_BUSY_TIMEOUT_MS` 处理数据库写锁等待，两者职责不同。
 
 启动时会自动创建目录，并执行项目内的幂等建表脚本：
 

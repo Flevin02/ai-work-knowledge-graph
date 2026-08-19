@@ -6,6 +6,20 @@ server:
 spring:
   application:
     name: ai-work-knowledge-graph-backend
+  datasource:
+    url: jdbc:sqlite:${app.database-path}
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      # 本地 SQLite 仍保持单写；连接池只限制资源并支持并发读取。
+      pool-name: knowledge-graph-sqlite
+      maximum-pool-size: ${SQLITE_POOL_MAX_SIZE:4}
+      minimum-idle: ${SQLITE_POOL_MIN_IDLE:1}
+      connection-timeout: ${SQLITE_POOL_CONNECTION_TIMEOUT_MS:3000}
+      initialization-fail-timeout: ${SQLITE_POOL_CONNECTION_TIMEOUT_MS:3000}
+      data-source-properties:
+        "[journal_mode]": WAL
+        "[foreign_keys]": true
+        "[busy_timeout]": ${SQLITE_BUSY_TIMEOUT_MS:5000}
   profiles:
     active: @profile.active@
   servlet:

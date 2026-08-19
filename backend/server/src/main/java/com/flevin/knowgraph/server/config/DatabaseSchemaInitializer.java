@@ -1,6 +1,7 @@
 package com.flevin.knowgraph.server.config;
 
 import jakarta.annotation.PostConstruct;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
@@ -12,6 +13,7 @@ import javax.sql.DataSource;
  * SQLite 表结构初始化器，应用启动时以幂等方式创建当前阶段所需数据表。
  */
 @Component
+@DependsOn("localStorageInitializer")
 public class DatabaseSchemaInitializer {
 
     private static final String DEFAULT_SPACE_ID = "default-space";
