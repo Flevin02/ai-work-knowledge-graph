@@ -5,6 +5,7 @@ import com.flevin.knowgraph.common.exception.TipsException;
 import com.flevin.knowgraph.server.config.properties.AiProperties;
 import com.flevin.knowgraph.server.model.ai.AiChunkExtractionResult;
 import com.flevin.knowgraph.server.model.ai.AiDocumentExtractionResponse;
+import com.flevin.knowgraph.server.model.ai.AiExtractionBatchResponse;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRequest;
 import com.flevin.knowgraph.server.model.ai.AiExtractionResult;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRunDetail;
@@ -31,11 +32,15 @@ import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
 
@@ -58,6 +63,8 @@ public class AiExtractionServiceImpl implements AiExtractionService {
     private final AiExtractionRunRepository extractionRunRepository;
     private final AiExtractionGraphMaterializer graphMaterializer;
     private final ObjectMapper objectMapper;
+    @Qualifier("aiBatchExtractionExecutor")
+    private final TaskExecutor aiBatchExtractionExecutor;
 
     /**
      * 对已导入来源资料执行章节解析、分片和结构化抽取预览。
@@ -97,6 +104,81 @@ public class AiExtractionServiceImpl implements AiExtractionService {
                     "AI 流式抽取已通过 error 事件结束: spaceId={}, documentId={}",
                     spaceId,
                     documentId,
+                    exception
+            );
+        }
+    }
+
+    /**
+     * 将多份来源资料提交到受控后台线程池，并由每个任务独立执行可追溯的抽取编排。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentIds 当前知识空间内待提取的来源资料标识
+     * @return 已受理和因队列繁忙未受理的资料标识
+     */
+    @Override
+    public AiExtractionBatchResponse submitBatchExtraction(
+            String spaceId,
+            List<String> documentIds
+    ) {
+        // 校验当前知识空间有效，避免把后台任务提交到已删除空间
+        knowledgeSpaceService.requireActive(spaceId);
+
+        List<String> normalizedDocumentIds = documentIds.stream()
+                .map(String::strip)
+                .toList();
+        if (new LinkedHashSet<>(normalizedDocumentIds).size() != normalizedDocumentIds.size()) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "批量操作中不能重复选择同一份来源资料");
+        }
+
+        // 提交任务前确认每份资料均属于当前空间，避免后台线程延迟发现无效资料
+        List<SourceDocument> documents = normalizedDocumentIds.stream()
+                .map(documentId -> requireDocument(spaceId, documentId))
+                .toList();
+        List<String> acceptedDocumentIds = new ArrayList<>(documents.size());
+        List<String> rejectedDocumentIds = new ArrayList<>();
+
+        for (SourceDocument document : documents) {
+            try {
+                // 向有界线程池提交独立资料任务，任务内部会创建独立 extractionRunId 和运行状态
+                aiBatchExtractionExecutor.execute(() -> runBatchExtraction(spaceId, document));
+                acceptedDocumentIds.add(document.id());
+            } catch (TaskRejectedException exception) {
+                log.warn(
+                        "批量 AI 抽取任务未受理，后台队列繁忙: spaceId={}, documentId={}",
+                        spaceId,
+                        document.id()
+                );
+                rejectedDocumentIds.add(document.id());
+            }
+        }
+
+        return new AiExtractionBatchResponse(
+                documents.size(),
+                acceptedDocumentIds.size(),
+                List.copyOf(acceptedDocumentIds),
+                List.copyOf(rejectedDocumentIds)
+        );
+    }
+
+    /**
+     * 在线程池中运行一份来源资料的同步抽取核心流程，并将失败收口到该资料自己的运行记录。
+     *
+     * @param spaceId 知识空间标识
+     * @param document 已完成前置校验的来源资料
+     */
+    private void runBatchExtraction(
+            String spaceId,
+            SourceDocument document
+    ) {
+        try {
+            // 使用现有无传输层抽取入口，复用分片、模型、证据校验、候选物化和失败持久化逻辑
+            extractDocument(spaceId, document.id());
+        } catch (RuntimeException exception) {
+            log.debug(
+                    "批量 AI 抽取已由独立运行记录收口失败: spaceId={}, documentId={}",
+                    spaceId,
+                    document.id(),
                     exception
             );
         }

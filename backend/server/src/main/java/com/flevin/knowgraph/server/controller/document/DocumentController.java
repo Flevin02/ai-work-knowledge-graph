@@ -1,11 +1,14 @@
 package com.flevin.knowgraph.server.controller.document;
 
 import com.flevin.knowgraph.common.model.ApiResponse;
+import com.flevin.knowgraph.server.model.ai.AiExtractionBatchResponse;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRunDetail;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRunSummary;
 import com.flevin.knowgraph.server.model.ai.AiRelationReviewRequest;
 import com.flevin.knowgraph.server.model.ai.AiRelationReviewResponse;
 import com.flevin.knowgraph.server.model.ai.AiRelationReviewState;
+import com.flevin.knowgraph.server.model.document.DocumentBatchDeleteResponse;
+import com.flevin.knowgraph.server.model.document.DocumentBatchRequest;
 import com.flevin.knowgraph.server.model.document.DocumentImportResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentContentResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentPageResponse;
@@ -124,6 +127,26 @@ public class DocumentController {
 					.body(responseBody);
 	}
 
+    @PostMapping(value = "/extraction-batches", name = "创建来源资料批量 AI 抽取")
+    @Operation(
+            summary = "创建来源资料批量 AI 抽取",
+            description = "一次受理多份来源资料，并由服务端有界线程池并发执行独立抽取运行；每份资料仍通过列表状态和历史结果单独恢复。"
+    )
+    public ApiResponse<AiExtractionBatchResponse> submitBatchExtraction(
+            @Parameter(description = "知识空间标识", example = "default-space")
+            @PathVariable String spaceId,
+            @jakarta.validation.Valid @RequestBody DocumentBatchRequest request
+    ) {
+        // 将多个来源资料提交到受控后台线程池，避免浏览器维持多条 SSE 连接
+        AiExtractionBatchResponse response = aiExtractionService.submitBatchExtraction(
+                spaceId,
+                request.documentIds()
+        );
+
+        // 使用统一响应结构返回已受理和因队列繁忙未受理的资料标识
+        return ApiResponse.success(response);
+    }
+
     @GetMapping(value = "/{documentId}/extractions", name = "查询来源资料 AI 抽取记录")
     @Operation(summary = "查询来源资料 AI 抽取记录", description = "返回指定来源资料历史抽取记录摘要，最新记录优先。")
     public ApiResponse<List<AiExtractionRunSummary>> listExtractions(
@@ -236,6 +259,26 @@ public class DocumentController {
 		// 使用统一响应结构返回批次和逐文件处理结果
 		return ApiResponse.success(response);
 	}
+
+    @PostMapping(value = "/deletion-batches", name = "创建来源资料批量删除")
+    @Operation(
+            summary = "创建来源资料批量删除",
+            description = "在一个事务中软删除多份来源资料，并同步失效仅由这些资料支撑的图谱节点和关系；原始文件和历史证据继续保留。"
+    )
+    public ApiResponse<DocumentBatchDeleteResponse> deleteDocuments(
+            @Parameter(description = "知识空间标识", example = "default-space")
+            @PathVariable String spaceId,
+            @jakarta.validation.Valid @RequestBody DocumentBatchRequest request
+    ) {
+        // 批量软删除当前空间中已选择的来源资料，并同步图谱来源贡献
+        DocumentBatchDeleteResponse response = documentService.deleteDocuments(
+                spaceId,
+                request.documentIds()
+        );
+
+        // 使用统一响应结构返回本批已删除的资料数量和资料标识
+        return ApiResponse.success(response);
+    }
 
 	@DeleteMapping(value = "/{documentId}", name = "删除来源资料")
 	@Operation(

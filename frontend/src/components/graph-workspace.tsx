@@ -28,6 +28,7 @@ import GraphCanvas from './graph-canvas';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
+    deleteSourceDocuments,
     deleteSourceDocument,
     getDocumentExtraction,
     getSourceDocumentContent,
@@ -35,6 +36,7 @@ import {
     listDocumentExtractionReviewStates,
     listSourceDocuments,
     reviewDocumentExtractionRelations,
+    submitDocumentExtractionBatch,
     streamDocumentExtraction
 } from '@/lib/api/documents';
 import {getGraph} from '@/lib/api/graph';
@@ -97,7 +99,8 @@ type AiRelationReviewDecision = {
 };
 type DeleteConfirmation =
     | { kind: 'space'; item: KnowledgeSpace }
-    | { kind: 'document'; item: SourceDocument };
+    | { kind: 'document'; item: SourceDocument }
+    | { kind: 'documents'; items: SourceDocument[] };
 
 const allTypes: Array<NodeType | 'all'> = ['all', 'project', 'department', 'person', 'task', 'document', 'meeting', 'risk', 'decision', 'requirement', 'feature'];
 const DOCUMENT_PAGE_SIZE = 12;
@@ -180,6 +183,9 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     const [extractionView, setExtractionView] = useState<AiExtractionViewState | null>(null);
     const [extractionResultLoadErrors, setExtractionResultLoadErrors] = useState<Record<string, string>>({});
     const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
+    const [selectedDocumentIds, setSelectedDocumentIds] = useState<Record<string, boolean>>({});
+    const [isBatchDeleting, setIsBatchDeleting] = useState(false);
+    const [isBatchExtracting, setIsBatchExtracting] = useState(false);
     const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation | null>(null);
     const [aiRelationReviewStatuses, setAiRelationReviewStatuses] = useState<Record<string, AiRelationReviewStatus>>({});
     const [aiRelationReviewSelections, setAiRelationReviewSelections] = useState<AiRelationReviewSelection>({});
@@ -196,6 +202,17 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     const preservedDocumentNoticeSpaceIdRef = useRef<string | null>(null);
     const suppressDocumentSearchNoticeRef = useRef(false);
     const documentSearchPendingRef = useRef(false);
+    const queuedBatchExtractionDocumentIdsRef = useRef<Record<string, boolean>>({});
+
+    useEffect(() => {
+        // 切换知识空间、分页或筛选条件后清空不可见卡片选择，批量操作只作用于当前列表
+        setSelectedDocumentIds({});
+    }, [currentSpaceId, documentPage, documentSearchQuery]);
+
+    useEffect(() => {
+        // 切换知识空间时不再跟踪上一空间中已受理但尚未开始的批量抽取任务
+        queuedBatchExtractionDocumentIdsRef.current = {};
+    }, [currentSpaceId]);
 
     useEffect(() => {
         // 等待用户停止输入后再提交搜索条件，避免每个字符都请求列表接口
@@ -274,12 +291,25 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 setDocumentPage(response.page);
                 setDocumentTotal(response.total);
                 setDocumentTotalPages(response.totalPages);
-                setDocumentExtractionStates(Object.fromEntries(
-                    response.items.flatMap((document) => {
-                        const state = toExtractionState(document);
-                        return state ? [[document.id, state]] : [];
-                    }),
-                ));
+                setDocumentExtractionStates((current) => {
+                    const nextStates = Object.fromEntries(
+                        response.items.flatMap((document) => {
+                            const state = toExtractionState(document);
+                            if (state) delete queuedBatchExtractionDocumentIdsRef.current[document.id];
+                            return state ? [[document.id, state]] : [];
+                        }),
+                    ) as Record<string, DocumentExtractionState>;
+                    response.items.forEach((document) => {
+                        if (queuedBatchExtractionDocumentIdsRef.current[document.id]) {
+                            // 后台线程尚未创建运行记录时，在当前卡片保留已受理状态并继续轮询
+                            nextStates[document.id] = current[document.id] ?? {
+                                status: 'processing',
+                                message: '批量提取已受理，等待服务端执行',
+                            };
+                        }
+                    });
+                    return nextStates;
+                });
                 setGraph((current) => ({
                     ...current,
                     documents: mergeDocuments(
@@ -289,6 +319,8 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 }));
                 const hasProcessingDocument = response.items.some(
                     (document) => document.latestExtraction?.status === 'processing'
+                ) || response.items.some(
+                    (document) => queuedBatchExtractionDocumentIdsRef.current[document.id]
                 );
                 if (!isPolling && !shouldPreserveNotice && !isSearchRequest) {
                     setNotice(response.total
@@ -544,7 +576,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     };
 
     const removeDocument = async (document: SourceDocument) => {
-        if (!currentSpaceId) return;
+        if (!currentSpaceId || isBatchDeleting) return;
         setDeletingDocumentId(document.id);
         try {
             await deleteSourceDocument(currentSpaceId, document.id);
@@ -559,6 +591,11 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 delete nextStates[document.id];
                 return nextStates;
             });
+            setSelectedDocumentIds((current) => {
+                const next = {...current};
+                delete next[document.id];
+                return next;
+            });
             setDocumentPreview((current) => current?.document.id === document.id ? null : current);
             setNotice(`来源资料“${document.name}”已删除，相关图谱来源贡献已同步更新。`);
             setNoticeTone('success');
@@ -567,6 +604,101 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
             setNoticeTone('error');
         } finally {
             setDeletingDocumentId(null);
+        }
+    };
+
+    const removeDocuments = async (documents: SourceDocument[]) => {
+        if (!currentSpaceId || !documents.length || isBatchDeleting) return;
+        setIsBatchDeleting(true);
+        setNotice(`正在删除 ${documents.length} 份来源资料…`);
+        setNoticeTone('loading');
+
+        try {
+            // 通过一次后端批量接口在事务中软删除资料并同步失效图谱来源贡献
+            const response = await deleteSourceDocuments(
+                currentSpaceId,
+                documents.map((document) => document.id)
+            );
+            const deletedDocumentIds = new Set(response.documentIds);
+            const deletedDocuments = documents.filter((document) => deletedDocumentIds.has(document.id));
+            const remainingTotal = Math.max(0, documentTotal - response.deletedCount);
+            const remainingPages = Math.ceil(remainingTotal / DOCUMENT_PAGE_SIZE);
+            // 后端事务完成后只刷新一次列表，避免前端对每份资料重复请求分页接口
+            preservedDocumentNoticeSpaceIdRef.current = currentSpaceId;
+            setDocumentPage(Math.min(documentPage, Math.max(1, remainingPages)));
+            setDocumentRefreshKey((current) => current + 1);
+            setDocumentExtractionStates((current) => {
+                const nextStates = {...current};
+                deletedDocuments.forEach((document) => delete nextStates[document.id]);
+                return nextStates;
+            });
+            setSelectedDocumentIds((current) => {
+                const next = {...current};
+                deletedDocuments.forEach((document) => delete next[document.id]);
+                return next;
+            });
+            deletedDocuments.forEach((document) => delete queuedBatchExtractionDocumentIdsRef.current[document.id]);
+            setDocumentPreview((current) => current && deletedDocuments.some((document) => document.id === current.document.id)
+                ? null
+                : current);
+            setNotice(`批量删除完成：已删除 ${response.deletedCount} 份来源资料，相关图谱来源贡献已同步更新。`);
+            setNoticeTone('success');
+        } catch (error) {
+            setNotice(`批量删除来源资料失败：${error instanceof Error ? error.message : '未知错误'}`);
+            setNoticeTone('error');
+        } finally {
+            setIsBatchDeleting(false);
+        }
+    };
+
+    const extractDocuments = async (documents: SourceDocument[]) => {
+        if (!currentSpaceId || !documents.length || isBatchExtracting) return;
+        setIsBatchExtracting(true);
+        setNotice(`正在向服务端提交 ${documents.length} 份来源资料的批量 AI 提取任务…`);
+        setNoticeTone('loading');
+
+        try {
+            // 只发起一次批量接口，由后端有界线程池并发执行每份资料的独立抽取任务
+            const response = await submitDocumentExtractionBatch(
+                currentSpaceId,
+                documents.map((document) => document.id)
+            );
+            response.documentIds.forEach((documentId) => {
+                queuedBatchExtractionDocumentIdsRef.current[documentId] = true;
+            });
+            setDocumentExtractionStates((current) => ({
+                ...current,
+                ...Object.fromEntries(response.documentIds.map((documentId) => [documentId, {
+                    status: 'processing' as const,
+                    message: '批量提取已受理，等待服务端执行',
+                }])),
+            }));
+            setSelectedDocumentIds((current) => {
+                const next = {...current};
+                response.documentIds.forEach((documentId) => delete next[documentId]);
+                return next;
+            });
+            // 立即刷新当前页，并持续轮询已受理但尚未创建运行记录的后台任务
+            setDocumentRefreshKey((current) => current + 1);
+            if (!response.acceptedCount) {
+                setNotice('批量 AI 提取未被服务端受理，请稍后重试。');
+                setNoticeTone('warning');
+                return;
+            }
+
+            const rejectedDocumentNames = documents
+                .filter((document) => response.rejectedDocumentIds.includes(document.id))
+                .map((document) => document.name);
+            const summary = `批量 AI 提取已受理 ${response.acceptedCount} / ${response.requestedCount} 份资料。`;
+            setNotice(rejectedDocumentNames.length
+                ? `${summary} 以下资料未受理：${rejectedDocumentNames.join('、')}。`
+                : `${summary} 请留在来源资料页查看每份资料的独立状态和结果。`);
+            setNoticeTone(rejectedDocumentNames.length ? 'warning' : 'success');
+        } catch (error) {
+            setNotice(`批量 AI 提取提交失败：${error instanceof Error ? error.message : '未知错误'}`);
+            setNoticeTone('error');
+        } finally {
+            setIsBatchExtracting(false);
         }
     };
 
@@ -955,6 +1087,15 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                         onDelete={(document) => setDeleteConfirmation({kind: 'document', item: document})}
                         onExtract={(document) => void extractDocument(document)}
                         onViewExtraction={(document) => void viewExtractionResult(document)}
+                        selectedDocumentIds={selectedDocumentIds}
+                        onToggleSelection={(documentId) => setSelectedDocumentIds((current) => ({
+                            ...current,
+                            [documentId]: !current[documentId],
+                        }))}
+                        onBatchDelete={(documents) => setDeleteConfirmation({kind: 'documents', items: documents})}
+                        onBatchExtract={(documents) => void extractDocuments(documents)}
+                        isBatchDeleting={isBatchDeleting}
+                        isBatchExtracting={isBatchExtracting}
                         deletingDocumentId={deletingDocumentId}
                         extractionStates={documentExtractionStates}
                         loadingExtractionResultId={loadingExtractionResultId}
@@ -1012,6 +1153,10 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                         void removeCurrentSpace(target.item);
                         return;
                     }
+                    if (target.kind === 'documents') {
+                        void removeDocuments(target.items);
+                        return;
+                    }
                     void removeDocument(target.item);
                 }}
             />}
@@ -1042,6 +1187,12 @@ function DocumentPanel({
                            onDelete,
                            onExtract,
                            onViewExtraction,
+                           selectedDocumentIds,
+                           onToggleSelection,
+                           onBatchDelete,
+                           onBatchExtract,
+                           isBatchDeleting,
+                           isBatchExtracting,
                            deletingDocumentId,
                            extractionStates,
                            loadingExtractionResultId,
@@ -1057,6 +1208,12 @@ function DocumentPanel({
     onDelete: (document: SourceDocument) => void;
     onExtract: (document: SourceDocument) => void;
     onViewExtraction: (document: SourceDocument) => void;
+    selectedDocumentIds: Record<string, boolean>;
+    onToggleSelection: (documentId: string) => void;
+    onBatchDelete: (documents: SourceDocument[]) => void;
+    onBatchExtract: (documents: SourceDocument[]) => void;
+    isBatchDeleting: boolean;
+    isBatchExtracting: boolean;
     deletingDocumentId: string | null;
     extractionStates: Record<string, DocumentExtractionState>;
     loadingExtractionResultId: string | null;
@@ -1065,6 +1222,15 @@ function DocumentPanel({
     totalPages: number;
     onPageChange: (page: number) => void;
 }) {
+    const selectedDocuments = documents.filter((document) => selectedDocumentIds[document.id]);
+    const hasProcessingSelection = selectedDocuments.some(
+        (document) => extractionStates[document.id]?.status === 'processing'
+    );
+    const batchActionsDisabled = isBatchDeleting || isBatchExtracting || hasProcessingSelection;
+    const batchActionTitle = hasProcessingSelection
+        ? '所选资料包含提取中的任务，请等待完成后再执行批量操作'
+        : undefined;
+
     if (!documents.length) {
         return <>
             <DocumentSearchBox value={search} onChange={onSearchChange}/>
@@ -1078,6 +1244,27 @@ function DocumentPanel({
 
     return <>
         <DocumentSearchBox value={search} onChange={onSearchChange}/>
+        <div className="document-batch-toolbar">
+            <span>{selectedDocuments.length
+                ? `已选择 ${selectedDocuments.length} 份资料`
+                : '点击资料卡片即可多选，再执行批量操作'}</span>
+            <div className="document-batch-actions">
+                <button
+                    className="secondary-button"
+                    type="button"
+                    title={batchActionTitle}
+                    disabled={!selectedDocuments.length || batchActionsDisabled}
+                    onClick={() => onBatchExtract(selectedDocuments)}
+                >{isBatchExtracting ? <LoaderCircle className="spin" size={14}/> : <Sparkles size={14}/>} 批量提取</button>
+                <button
+                    className="secondary-button danger-button"
+                    type="button"
+                    title={batchActionTitle}
+                    disabled={!selectedDocuments.length || batchActionsDisabled}
+                    onClick={() => onBatchDelete(selectedDocuments)}
+                >{isBatchDeleting ? <LoaderCircle className="spin" size={14}/> : <Trash2 size={14}/>} 批量删除</button>
+            </div>
+        </div>
         <div className="document-grid">
             {documents.map((document) => {
                 const extractionState = extractionStates[document.id];
@@ -1107,42 +1294,69 @@ function DocumentPanel({
                         : extractionState?.status === 'error'
                             ? `AI 提取失败，请先点击“${extractionButtonLabel}”`
                             : `暂无可查看结果，请先点击“${extractionButtonLabel}”`;
-                return <article className="document-card" key={document.id}>
-                    <div className="document-card-head"><span className="document-kind"><FileText
-                        size={16}/>{documentKindLabels[document.kind]}</span>
-                        <div className="document-status-group"><span
-                            className="document-status">已解析</span>{extractionState &&
-                            <span className={`ai-document-status ${extractionState.status}`}
-                                title={extractionState.message}>{isExtracting && <LoaderCircle className="spin"
+                const deleteButtonLabel = deletingDocumentId === document.id
+                    ? `正在删除来源资料：${document.name}`
+                    : `删除来源资料：${document.name}`;
+                const isSelected = Boolean(selectedDocumentIds[document.id]);
+                return <article
+                    className={`document-card ${isSelected ? 'selected' : ''}`}
+                    key={document.id}
+                    data-selected={isSelected}
+                    tabIndex={0}
+                    onClick={(event) => {
+                        if (event.target instanceof Element && event.target.closest('button')) return;
+                        onToggleSelection(document.id);
+                    }}
+                    onKeyDown={(event) => {
+                        if (event.target instanceof Element && event.target.closest('button')) return;
+                        if (event.key !== 'Enter' && event.key !== ' ') return;
+                        event.preventDefault();
+                        onToggleSelection(document.id);
+                    }}
+                >
+                    <div className="document-card-format">
+                        <div className="document-card-head"><span className="document-kind"><FileText
+                            size={16}/>{documentKindLabels[document.kind]}</span>
+                            <div className="document-status-group"><span
+                                className="document-status">已解析</span>{extractionState &&
+                                <span className={`ai-document-status ${extractionState.status}`}
+                                    title={extractionState.message}>{isExtracting && <LoaderCircle className="spin"
                                 size={11}/>}{extractionState.status === 'processing' ? 'AI 提取中' : extractionState.status === 'success' ? 'AI 提取完成' : 'AI 提取失败'}</span>}
+                            </div>
+                        </div>
+                        <button
+                            className="space-icon-button danger document-delete-button"
+                            type="button"
+                            aria-label={deleteButtonLabel}
+                            title={deleteButtonLabel}
+                            disabled={deletingDocumentId === document.id || isExtracting || isBatchDeleting || isBatchExtracting}
+                            onClick={() => onDelete(document)}
+                        >{deletingDocumentId === document.id ? <LoaderCircle className="spin" size={14}/> : <Trash2 size={14}/>}</button>
+                    </div>
+                    <div className="document-card-name">
+                        <h3 title={document.name}>{document.name}</h3>
+                    </div>
+                    <div className="document-card-content">
+                        <p>{document.excerpt}</p>
+                    </div>
+                    <div className="document-card-meta">
+                        <div className="document-meta">
+                            <span>{formatFileSize(document.fileSize)}</span><span>{formatImportedAt(document.importedAt)}</span>
                         </div>
                     </div>
-                    <h3 title={document.name}>{document.name}</h3>
-                    <p>{document.excerpt}</p>
-                    <div className="document-meta">
-                        <span>{formatFileSize(document.fileSize)}</span><span>{formatImportedAt(document.importedAt)}</span>
-                    </div>
-                    <div className="document-hash" title={document.contentHash}>SHA-256
-                        · {document.contentHash.slice(0, 16)}…
-                    </div>
                     <div className="document-card-actions">
-                        <button className="secondary-button" onClick={() => onPreview(document)}><Eye size={14}/> 查看
+                        <button className="secondary-button" disabled={isBatchDeleting} onClick={() => onPreview(document)}><Eye size={14}/> 查看
                         </button>
-                        <button className="secondary-button" disabled={isExtracting}
+                        <button className="secondary-button" disabled={isExtracting || isBatchDeleting || isBatchExtracting}
                             onClick={() => onExtract(document)}>{isExtracting ?
                             <LoaderCircle className="spin" size={14}/> :
                             <Sparkles size={14}/>} {extractionButtonLabel}</button>
                         <span className="result-button-tip" data-tooltip={resultUnavailableMessage}>
             <button className="secondary-button" aria-label={resultUnavailableMessage || resultButtonLabel}
-                disabled={!completedExtractionId || isLoadingResult}
+                disabled={!completedExtractionId || isLoadingResult || isBatchDeleting}
                 onClick={() => onViewExtraction(document)}>{isLoadingResult ?
                 <LoaderCircle className="spin" size={14}/> : <FileText size={14}/>} {resultButtonLabel}</button>
           </span>
-                        <button className="secondary-button danger-button"
-                            disabled={deletingDocumentId === document.id || isExtracting}
-                            onClick={() => onDelete(document)}>{deletingDocumentId === document.id ?
-                            <LoaderCircle className="spin" size={14}/> : <Trash2 size={14}/>} 删除
-                        </button>
                     </div>
                 </article>;
             })}
@@ -1187,6 +1401,11 @@ function DeleteConfirmationDialog({
     onConfirm: () => void;
 }) {
     const isSpace = target.kind === 'space';
+    const isDocumentBatch = target.kind === 'documents';
+    const documentCount = isDocumentBatch ? target.items.length : 1;
+    const targetName = isDocumentBatch
+        ? `已选择 ${documentCount} 份来源资料`
+        : target.item.name;
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -1203,8 +1422,8 @@ function DeleteConfirmationDialog({
             <header className="confirmation-header">
                 <span className="confirmation-icon"><AlertTriangle size={21}/></span>
                 <div>
-                    <div className="eyebrow">{isSpace ? '知识空间 / 移除确认' : '来源资料 / 删除确认'}</div>
-                    <h2 id="delete-confirmation-title">{isSpace ? '确认移除知识空间？' : '确认删除来源资料？'}</h2>
+                    <div className="eyebrow">{isSpace ? '知识空间 / 移除确认' : `来源资料 / ${isDocumentBatch ? '批量删除确认' : '删除确认'}`}</div>
+                    <h2 id="delete-confirmation-title">{isSpace ? '确认移除知识空间？' : isDocumentBatch ? `确认删除 ${documentCount} 份来源资料？` : '确认删除来源资料？'}</h2>
                 </div>
                 <button className="space-icon-button" aria-label="关闭删除确认" title="关闭" onClick={onCancel}><X
                     size={16}/></button>
@@ -1212,17 +1431,17 @@ function DeleteConfirmationDialog({
             <div className="confirmation-content">
                 <div className="confirmation-target">
                     {isSpace ? <Archive size={18}/> : <FileText size={18}/>}
-                    <div><span>{isSpace ? '待移除知识空间' : '待删除来源资料'}</span><strong
-                        title={target.item.name}>{target.item.name}</strong></div>
+                    <div><span>{isSpace ? '待移除知识空间' : isDocumentBatch ? '待批量删除来源资料' : '待删除来源资料'}</span><strong
+                        title={targetName}>{targetName}</strong></div>
                 </div>
                 <p id="delete-confirmation-description">{isSpace
                     ? '移除后，该空间将不再出现在工作台中；来源资料和图谱事实仍会保留在本地数据库中。'
-                    : '删除后，仅由该资料支撑的图谱节点和关系会同步失效；原始文件与历史证据仍会保留。'}</p>
+                    : `删除后，仅由${isDocumentBatch ? '这些资料' : '该资料'}支撑的图谱节点和关系会同步失效；原始文件与历史证据仍会保留。`}</p>
             </div>
             <footer className="confirmation-actions">
                 <button className="ghost-button" autoFocus onClick={onCancel}>取消</button>
                 <button className="secondary-button danger-button confirmation-submit" onClick={onConfirm}><Trash2
-                    size={15}/>{isSpace ? '确认移除' : '确认删除'}</button>
+                    size={15}/>{isSpace ? '确认移除' : isDocumentBatch ? '确认批量删除' : '确认删除'}</button>
             </footer>
         </section>
     </div>;
@@ -1383,7 +1602,10 @@ function DocumentPreviewModal({
                 {previewMode === 'ai'
                     ? <span>AI 候选必须经过证据校验和人工审核</span>
                     : content?.kind === 'pdf' && <span>服务端按页提取文本 · 不包含 OCR</span>}
-                <span>SHA-256 · {(content?.contentHash ?? document.contentHash).slice(0, 16)}…</span>
+                {previewMode === 'rendered' && <span
+                    className="document-preview-hash"
+                    title={`完整 SHA-256 内容指纹：${content?.contentHash ?? document.contentHash}`}
+                >SHA-256 · {(content?.contentHash ?? document.contentHash).slice(0, 16)}…</span>}
             </div>
             {previewMode === 'ai'
                 ? <AiExtractionTab

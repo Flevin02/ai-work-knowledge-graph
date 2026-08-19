@@ -4,6 +4,7 @@ import com.flevin.knowgraph.common.enums.ErrorCode;
 import com.flevin.knowgraph.common.exception.TipsException;
 import com.flevin.knowgraph.server.model.ai.DocumentExtractionOverview;
 import com.flevin.knowgraph.server.model.document.DocumentImportBatchStatus;
+import com.flevin.knowgraph.server.model.document.DocumentBatchDeleteResponse;
 import com.flevin.knowgraph.server.model.document.DocumentImportFileResult;
 import com.flevin.knowgraph.server.model.document.DocumentImportFileStatus;
 import com.flevin.knowgraph.server.model.document.DocumentImportResponse;
@@ -42,6 +43,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -273,6 +275,55 @@ public class DocumentServiceImpl implements DocumentService {
 
         // 移除该资料对图谱节点和关系的来源贡献
         graphRepository.invalidateBySourceDocument(spaceId, documentId, updatedAt);
+    }
+
+    /**
+     * 批量软删除来源资料，并在同一事务中同步失效对应图谱来源贡献。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentIds 当前知识空间内待删除的来源资料标识
+     * @return 已删除资料数量和资料标识
+     */
+    @Override
+    @Transactional
+    public DocumentBatchDeleteResponse deleteDocuments(
+            String spaceId,
+            List<String> documentIds
+    ) {
+        // 校验当前知识空间仍有效，避免向已删除空间写入批量删除结果
+        knowledgeSpaceService.requireActive(spaceId);
+
+        List<String> normalizedDocumentIds = documentIds.stream()
+                .map(String::strip)
+                .toList();
+        if (new LinkedHashSet<>(normalizedDocumentIds).size() != normalizedDocumentIds.size()) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "批量操作中不能重复选择同一份来源资料");
+        }
+
+        // 先确认所有资料均属于当前空间，避免执行到中途才出现不存在资料导致部分删除
+        List<SourceDocument> documents = normalizedDocumentIds.stream()
+                .map(documentId -> sourceDocumentRepository.findById(spaceId, documentId)
+                        .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "来源资料不存在或已删除")))
+                .toList();
+
+        // 使用同一时间戳收口本批资料及其图谱来源失效状态
+        Instant updatedAt = Instant.now();
+        for (SourceDocument document : documents) {
+            // 软删除当前仍有效的来源资料，原始文件和历史运行记录继续保留
+            int deletedCount = sourceDocumentRepository.softDelete(
+                    spaceId,
+                    document.id(),
+                    updatedAt
+            );
+            if (deletedCount != 1) {
+                throw new TipsException(ErrorCode.NOT_FOUND, "来源资料不存在或已删除");
+            }
+
+            // 移除当前资料对图谱节点和关系的来源贡献
+            graphRepository.invalidateBySourceDocument(spaceId, document.id(), updatedAt);
+        }
+
+        return new DocumentBatchDeleteResponse(documents.size(), normalizedDocumentIds);
     }
 
     /**

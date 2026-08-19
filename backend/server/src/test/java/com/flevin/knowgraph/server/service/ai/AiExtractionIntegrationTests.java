@@ -54,6 +54,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.datasource.hikari.minimum-idle=1",
         "spring.datasource.hikari.connection-timeout=500",
         "spring.datasource.hikari.initialization-fail-timeout=500",
+        "ai.batch-extraction.max-concurrency=2",
+        "ai.batch-extraction.queue-capacity=4",
         "ai.enabled=false"
 })
 @AutoConfigureMockMvc
@@ -401,6 +403,73 @@ class AiExtractionIntegrationTests {
     }
 
     @Test
+    void batchExtractionUsesBackendThreadPoolAndPersistsIndependentRuns() throws Exception {
+        MockMultipartFile firstFile = new MockMultipartFile(
+                "files",
+                "批量提取一.md",
+                "text/markdown",
+                "# 批量提取一\n\n第一份资料用于验证后台并发抽取。".getBytes(StandardCharsets.UTF_8)
+        );
+        MockMultipartFile secondFile = new MockMultipartFile(
+                "files",
+                "批量提取二.md",
+                "text/markdown",
+                "# 批量提取二\n\n第二份资料用于验证后台并发抽取。".getBytes(StandardCharsets.UTF_8)
+        );
+
+        // 导入两份资料，准备由一个批量接口受理的独立抽取任务
+        DocumentImportResponse importResponse = documentService.importDocuments(
+                SPACE_ID,
+                "prd",
+                List.of(firstFile, secondFile)
+        );
+        List<String> documentIds = importResponse.results().stream()
+                .map(result -> result.document().id())
+                .toList();
+        CountDownLatch modelCallsStarted = new CountDownLatch(2);
+        CountDownLatch releaseModelCalls = new CountDownLatch(1);
+
+        // 同时阻塞两次 Fake 模型调用，验证批量任务由后端线程池并发执行而非前端多请求串行等待
+        when(aiExtractionClient.extract(
+                any(AiExtractionRequest.class),
+                org.mockito.ArgumentMatchers.<Consumer<String>>any()
+        )).thenAnswer(invocation -> {
+            modelCallsStarted.countDown();
+            if (!releaseModelCalls.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("等待释放批量 Fake 模型调用超时");
+            }
+            return fakeResult(invocation.getArgument(0));
+        });
+
+        try {
+            // 一次请求受理两份资料，前端无需为批量提取维持多条 SSE 连接
+            mockMvc.perform(post("/v1/spaces/{spaceId}/documents/extraction-batches", SPACE_ID)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(java.util.Map.of("documentIds", documentIds))))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.error").value(false))
+                    .andExpect(jsonPath("$.data.requestedCount").value(2))
+                    .andExpect(jsonPath("$.data.acceptedCount").value(2))
+                    .andExpect(jsonPath("$.data.documentIds.length()").value(2))
+                    .andExpect(jsonPath("$.data.rejectedDocumentIds.length()").value(0));
+
+            // 等待两份资料同时进入模型调用，证明线程池实际达到了配置并发度
+            assertThat(modelCallsStarted.await(2, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            // 无论断言是否成功都释放 Fake 模型任务，避免后台线程影响后续测试
+            releaseModelCalls.countDown();
+        }
+
+        // 等待两个独立任务各自完成并写入可恢复的运行记录
+        waitForCompletedBatchExtractions(2);
+        Integer completedRunCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM ai_extraction_runs WHERE status = 'completed'",
+                Integer.class
+        );
+        assertThat(completedRunCount).isEqualTo(2);
+    }
+
+    @Test
     void keepsPartialDeltaOutOfPersistedResultWhenValidationFails() throws Exception {
         MockMultipartFile documentFile = new MockMultipartFile(
                 "files",
@@ -472,6 +541,34 @@ class AiExtractionIntegrationTests {
                 ).exists());
     }
 
+    /**
+     * 等待后台批量抽取任务完成，避免把接口受理成功误当作模型和持久化已经完成。
+     *
+     * @param expectedCompletedCount 预期完成的抽取运行数量
+     * @throws InterruptedException 等待期间线程被中断时抛出
+     */
+    private void waitForCompletedBatchExtractions(int expectedCompletedCount) throws InterruptedException {
+        long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (System.nanoTime() < deadlineNanos) {
+            Integer completedCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM ai_extraction_runs WHERE status = 'completed'",
+                    Integer.class
+            );
+            if (completedCount != null && completedCount >= expectedCompletedCount) {
+                return;
+            }
+
+            // 短暂等待后台线程完成模型返回后的 SQLite 写入收口
+            Thread.sleep(50);
+        }
+
+        Integer completedCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM ai_extraction_runs WHERE status = 'completed'",
+                Integer.class
+        );
+        assertThat(completedCount).isGreaterThanOrEqualTo(expectedCompletedCount);
+    }
+
     private String performStreamingExtraction(String documentId) throws Exception {
         // 发起 SSE 请求并确认 Spring MVC 已切换到异步响应
         MvcResult streamStarted = mockMvc.perform(post(
@@ -517,6 +614,7 @@ class AiExtractionIntegrationTests {
     }
 
     private AiExtractionResult fakeResult(AiExtractionRequest request) {
+        String entitySummary = "用户中心包含登录功能，登录功能支持手机号验证码登录。".repeat(4);
         AiEvidenceCandidate evidence = new AiEvidenceCandidate(
                 "evidence-1",
                 request.sourceDocumentId(),
@@ -530,14 +628,14 @@ class AiExtractionIntegrationTests {
                 "entity-project",
                 AiEntityType.PROJECT,
                 "用户中心",
-                "用户中心项目",
+                entitySummary,
                 List.of("evidence-1")
         );
         AiEntityCandidate feature = new AiEntityCandidate(
                 "entity-feature",
                 AiEntityType.FEATURE,
                 "登录功能",
-                "支持手机号验证码登录",
+                entitySummary,
                 List.of("evidence-1")
         );
         AiRelationCandidate relation = new AiRelationCandidate(

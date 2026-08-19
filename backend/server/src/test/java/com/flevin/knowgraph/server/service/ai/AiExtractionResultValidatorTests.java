@@ -153,6 +153,66 @@ class AiExtractionResultValidatorTests {
         }
     }
 
+    @Test
+    void acceptsEmptyEntitySummaryWithinZeroToOneHundredSixtyCharacterBoundary() {
+        AiExtractionRequest request = request();
+        AiExtractionResult validResult = validResult("用户中心包含登录功能");
+        AiEntityCandidate projectWithoutSummary = new AiEntityCandidate(
+                "entity-project",
+                AiEntityType.PROJECT,
+                "用户中心",
+                "",
+                List.of("evidence-1")
+        );
+        AiExtractionResult resultWithEmptySummary = new AiExtractionResult(
+                validResult.summary(),
+                List.of(projectWithoutSummary, validResult.entities().get(1)),
+                validResult.relations(),
+                validResult.evidences(),
+                validResult.conflicts()
+        );
+
+        try (ValidatorFactory validatorFactory = Validation.buildDefaultValidatorFactory()) {
+            AiExtractionResultValidator validator = new AiExtractionResultValidator(
+                    validatorFactory.getValidator()
+            );
+
+            // 验证原文信息不足时允许实体保留空摘要，后续物化会回退为实体名称
+            assertThat(validator.validate(request, resultWithEmptySummary)).isSameAs(resultWithEmptySummary);
+        }
+    }
+
+    @Test
+    void rejectsEntitySummaryLongerThanOneHundredSixtyCharacters() {
+        AiExtractionRequest request = request();
+        AiExtractionResult validResult = validResult("用户中心包含登录功能");
+        AiEntityCandidate invalidProject = new AiEntityCandidate(
+                "entity-project",
+                AiEntityType.PROJECT,
+                "用户中心",
+                "超".repeat(161),
+                List.of("evidence-1")
+        );
+        AiExtractionResult invalidResult = new AiExtractionResult(
+                validResult.summary(),
+                List.of(invalidProject, validResult.entities().get(1)),
+                validResult.relations(),
+                validResult.evidences(),
+                validResult.conflicts()
+        );
+
+        try (ValidatorFactory validatorFactory = Validation.buildDefaultValidatorFactory()) {
+            AiExtractionResultValidator validator = new AiExtractionResultValidator(
+                    validatorFactory.getValidator()
+            );
+
+            // 验证实体摘要超过 160 个字符时不会进入候选图谱物化流程
+            assertThatThrownBy(() -> validator.validate(request, invalidResult))
+                    .isInstanceOf(AiExtractionValidationException.class)
+                    .hasMessageContaining("实体摘要不能超过 160 个字符");
+        }
+    }
+
     private AiExtractionRequest request() {
         return new AiExtractionRequest(
                 "document-1",
@@ -165,6 +225,7 @@ class AiExtractionResultValidatorTests {
     }
 
     private AiExtractionResult validResult(String quote) {
+        String entitySummary = "用户中心包含登录功能，登录功能支持手机号验证码登录。".repeat(4);
         AiEvidenceCandidate evidence = new AiEvidenceCandidate(
                 "evidence-1",
                 "document-1",
@@ -176,14 +237,14 @@ class AiExtractionResultValidatorTests {
                 "entity-project",
                 AiEntityType.PROJECT,
                 "用户中心",
-                "用户中心项目",
+                entitySummary,
                 List.of("evidence-1")
         );
         AiEntityCandidate feature = new AiEntityCandidate(
                 "entity-feature",
                 AiEntityType.FEATURE,
                 "登录功能",
-                "支持手机号验证码登录",
+                entitySummary,
                 List.of("evidence-1")
         );
         AiRelationCandidate relation = new AiRelationCandidate(

@@ -74,6 +74,42 @@ export async function deleteSourceDocument(spaceId: string, documentId: string):
   return readApiResponse<void>(response);
 }
 
+export type DocumentBatchDeleteResponse = {
+  deletedCount: number;
+  documentIds: string[];
+};
+
+export type AiExtractionBatchResponse = {
+  requestedCount: number;
+  acceptedCount: number;
+  documentIds: string[];
+  rejectedDocumentIds: string[];
+};
+
+export async function deleteSourceDocuments(
+  spaceId: string,
+  documentIds: string[]
+): Promise<DocumentBatchDeleteResponse> {
+  const response = await fetch(`${backendApiUrl}/v1/spaces/${encodeURIComponent(spaceId)}/documents/deletion-batches`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({documentIds}),
+  });
+  return readApiResponse<DocumentBatchDeleteResponse>(response);
+}
+
+export async function submitDocumentExtractionBatch(
+  spaceId: string,
+  documentIds: string[]
+): Promise<AiExtractionBatchResponse> {
+  const response = await fetch(`${backendApiUrl}/v1/spaces/${encodeURIComponent(spaceId)}/documents/extraction-batches`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({documentIds}),
+  });
+  return readApiResponse<AiExtractionBatchResponse>(response);
+}
+
 export type AiExtractionStreamHandlers = {
   onRunStarted?: (event: AiExtractionRunStartedEvent) => void;
   onChunkStarted?: (event: AiExtractionChunkStartedEvent) => void;

@@ -21,6 +21,7 @@ import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -43,6 +44,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -509,6 +511,11 @@ class DocumentImportIntegrationTests {
                 ))
                 .andExpect(jsonPath("$.components.schemas.SourceDocumentPageResponse").exists())
                 .andExpect(jsonPath("$.components.schemas.SourceDocumentExtractionSummary").exists())
+                .andExpect(jsonPath("$.paths['/v1/spaces/{spaceId}/documents/deletion-batches'].post").exists())
+                .andExpect(jsonPath("$.paths['/v1/spaces/{spaceId}/documents/extraction-batches'].post").exists())
+                .andExpect(jsonPath("$.components.schemas.DocumentBatchRequest").exists())
+                .andExpect(jsonPath("$.components.schemas.DocumentBatchDeleteResponse").exists())
+                .andExpect(jsonPath("$.components.schemas.AiExtractionBatchResponse").exists())
                 .andExpect(jsonPath(
                         "$.components.schemas.SourceDocumentResponse.properties.kind.enum",
                         org.hamcrest.Matchers.hasItem("pdf")
@@ -734,6 +741,53 @@ class DocumentImportIntegrationTests {
         assertThat(graphRepository.findNodes(DEFAULT_SPACE_ID))
                 .extracting(GraphNode::id)
                 .containsExactly("delete-stable-node");
+    }
+
+    @Test
+    void controllerBatchDeletesSelectedDocumentsInOneRequest() throws Exception {
+        MockMultipartFile firstFile = new MockMultipartFile(
+                "files",
+                "批量删除一.md",
+                "text/markdown",
+                "# 批量删除一\n\n第一份虚构来源资料。".getBytes(StandardCharsets.UTF_8)
+        );
+        MockMultipartFile secondFile = new MockMultipartFile(
+                "files",
+                "批量删除二.md",
+                "text/markdown",
+                "# 批量删除二\n\n第二份虚构来源资料。".getBytes(StandardCharsets.UTF_8)
+        );
+
+        // 导入两份来源资料，准备批量软删除请求的真实资料标识
+        DocumentImportResponse importResponse = documentService.importDocuments(
+                DEFAULT_SPACE_ID,
+                "general",
+                List.of(firstFile, secondFile)
+        );
+        List<String> documentIds = importResponse.results().stream()
+                .map(result -> result.document().id())
+                .toList();
+
+        // 通过批量资源一次提交两份资料，验证服务端事务性软删除能力
+        mockMvc.perform(post("/v1/spaces/{spaceId}/documents/deletion-batches", DEFAULT_SPACE_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"documentIds\":[\"" + documentIds.get(0) + "\",\"" + documentIds.get(1) + "\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.error").value(false))
+                .andExpect(jsonPath("$.data.deletedCount").value(2))
+                .andExpect(jsonPath("$.data.documentIds.length()").value(2));
+
+        // 查询列表确认两份资料均已从当前空间的有效资料中移除
+        mockMvc.perform(get("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(0));
+
+        // 查询数据库确认批量操作仍为软删除，历史事实记录没有被物理移除
+        Integer deletedCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM source_documents WHERE status = 'deleted'",
+                Integer.class
+        );
+        assertThat(deletedCount).isEqualTo(2);
     }
 
     @Test

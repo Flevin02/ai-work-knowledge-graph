@@ -55,6 +55,10 @@ ai:
   max-output-tokens: ${AI_MAX_OUTPUT_TOKENS:4096}
   max-retries: ${AI_MAX_RETRIES:0}
   timeout-seconds: ${AI_TIMEOUT_SECONDS:60}
+  batch-extraction:
+    # 多选提取在后端使用有界线程池执行，避免同时占满模型请求和 SQLite 写入资源。
+    max-concurrency: ${AI_BATCH_EXTRACTION_MAX_CONCURRENCY:2}
+    queue-capacity: ${AI_BATCH_EXTRACTION_QUEUE_CAPACITY:12}
   rag:
     max-chunk-chars: ${AI_RAG_MAX_CHUNK_CHARS:1500}
     overlap-chars: ${AI_RAG_OVERLAP_CHARS:150}

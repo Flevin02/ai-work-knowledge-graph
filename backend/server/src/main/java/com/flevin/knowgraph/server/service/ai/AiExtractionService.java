@@ -1,6 +1,7 @@
 package com.flevin.knowgraph.server.service.ai;
 
 import com.flevin.knowgraph.server.model.ai.AiDocumentExtractionResponse;
+import com.flevin.knowgraph.server.model.ai.AiExtractionBatchResponse;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRunDetail;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRunSummary;
 import com.flevin.knowgraph.server.model.ai.AiRelationReviewRequest;
@@ -39,6 +40,21 @@ public interface AiExtractionService {
             String spaceId,
             String documentId,
             AiExtractionEventPublisher eventPublisher
+    );
+
+    /**
+     * 将多份来源资料提交到受控后台线程池执行独立的 AI 抽取任务。
+     *
+     * <p>每份资料仍会生成独立的抽取运行记录、候选事实和失败状态；接口只表示任务已受理，
+     * 前端应通过来源资料列表中的最近抽取状态观察后续进度和最终结果。</p>
+     *
+     * @param spaceId 知识空间标识
+     * @param documentIds 当前知识空间内待提取的来源资料标识
+     * @return 已由后台线程池受理的资料数量和资料标识
+     */
+    AiExtractionBatchResponse submitBatchExtraction(
+            String spaceId,
+            List<String> documentIds
     );
 
     /**

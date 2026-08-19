@@ -25,6 +25,7 @@ class OpenAiCompatibleAiExtractionClientTests {
 
     @Test
     void forwardsRealDeltasAndValidatesOnlyTheCompleteStructuredResponse() {
+        String entitySummary = "登录功能支持手机号验证码登录。".repeat(8);
         String responseJson = """
                 {
                   "summary": "登录功能支持手机号验证码。",
@@ -33,7 +34,7 @@ class OpenAiCompatibleAiExtractionClientTests {
                       "candidateId": "entity-1",
                       "type": "FEATURE",
                       "name": "登录功能",
-                      "summary": "支持手机号验证码登录",
+                      "summary": "%s",
                       "evidenceIds": ["evidence-1"]
                     }
                   ],
@@ -49,7 +50,7 @@ class OpenAiCompatibleAiExtractionClientTests {
                   ],
                   "conflicts": []
                 }
-                """;
+                """.formatted(entitySummary);
         String firstDelta = responseJson.substring(0, responseJson.length() / 2);
         String secondDelta = responseJson.substring(responseJson.length() / 2);
         ChatModel chatModel = new ChatModel() {

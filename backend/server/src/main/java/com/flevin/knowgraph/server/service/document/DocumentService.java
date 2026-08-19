@@ -1,6 +1,7 @@
 package com.flevin.knowgraph.server.service.document;
 
 import com.flevin.knowgraph.server.model.document.DocumentImportResponse;
+import com.flevin.knowgraph.server.model.document.DocumentBatchDeleteResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentContentResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentPageResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentType;
@@ -79,5 +80,17 @@ public interface DocumentService {
     void deleteDocument(
             String spaceId,
             String documentId
+    );
+
+    /**
+     * 批量软删除来源资料，并同步失效仅由这些资料支撑的图谱节点和关系。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentIds 当前知识空间内待删除的来源资料标识
+     * @return 已删除资料数量和资料标识
+     */
+    DocumentBatchDeleteResponse deleteDocuments(
+            String spaceId,
+            List<String> documentIds
     );
 }
