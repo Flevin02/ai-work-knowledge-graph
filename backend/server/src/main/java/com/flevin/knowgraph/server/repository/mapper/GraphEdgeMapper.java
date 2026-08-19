@@ -6,6 +6,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 图谱关系 MyBatis-Plus Mapper。
@@ -20,6 +21,16 @@ public interface GraphEdgeMapper extends BaseMapper<GraphEdgeEntity> {
      * @return 未失效关系
      */
     List<GraphEdgeEntity> findActiveBySpaceId(String spaceId);
+
+    /**
+     * 按主键查询关系，供候选物化和审核状态更新复用。
+     *
+     * @param edgeId 关系标识
+     * @return 关系实体；不存在时为空
+     */
+    default Optional<GraphEdgeEntity> findById(String edgeId) {
+        return Optional.ofNullable(selectById(edgeId));
+    }
 
     /**
      * 将连接到已失效节点的关系统一标记为 stale。

@@ -6,7 +6,9 @@ export type NodeType =
   | 'document'
   | 'meeting'
   | 'risk'
-  | 'decision';
+  | 'decision'
+  | 'requirement'
+  | 'feature';
 
 export type NodeStatus = 'active' | 'completed' | 'pending' | 'conflict' | 'orphan';
 export type EdgeStatus = 'suggested' | 'confirmed' | 'rejected' | 'stale';
@@ -102,6 +104,8 @@ export type AiRelationCandidate = {
   confidence: number;
   evidenceIds: string[];
 };
+
+export type AiRelationReviewAction = 'ACCEPT' | 'REJECT';
 
 export type AiEvidenceCandidate = {
   evidenceId: string;
@@ -250,6 +254,8 @@ export const nodeTypeLabels: Record<NodeType, string> = {
   meeting: '会议',
   risk: '风险',
   decision: '决策',
+  requirement: '需求',
+  feature: '功能',
 };
 
 export const nodeTypeColors: Record<NodeType, string> = {
@@ -261,4 +267,6 @@ export const nodeTypeColors: Record<NodeType, string> = {
   meeting: '#ec4899',
   risk: '#ef4444',
   decision: '#14b8a6',
+  requirement: '#38bdf8',
+  feature: '#a78bfa',
 };

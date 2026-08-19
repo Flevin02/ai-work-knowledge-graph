@@ -3,6 +3,9 @@ package com.flevin.knowgraph.server.controller.document;
 import com.flevin.knowgraph.common.model.ApiResponse;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRunDetail;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRunSummary;
+import com.flevin.knowgraph.server.model.ai.AiRelationReviewRequest;
+import com.flevin.knowgraph.server.model.ai.AiRelationReviewResponse;
+import com.flevin.knowgraph.server.model.ai.AiRelationReviewState;
 import com.flevin.knowgraph.server.model.document.DocumentImportResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentContentResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentPageResponse;
@@ -26,6 +29,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
@@ -89,7 +93,7 @@ public class DocumentController {
 	)
 	@Operation(
 			summary = "创建来源资料 AI 抽取",
-			description = "通过 SSE 返回运行、分片、真实模型增量、完成或失败事件；完整结果通过结构和证据校验后才保存，当前阶段不直接写入正式图谱。"
+			description = "通过 SSE 返回运行、分片、真实模型增量、完成或失败事件；完整结果通过结构和证据校验后保存，并物化为待人工审核的候选图谱事实。"
 	)
 	public ResponseEntity<StreamingResponseBody> extractDocument(
 				@Parameter(description = "知识空间标识", example = "default-space")
@@ -153,6 +157,56 @@ public class DocumentController {
         );
 
         // 使用统一响应结构返回抽取运行详情
+        return ApiResponse.success(response);
+    }
+
+    @PostMapping(value = "/{documentId}/extractions/{extractionId}/reviews", name = "审核来源资料 AI 候选关系")
+    @Operation(
+            summary = "审核来源资料 AI 候选关系",
+            description = "按服务端保存的抽取结果校验分片和关系顺序，批量更新关系状态并记录 review_actions。"
+    )
+    public ApiResponse<AiRelationReviewResponse> reviewExtractionRelations(
+            @Parameter(description = "知识空间标识", example = "default-space")
+            @PathVariable String spaceId,
+            @Parameter(description = "来源资料标识")
+            @PathVariable String documentId,
+            @Parameter(description = "AI 抽取运行标识")
+            @PathVariable String extractionId,
+            @RequestBody @jakarta.validation.Valid AiRelationReviewRequest request
+    ) {
+        // 按抽取运行的服务端候选结果执行单条或批量关系审核
+        AiRelationReviewResponse response = aiExtractionService.reviewRelations(
+                spaceId,
+                documentId,
+                extractionId,
+                request
+        );
+
+        // 使用统一响应结构返回本次审核统计
+        return ApiResponse.success(response);
+    }
+
+    @GetMapping(value = "/{documentId}/extractions/{extractionId}/reviews", name = "查询 AI 候选关系审核状态")
+    @Operation(
+            summary = "查询 AI 候选关系审核状态",
+            description = "恢复指定抽取结果已经持久化的采纳或拒绝决定，供弹窗刷新后继续展示。"
+    )
+    public ApiResponse<List<AiRelationReviewState>> listReviewStates(
+            @Parameter(description = "知识空间标识", example = "default-space")
+            @PathVariable String spaceId,
+            @Parameter(description = "来源资料标识")
+            @PathVariable String documentId,
+            @Parameter(description = "AI 抽取运行标识")
+            @PathVariable String extractionId
+    ) {
+        // 查询服务端已保存的候选关系审核状态
+        List<AiRelationReviewState> response = aiExtractionService.listReviewStates(
+                spaceId,
+                documentId,
+                extractionId
+        );
+
+        // 使用统一响应结构返回审核状态列表
         return ApiResponse.success(response);
     }
 

@@ -23,4 +23,26 @@
         ORDER BY created_at ASC, id ASC
     </select>
 
+    <!-- 批量读取当前知识空间内可复用的规范化节点，避免候选实体逐条查询。 -->
+    <select id="findBySpaceIdAndNormalizedKeys"
+            resultType="com.flevin.knowgraph.server.repository.entity.GraphNodeEntity">
+        SELECT id,
+               space_id,
+               node_type,
+               label,
+               summary,
+               status,
+               normalized_key,
+               source_ids_json,
+               created_at,
+               updated_at
+        FROM graph_nodes
+        WHERE space_id = #{spaceId}
+          AND status != 'stale'
+          AND normalized_key IN
+        <foreach collection="normalizedKeys" item="normalizedKey" open="(" separator="," close=")">
+            #{normalizedKey}
+        </foreach>
+    </select>
+
 </mapper>

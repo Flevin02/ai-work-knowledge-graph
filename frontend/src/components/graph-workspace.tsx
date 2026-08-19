@@ -32,9 +32,12 @@ import {
     getDocumentExtraction,
     getSourceDocumentContent,
     importSourceDocuments,
+    listDocumentExtractionReviewStates,
     listSourceDocuments,
+    reviewDocumentExtractionRelations,
     streamDocumentExtraction
 } from '@/lib/api/documents';
+import {getGraph} from '@/lib/api/graph';
 import {createKnowledgeSpace, deleteKnowledgeSpace, listKnowledgeSpaces} from '@/lib/api/spaces';
 import {
     nodeTypeColors,
@@ -42,6 +45,7 @@ import {
     type EdgeStatus,
     type AiChunkExtraction,
     type AiDocumentExtraction,
+    type AiRelationReviewAction,
     type GraphData,
     type GraphEdge,
     type GraphNode,
@@ -80,11 +84,17 @@ type AiExtractionViewState = {
 };
 type AiRelationReviewStatus = 'accepted' | 'rejected';
 type AiRelationReviewSelection = Record<string, boolean>;
+type AiRelationReviewDecision = {
+    relationKey: string;
+    chunkId: string;
+    relationIndex: number;
+    action: AiRelationReviewAction;
+};
 type DeleteConfirmation =
     | { kind: 'space'; item: KnowledgeSpace }
     | { kind: 'document'; item: SourceDocument };
 
-const allTypes: Array<NodeType | 'all'> = ['all', 'project', 'department', 'person', 'task', 'document', 'meeting', 'risk', 'decision'];
+const allTypes: Array<NodeType | 'all'> = ['all', 'project', 'department', 'person', 'task', 'document', 'meeting', 'risk', 'decision', 'requirement', 'feature'];
 const DOCUMENT_PAGE_SIZE = 12;
 const DOCUMENT_PROCESSING_POLL_INTERVAL_MS = 3000;
 const documentKindLabels: Record<SourceDocumentKind, string> = {
@@ -174,6 +184,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     const [documentTotal, setDocumentTotal] = useState(0);
     const [documentTotalPages, setDocumentTotalPages] = useState(0);
     const [documentRefreshKey, setDocumentRefreshKey] = useState(0);
+    const [graphRefreshKey, setGraphRefreshKey] = useState(0);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const preservedDocumentNoticeSpaceIdRef = useRef<string | null>(null);
 
@@ -301,6 +312,32 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
         };
     }, [currentSpaceId, documentPage, documentRefreshKey]);
 
+    useEffect(() => {
+        if (!currentSpaceId) return;
+        let cancelled = false;
+
+        const loadGraph = async () => {
+            try {
+                // 查询当前知识空间真实图谱，候选关系和审核状态均来自服务端
+                const loadedGraph = await getGraph(currentSpaceId);
+                if (cancelled || (!loadedGraph.nodes.length && !loadedGraph.edges.length)) return;
+                setGraph((current) => ({...loadedGraph, documents: current.documents}));
+                setSelectedNodeId((current) => loadedGraph.nodes.some((node) => node.id === current)
+                    ? current
+                    : loadedGraph.nodes[0]?.id ?? null);
+            } catch (error) {
+                if (cancelled) return;
+                setNotice(`真实图谱加载失败，暂保留当前演示图谱：${error instanceof Error ? error.message : '未知错误'}`);
+                setNoticeTone('warning');
+            }
+        };
+
+        void loadGraph();
+        return () => {
+            cancelled = true;
+        };
+    }, [currentSpaceId, graphRefreshKey]);
+
     const currentSpace = spaces.find((space) => space.id === currentSpaceId) ?? null;
 
     const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId) ?? null;
@@ -321,20 +358,40 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     }, [graph.edges, visibleNodes]);
     const confirmedEdgeCount = graph.edges.filter((edge) => edge.status === 'confirmed').length;
 
-    const updateAiRelationReview = (
+    const reviewAiRelations = async (
         extractionId: string,
-        relationKey: string,
-        status: AiRelationReviewStatus
+        documentId: string,
+        decisions: AiRelationReviewDecision[]
     ) => {
-        setAiRelationReviewStatuses((current) => ({
-            ...current,
-            [getAiRelationReviewKey(extractionId, relationKey)]: status,
-        }));
-        setAiRelationReviewSelections((current) => {
-            const next = {...current};
-            delete next[getAiRelationReviewKey(extractionId, relationKey)];
-            return next;
-        });
+        if (!currentSpaceId || !decisions.length) return;
+        try {
+            setNotice(`正在保存 ${decisions.length} 条关联审核结果…`);
+            setNoticeTone('loading');
+            // 将审核决定提交给服务端，由服务端按抽取结果校验主体、客体和证据
+            const response = await reviewDocumentExtractionRelations(
+                currentSpaceId,
+                documentId,
+                extractionId,
+                decisions.map(({chunkId, relationIndex, action}) => ({chunkId, relationIndex, action}))
+            );
+            setAiRelationReviewStatuses((current) => decisions.reduce((next, decision) => ({
+                ...next,
+                [getAiRelationReviewKey(extractionId, decision.relationKey)]: decision.action === 'ACCEPT' ? 'accepted' : 'rejected',
+            }), {...current}));
+            setAiRelationReviewSelections((current) => {
+                const next = {...current};
+                decisions.forEach((decision) => delete next[getAiRelationReviewKey(extractionId, decision.relationKey)]);
+                return next;
+            });
+            setGraphRefreshKey((current) => current + 1);
+            setNotice(response.pendingCount
+                ? `已保存 ${decisions.length} 条审核结果，当前抽取还剩 ${response.pendingCount} 条待审核关联。`
+                : '本次 AI 抽取的关联审核已完成，真实图谱已更新。');
+            setNoticeTone('success');
+        } catch (error) {
+            setNotice(`关联审核保存失败，未改变当前卡片状态：${error instanceof Error ? error.message : '未知错误'}`);
+            setNoticeTone('error');
+        }
     };
 
     const updateAiRelationReviewSelection = (relationKey: string, selected: boolean) => {
@@ -342,6 +399,24 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
             ...current,
             [relationKey]: selected,
         }));
+    };
+
+    const hydrateAiRelationReviewStatuses = async (
+        spaceId: string,
+        documentId: string,
+        extractionId: string
+    ) => {
+        try {
+            // 刷新或重新打开历史结果时恢复服务端已经保存的审核决定
+            const states = await listDocumentExtractionReviewStates(spaceId, documentId, extractionId);
+            setAiRelationReviewStatuses((current) => states.reduce((next, state) => ({
+                ...next,
+                [getAiRelationReviewKey(extractionId, `${state.chunkId}-relation-${state.relationIndex}`)]: state.action === 'ACCEPT' ? 'accepted' : 'rejected',
+            }), {...current}));
+        } catch (error) {
+            setNotice(`历史审核状态恢复失败：${error instanceof Error ? error.message : '未知错误'}`);
+            setNoticeTone('warning');
+        }
     };
 
     const submitNewSpace = async () => {
@@ -565,6 +640,9 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                     // AI 抽取完成后在同一个弹窗内开始人工关联审核，保留候选和证据上下文
                     setNotice(`AI 抽取完成，请在当前弹窗审核 ${relationCount} 条候选关系。`);
                     setNoticeTone('success');
+                    // 候选关系已经以 suggested 写入服务端，立即刷新图谱显示待审核虚线关系
+                    setGraphRefreshKey((current) => current + 1);
+                    void hydrateAiRelationReviewStatuses(currentSpaceId, document.id, event.extractionRunId);
                     // 重新读取当前页，让成功运行保存的 AI 摘要替换资料卡片原始预览
                     setDocumentRefreshKey((current) => current + 1);
                 },
@@ -641,6 +719,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 message: '已恢复服务端保存的完整抽取结果',
                 result: detail.result,
             });
+            void hydrateAiRelationReviewStatuses(currentSpaceId, document.id, detail.result.extractionId);
             setIsExtractionViewOpen(true);
         } catch (error) {
             setDocumentExtractionStates((current) => ({
@@ -847,7 +926,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 view={extractionView}
                 reviewStatuses={aiRelationReviewStatuses}
                 reviewSelections={aiRelationReviewSelections}
-                onReviewRelation={updateAiRelationReview}
+                onReviewRelations={(decisions) => reviewAiRelations(extractionView.extractionId ?? '', extractionView.documentId, decisions)}
                 onSelectRelation={updateAiRelationReviewSelection}
                 onClose={() => setIsExtractionViewOpen(false)}
             />}
@@ -1151,18 +1230,14 @@ function AiExtractionViewModal({
                                    view,
                                    reviewStatuses,
                                    reviewSelections,
-                                   onReviewRelation,
+                                   onReviewRelations,
                                    onSelectRelation,
                                    onClose,
                                }: {
     view: AiExtractionViewState;
     reviewStatuses: Record<string, AiRelationReviewStatus>;
     reviewSelections: AiRelationReviewSelection;
-    onReviewRelation: (
-        extractionId: string,
-        relationKey: string,
-        status: AiRelationReviewStatus
-    ) => void;
+    onReviewRelations: (decisions: AiRelationReviewDecision[]) => Promise<void>;
     onSelectRelation: (selectionKey: string, selected: boolean) => void;
     onClose: () => void;
 }) {
@@ -1171,7 +1246,7 @@ function AiExtractionViewModal({
             extraction={view.result}
             reviewStatuses={reviewStatuses}
             reviewSelections={reviewSelections}
-            onReviewRelation={onReviewRelation}
+            onReviewRelations={onReviewRelations}
             onSelectRelation={onSelectRelation}
             onClose={onClose}
         />;
@@ -1198,6 +1273,26 @@ function AiExtractionProgressModal({
     const entities = view.chunks.flatMap((chunk) => chunk.extraction.entities);
     const relations = view.chunks.flatMap((chunk) => chunk.extraction.relations);
     const isFailed = view.status === 'error';
+    const streamContentRef = useRef<HTMLDivElement>(null);
+    const streamWasNearBottomRef = useRef(true);
+
+    useEffect(() => {
+        const content = streamContentRef.current;
+        if (!content || !streamWasNearBottomRef.current) return;
+
+        // 只有用户仍停留在内容底部时，才跟随最新完成的分片，避免打断历史内容查看
+        content.scrollTo({
+            top: content.scrollHeight,
+            behavior: 'smooth',
+        });
+    }, [view.currentChunkId, view.chunks.length]);
+
+    const handleStreamContentScroll = () => {
+        const content = streamContentRef.current;
+        if (!content) return;
+        const distanceToBottom = content.scrollHeight - content.scrollTop - content.clientHeight;
+        streamWasNearBottomRef.current = distanceToBottom < 96;
+    };
 
     return <div className="document-preview-backdrop" role="presentation" onClick={onClose}>
         <section className="document-preview-dialog ai-extraction-dialog" role="dialog" aria-modal="true"
@@ -1229,7 +1324,11 @@ function AiExtractionProgressModal({
                 <div><strong>{relations.length}</strong><span>候选关系</span></div>
                 <div><strong>{view.rawOutput.length}</strong><span>当前分片已接收字符</span></div>
             </div>
-            <div className="ai-extraction-content ai-stream-content">
+            <div
+                ref={streamContentRef}
+                className="ai-extraction-content ai-stream-content"
+                onScroll={handleStreamContentScroll}
+            >
                 <section className="ai-stream-output">
                     <div className="ai-stream-section-heading"><h3>实时识别进展</h3>
                         <span>{view.currentChunkId || '等待分片'}</span></div>
@@ -1270,18 +1369,14 @@ function AiExtractionPreviewModal({
                                       extraction,
                                       reviewStatuses,
                                       reviewSelections,
-                                      onReviewRelation,
+                                      onReviewRelations,
                                       onSelectRelation,
                                       onClose,
                                   }: {
     extraction: AiDocumentExtraction;
     reviewStatuses: Record<string, AiRelationReviewStatus>;
     reviewSelections: AiRelationReviewSelection;
-    onReviewRelation: (
-        extractionId: string,
-        relationKey: string,
-        status: AiRelationReviewStatus
-    ) => void;
+    onReviewRelations: (decisions: AiRelationReviewDecision[]) => Promise<void>;
     onSelectRelation: (selectionKey: string, selected: boolean) => void;
     onClose: () => void;
 }) {
@@ -1300,6 +1395,8 @@ function AiExtractionPreviewModal({
     const entityNames = new Map(entities.map((entity) => [entity.candidateId, entity.name]));
     const relationEntries = extraction.chunks.flatMap((chunk) => chunk.extraction.relations.map((relation, index) => ({
         key: `${chunk.chunkId}-relation-${index}`,
+        chunkId: chunk.chunkId,
+        relationIndex: index,
         relation,
     })));
     const reviewedRelations = relationEntries.filter(({key}) => reviewStatuses[getAiRelationReviewKey(extraction.extractionId, key)]);
@@ -1314,12 +1411,17 @@ function AiExtractionPreviewModal({
         && selectedRelationKeys.length === pendingRelationKeys.length;
     const reviewComplete = pendingRelationCount === 0;
 
-    const updateSelectedRelations = (status: AiRelationReviewStatus) => {
-        selectedRelationKeys.forEach((relationKey) => onReviewRelation(
-            extraction.extractionId,
-            relationKey,
-            status
-        ));
+    const updateSelectedRelations = (action: AiRelationReviewAction) => {
+        const decisions = selectedRelationKeys.map((relationKey) => {
+            const relationEntry = relationEntries.find((entry) => entry.key === relationKey);
+            return relationEntry && {
+                relationKey,
+                chunkId: relationEntry.chunkId,
+                relationIndex: relationEntry.relationIndex,
+                action,
+            };
+        }).filter((decision): decision is AiRelationReviewDecision => Boolean(decision));
+        void onReviewRelations(decisions);
     };
 
     const toggleAllPendingRelations = () => {
@@ -1363,9 +1465,9 @@ function AiExtractionPreviewModal({
                 <span className="ai-review-selected-count">已选择 {selectedRelationKeys.length} 条</span>
                 <div className="ai-review-bulk-actions">
                     <button className="secondary-button" disabled={!selectedRelationKeys.length}
-                        onClick={() => updateSelectedRelations('rejected')}><X size={14}/> 批量拒绝</button>
+                        onClick={() => updateSelectedRelations('REJECT')}><X size={14}/> 批量拒绝</button>
                     <button className="primary-button" disabled={!selectedRelationKeys.length}
-                        onClick={() => updateSelectedRelations('accepted')}><Check size={14}/> 批量采纳</button>
+                        onClick={() => updateSelectedRelations('ACCEPT')}><Check size={14}/> 批量采纳</button>
                 </div>
             </div>}
             <div className="ai-extraction-content">
@@ -1433,16 +1535,18 @@ function AiExtractionPreviewModal({
                                                 {reviewStatus === 'accepted' ? '已采纳关联' : '已拒绝关联'}
                                             </span>
                                             : <>
-                                                <button className="secondary-button" onClick={() => onReviewRelation(
-                                                    extraction.extractionId,
+                                                <button className="secondary-button" onClick={() => void onReviewRelations([{
                                                     relationKey,
-                                                    'rejected'
-                                                )}><X size={14}/> 拒绝关联</button>
-                                                <button className="primary-button" onClick={() => onReviewRelation(
-                                                    extraction.extractionId,
+                                                    chunkId: chunk.chunkId,
+                                                    relationIndex: index,
+                                                    action: 'REJECT',
+                                                }])}><X size={14}/> 拒绝关联</button>
+                                                <button className="primary-button" onClick={() => void onReviewRelations([{
                                                     relationKey,
-                                                    'accepted'
-                                                )}><Check size={14}/> 采纳关联</button>
+                                                    chunkId: chunk.chunkId,
+                                                    relationIndex: index,
+                                                    action: 'ACCEPT',
+                                                }])}><Check size={14}/> 采纳关联</button>
                                             </>}
                                     </div>
                                 </article>;

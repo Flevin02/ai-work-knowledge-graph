@@ -89,7 +89,7 @@ class AiExtractionIntegrationTests {
     }
 
     @Test
-    void extractsImportedDocumentThroughPreviewEndpointWithoutWritingGraph() throws Exception {
+    void extractsImportedDocumentMaterializesCandidatesAndSupportsRelationReview() throws Exception {
         MockMultipartFile documentFile = new MockMultipartFile(
                 "files",
                 "登录功能.md",
@@ -141,6 +141,59 @@ class AiExtractionIntegrationTests {
                 .isEqualTo("用户中心；登录功能支持手机号验证码。");
         assertThat(completedEvent.path("result").path("chunks").get(0)
                 .path("extraction").path("entities").size()).isEqualTo(2);
+
+        // 抽取完成后候选节点、关系和证据已经进入真实图谱，但关系仍待人工审核
+        mockMvc.perform(get("/v1/spaces/{spaceId}/graph/summary", SPACE_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nodes").value(2))
+                .andExpect(jsonPath("$.data.edges").value(0))
+                .andExpect(jsonPath("$.data.pendingReviews").value(1));
+
+        // 只提交服务端结果中的分片标识和关系顺序，验证审核接口不信任前端主体客体
+        String firstChunkId = completedEvent.path("result").path("chunks").get(0)
+                .path("chunkId").asText();
+        mockMvc.perform(post(
+                        "/v1/spaces/{spaceId}/documents/{documentId}/extractions/{extractionId}/reviews",
+                        SPACE_ID,
+                        documentId,
+                        extractionId
+                )
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "reviews": [{
+                                    "chunkId": "%s",
+                                    "relationIndex": 0,
+                                    "action": "ACCEPT"
+                                  }],
+                                  "operatorName": "test-user"
+                                }
+                                """.formatted(firstChunkId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.acceptedCount").value(1))
+                .andExpect(jsonPath("$.data.rejectedCount").value(0))
+                .andExpect(jsonPath("$.data.pendingCount").value(0));
+
+        // 审核后关系成为正式关系，并保留一条不可变审核动作记录
+        mockMvc.perform(get("/v1/spaces/{spaceId}/graph/summary", SPACE_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.edges").value(1))
+                .andExpect(jsonPath("$.data.pendingReviews").value(0));
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM review_actions WHERE operator_name = ?",
+                Integer.class,
+                "test-user"
+        )).isEqualTo(1);
+        mockMvc.perform(get(
+                        "/v1/spaces/{spaceId}/documents/{documentId}/extractions/{extractionId}/reviews",
+                        SPACE_ID,
+                        documentId,
+                        extractionId
+                ))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].chunkId").value(firstChunkId))
+                .andExpect(jsonPath("$.data[0].relationIndex").value(0))
+                .andExpect(jsonPath("$.data[0].action").value("ACCEPT"));
 
         JsonNode deltaEvent = readStreamEvent(extractionStream, "delta");
         assertThat(deltaEvent.path("delta").asText()).isEqualTo("{\"summary\":");

@@ -3,16 +3,19 @@ package com.flevin.knowgraph.server.service.ai;
 import com.flevin.knowgraph.server.model.ai.AiDocumentExtractionResponse;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRunDetail;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRunSummary;
+import com.flevin.knowgraph.server.model.ai.AiRelationReviewRequest;
+import com.flevin.knowgraph.server.model.ai.AiRelationReviewResponse;
+import com.flevin.knowgraph.server.model.ai.AiRelationReviewState;
 
 import java.util.List;
 
 /**
- * 来源资料 AI 抽取编排服务，负责解析、分片、模型调用和结果预览。
+ * 来源资料 AI 抽取编排服务，负责解析、分片、模型调用、候选物化和关系审核。
  */
 public interface AiExtractionService {
 
     /**
-     * 对已导入来源资料执行结构化抽取预览，不直接写入正式图谱。
+     * 对已导入来源资料执行结构化抽取，并保存待审核候选图谱事实。
      *
      * @param spaceId 知识空间标识
      * @param documentId 来源资料标识
@@ -59,6 +62,36 @@ public interface AiExtractionService {
      * @return 抽取运行摘要和完整结果
      */
     AiExtractionRunDetail getExtraction(
+            String spaceId,
+            String documentId,
+            String extractionId
+    );
+
+    /**
+     * 审核指定抽取运行中的一批候选关系，并写入图谱状态和审核历史。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 来源资料标识
+     * @param extractionId 抽取运行标识
+     * @param request 批量审核决定
+     * @return 本次审核统计和当前剩余待审核数量
+     */
+    AiRelationReviewResponse reviewRelations(
+            String spaceId,
+            String documentId,
+            String extractionId,
+            AiRelationReviewRequest request
+    );
+
+    /**
+     * 查询指定抽取运行已经持久化的候选关系审核状态。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 来源资料标识
+     * @param extractionId 抽取运行标识
+     * @return 已审核候选关系状态
+     */
+    List<AiRelationReviewState> listReviewStates(
             String spaceId,
             String documentId,
             String extractionId

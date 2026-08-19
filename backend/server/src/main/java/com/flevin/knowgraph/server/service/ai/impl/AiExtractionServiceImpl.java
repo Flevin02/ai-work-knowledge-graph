@@ -10,6 +10,9 @@ import com.flevin.knowgraph.server.model.ai.AiExtractionResult;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRunDetail;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRunSummary;
 import com.flevin.knowgraph.server.model.ai.AiExtractionStreamEvents;
+import com.flevin.knowgraph.server.model.ai.AiRelationReviewRequest;
+import com.flevin.knowgraph.server.model.ai.AiRelationReviewResponse;
+import com.flevin.knowgraph.server.model.ai.AiRelationReviewState;
 import com.flevin.knowgraph.server.model.ai.rag.DocumentChunk;
 import com.flevin.knowgraph.server.model.ai.rag.DocumentSection;
 import com.flevin.knowgraph.server.model.document.SourceDocument;
@@ -18,6 +21,7 @@ import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
 import com.flevin.knowgraph.server.repository.entity.AiExtractionRunEntity;
 import com.flevin.knowgraph.server.service.ai.AiExtractionClient;
 import com.flevin.knowgraph.server.service.ai.AiExtractionEventPublisher;
+import com.flevin.knowgraph.server.service.ai.AiExtractionGraphMaterializer;
 import com.flevin.knowgraph.server.service.ai.AiExtractionService;
 import com.flevin.knowgraph.server.service.ai.AiExtractionValidationException;
 import com.flevin.knowgraph.server.service.ai.rag.PrdMarkdownSectionParser;
@@ -36,7 +40,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 来源资料 AI 抽取编排实现，第一阶段只返回候选预览，不写入图谱事实。
+ * 来源资料 AI 抽取编排实现，负责保存候选结果并将其物化为待审核图谱事实。
  */
 @Slf4j
 @Service
@@ -52,6 +56,7 @@ public class AiExtractionServiceImpl implements AiExtractionService {
     private final ObjectProvider<AiExtractionClient> extractionClientProvider;
     private final AiProperties aiProperties;
     private final AiExtractionRunRepository extractionRunRepository;
+    private final AiExtractionGraphMaterializer graphMaterializer;
     private final ObjectMapper objectMapper;
 
     /**
@@ -238,6 +243,9 @@ public class AiExtractionServiceImpl implements AiExtractionService {
                     List.copyOf(chunkResults)
             );
 
+            // 将已通过结构和证据校验的候选实体、关系和证据写入待审核图谱
+            graphMaterializer.materialize(spaceId, document, response);
+
             // 序列化完整结果并保存，保证刷新页面后仍可重新查看
             extractionRunRepository.complete(
                     extractionId,
@@ -334,6 +342,73 @@ public class AiExtractionServiceImpl implements AiExtractionService {
                 ? null
                 : readResultJson(entity.getResultJson());
         return new AiExtractionRunDetail(toSummary(entity), result);
+    }
+
+    /**
+     * 审核指定抽取运行中的一批候选关系，并写入图谱状态和审核历史。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 来源资料标识
+     * @param extractionId 抽取运行标识
+     * @param request 批量审核决定
+     * @return 本次审核统计和当前剩余待审核数量
+     */
+    @Override
+    public AiRelationReviewResponse reviewRelations(
+            String spaceId,
+            String documentId,
+            String extractionId,
+            AiRelationReviewRequest request
+    ) {
+        // 校验知识空间和来源资料边界，防止跨空间审核抽取结果
+        knowledgeSpaceService.requireActive(spaceId);
+        SourceDocument document = requireDocument(spaceId, documentId);
+
+        // 读取已完成的完整抽取结果，客户端只提交分片和关系顺序，不直接提交主体客体
+        AiExtractionRunEntity entity = extractionRunRepository.findById(
+                        spaceId,
+                        documentId,
+                        extractionId
+                )
+                .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "AI 抽取记录不存在"));
+        if (!"completed".equals(entity.getStatus()) || entity.getResultJson() == null) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "只有已完成的 AI 抽取结果可以审核");
+        }
+
+        AiDocumentExtractionResponse extraction = readResultJson(entity.getResultJson());
+        // 按服务端保存的原始候选结果校验并持久化审核决定
+        return graphMaterializer.reviewRelations(spaceId, document, extraction, request);
+    }
+
+    /**
+     * 查询指定抽取运行已经持久化的候选关系审核状态。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 来源资料标识
+     * @param extractionId 抽取运行标识
+     * @return 已审核候选关系状态
+     */
+    @Override
+    public List<AiRelationReviewState> listReviewStates(
+            String spaceId,
+            String documentId,
+            String extractionId
+    ) {
+        // 校验知识空间和来源资料边界，防止跨空间恢复审核状态
+        knowledgeSpaceService.requireActive(spaceId);
+        SourceDocument document = requireDocument(spaceId, documentId);
+        AiExtractionRunEntity entity = extractionRunRepository.findById(
+                        spaceId,
+                        documentId,
+                        extractionId
+                )
+                .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "AI 抽取记录不存在"));
+        if (!"completed".equals(entity.getStatus()) || entity.getResultJson() == null) {
+            return List.of();
+        }
+
+        // 根据服务端保存的完整候选结果和图谱状态恢复弹窗审核显示
+        return graphMaterializer.listReviewStates(spaceId, readResultJson(entity.getResultJson()));
     }
 
     private AiExtractionRunEntity createProcessingRun(

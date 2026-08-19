@@ -20,6 +20,7 @@ import org.springframework.stereotype.Repository;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 图谱数据访问对象，统一使用 MyBatis-Plus Mapper 完成节点、关系、证据查询和写入。
@@ -145,6 +146,37 @@ public class GraphRepository {
     }
 
     /**
+     * 批量查询指定规范化键对应的有效图谱节点。
+     *
+     * @param spaceId 知识空间标识
+     * @param normalizedKeys 规范化实体键
+     * @return 已存在的图谱节点
+     */
+    public List<GraphNode> findNodesByNormalizedKeys(
+            String spaceId,
+            List<String> normalizedKeys
+    ) {
+        if (normalizedKeys.isEmpty()) {
+            return List.of();
+        }
+
+        // 批量查询候选实体对应节点，避免按实体逐条查询数据库
+        return graphNodeMapper.findBySpaceIdAndNormalizedKeys(spaceId, normalizedKeys).stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    /**
+     * 更新已有图谱节点，保留节点标识和创建时间。
+     *
+     * @param node 已组装的节点
+     */
+    public void updateNode(GraphNode node) {
+        // 将节点来源和摘要更新回同一条图谱事实
+        graphNodeMapper.updateById(toEntity(node));
+    }
+
+    /**
      * 保存图谱关系。
      *
      * @param edge 图谱关系
@@ -158,6 +190,65 @@ public class GraphRepository {
     }
 
     /**
+     * 查询指定关系。
+     *
+     * @param edgeId 关系标识
+     * @return 关系；不存在时为空
+     */
+    public Optional<GraphEdge> findEdge(String edgeId) {
+        return graphEdgeMapper.findById(edgeId).map(this::toDomain);
+    }
+
+    /**
+     * 按空间、主体、客体和关系类型查询候选关系，避免审核端信任客户端关系标识。
+     *
+     * @param spaceId 知识空间标识
+     * @param sourceNodeId 主体节点标识
+     * @param targetNodeId 客体节点标识
+     * @param relationType 关系类型
+     * @return 关系；不存在时为空
+     */
+    public Optional<GraphEdge> findEdgeBySignature(
+            String spaceId,
+            String sourceNodeId,
+            String targetNodeId,
+            String relationType
+    ) {
+        return Optional.ofNullable(graphEdgeMapper.selectOne(
+                Wrappers.<GraphEdgeEntity>lambdaQuery()
+                        .eq(GraphEdgeEntity::getSpaceId, spaceId)
+                        .eq(GraphEdgeEntity::getSourceNodeId, sourceNodeId)
+                        .eq(GraphEdgeEntity::getTargetNodeId, targetNodeId)
+                        .eq(GraphEdgeEntity::getRelationType, relationType)
+                        .orderByDesc(GraphEdgeEntity::getUpdatedAt)
+                        .last("LIMIT 1")
+        )).map(this::toDomain);
+    }
+
+    /**
+     * 更新关系审核状态和更新时间。
+     *
+     * @param edgeId 关系标识
+     * @param status 新关系状态
+     * @param updatedAt 更新时间
+     */
+    public void updateEdgeStatus(
+            String edgeId,
+            String status,
+            Instant updatedAt
+    ) {
+        GraphEdgeEntity entity = graphEdgeMapper.selectById(edgeId);
+        if (entity == null) {
+            return;
+        }
+        entity.setStatus(status);
+        entity.setUpdatedAt(updatedAt.toString());
+
+        // 仅更新关系审核状态，保留主体、客体、证据和创建时间
+        graphEdgeMapper.updateById(entity);
+    }
+
+    /**
      * 保存图谱关系证据。
      *
      * @param evidence 图谱关系证据
@@ -168,6 +259,16 @@ public class GraphRepository {
 
         // 使用 BaseMapper 保存图谱关系证据
         graphEvidenceMapper.insert(entity);
+    }
+
+    /**
+     * 判断关系证据是否已经保存。
+     *
+     * @param evidenceId 证据标识
+     * @return 已存在返回 true
+     */
+    public boolean existsEvidence(String evidenceId) {
+        return graphEvidenceMapper.selectById(evidenceId) != null;
     }
 
     /**

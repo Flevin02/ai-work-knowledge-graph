@@ -7,6 +7,7 @@ import type {
   AiExtractionRunDetail,
   AiExtractionRunStartedEvent,
   AiExtractionRunSummary,
+  AiRelationReviewAction,
   SourceDocument,
   SourceDocumentContent,
   SourceDocumentPage,
@@ -193,4 +194,49 @@ export async function getDocumentExtraction(
     cache: 'no-store',
   });
   return readApiResponse<AiExtractionRunDetail>(response);
+}
+
+export type AiRelationReviewDecision = {
+  chunkId: string;
+  relationIndex: number;
+  action: AiRelationReviewAction;
+  reason?: string;
+};
+
+export type AiRelationReviewResponse = {
+  acceptedCount: number;
+  rejectedCount: number;
+  pendingCount: number;
+};
+
+export type AiRelationReviewState = {
+  chunkId: string;
+  relationIndex: number;
+  action: AiRelationReviewAction;
+};
+
+export async function listDocumentExtractionReviewStates(
+  spaceId: string,
+  documentId: string,
+  extractionId: string
+): Promise<AiRelationReviewState[]> {
+  const response = await fetch(`${backendApiUrl}/v1/spaces/${encodeURIComponent(spaceId)}/documents/${encodeURIComponent(documentId)}/extractions/${encodeURIComponent(extractionId)}/reviews`, {
+    method: 'GET',
+    cache: 'no-store',
+  });
+  return readApiResponse<AiRelationReviewState[]>(response);
+}
+
+export async function reviewDocumentExtractionRelations(
+  spaceId: string,
+  documentId: string,
+  extractionId: string,
+  reviews: AiRelationReviewDecision[]
+): Promise<AiRelationReviewResponse> {
+  const response = await fetch(`${backendApiUrl}/v1/spaces/${encodeURIComponent(spaceId)}/documents/${encodeURIComponent(documentId)}/extractions/${encodeURIComponent(extractionId)}/reviews`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reviews, operatorName: 'local-user' }),
+  });
+  return readApiResponse<AiRelationReviewResponse>(response);
 }
