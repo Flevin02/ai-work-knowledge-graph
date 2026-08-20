@@ -12,6 +12,7 @@ import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
 import com.flevin.knowgraph.server.repository.graph.GraphRepository;
 import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
+import com.flevin.knowgraph.server.support.TestKnowledgeSpaceFixtures;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -56,7 +57,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class DocumentImportIntegrationTests {
 
-    private static final String DEFAULT_SPACE_ID = "default-space";
+    private static final String DEFAULT_SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
 
     @Autowired
     private DocumentService documentService;
@@ -99,6 +100,9 @@ class DocumentImportIntegrationTests {
 
         // 再删除已失去引用的导入批次
         jdbcTemplate.update("DELETE FROM import_batches");
+
+        // 为依赖固定标识的测试准备测试空间，生产 schema 不提供默认空间
+        TestKnowledgeSpaceFixtures.ensureDefaultSpace(jdbcTemplate);
     }
 
     @Test

@@ -8,7 +8,7 @@
 
 | 目录 | 用途 |
 |---|---|
-| `frontend/` | Next.js 页面入口、前端组件、类型和演示图谱 |
+| `frontend/` | Next.js 页面入口、前端组件、类型和后端 API 客户端 |
 | `backend/` | Java 后端、SQLite 数据层、文件解析和 AI 能力 |
 | `docs/prd/` | 产品需求文档 |
 | `docs/design/` | 技术设计、数据模型和交互说明 |
@@ -46,7 +46,14 @@ kg_java_home=$(/usr/libexec/java_home -v 21)
 JAVA_HOME="$kg_java_home" PATH="$kg_java_home/bin:$PATH" mvn test
 ```
 
-默认前端地址为 `http://localhost:3010`，默认后端地址为 `http://localhost:4010`，前端后端地址通过 `frontend/.env.example` 和 `backend/.env.example` 配置。
+正式启动后端时从仓库根目录执行：
+
+```bash
+cd ..
+mvn -f backend/pom.xml -pl server -am spring-boot:run
+```
+
+默认前端地址为 `http://localhost:3010`，默认后端地址为 `http://localhost:4010`。正式后端运行数据统一保存到 `backend/server/data/`，前后端地址和 AI 配置通过 `frontend/.env.example` 和 `backend/.env.example` 参考配置。
 
 ## 计划技术栈
 

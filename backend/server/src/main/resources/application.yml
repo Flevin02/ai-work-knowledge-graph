@@ -35,8 +35,8 @@ spring:
 
 app:
   frontend-origin: ${FRONTEND_ORIGIN:http://localhost:3010}
-  # 相对路径以 backend/server 作为启动工作目录；可通过 DATA_DIR 或单独路径变量覆盖。
-  data-dir: ${DATA_DIR:./data}
+  # 约定从仓库根目录启动后端，默认运行数据统一落在 backend/server/data。
+  data-dir: ${DATA_DIR:./backend/server/data}
   database-path: ${DATABASE_PATH:${app.data-dir}/knowledge-graph.sqlite}
   upload-dir: ${UPLOAD_DIR:${app.data-dir}/uploads}
 

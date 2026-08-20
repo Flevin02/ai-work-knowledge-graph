@@ -16,9 +16,9 @@ import java.time.Instant;
  */
 @Schema(description = "用于隔离来源资料和图谱数据的知识空间")
 public record KnowledgeSpaceResponse(
-        @Schema(description = "知识空间标识", example = "default-space")
+        @Schema(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
         String id,
-        @Schema(description = "知识空间名称", example = "公司年会筹备")
+        @Schema(description = "知识空间名称", example = "产品需求资料")
         String name,
         @Schema(description = "知识空间用途说明", example = "用于整理年会方案、会议纪要和任务分工。")
         String description,

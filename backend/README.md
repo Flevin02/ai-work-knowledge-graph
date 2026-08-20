@@ -21,9 +21,13 @@
 cd backend
 kg_java_home=$(/usr/libexec/java_home -v 21)
 JAVA_HOME="$kg_java_home" PATH="$kg_java_home/bin:$PATH" mvn test
-JAVA_HOME="$kg_java_home" PATH="$kg_java_home/bin:$PATH" mvn -DskipTests install
-cd server
-JAVA_HOME="$kg_java_home" PATH="$kg_java_home/bin:$PATH" mvn spring-boot:run
+```
+
+正式启动请从仓库根目录执行：
+
+```bash
+cd ..
+mvn -f backend/pom.xml -pl server -am spring-boot:run
 ```
 
 默认地址：`http://localhost:4010`
@@ -48,12 +52,12 @@ Controller 内部不重复声明 `/api`，后续切换部署前缀只修改 `SER
 
 ## SQLite 与来源资料目录
 
-默认数据库和上传目录由以下环境变量控制：
+正式运行数据库和上传目录默认固定到 `backend/server/data/`；如果从其他工作目录启动，也必须让以下三个变量指向同一目录：
 
 ```properties
-DATA_DIR=./data
-DATABASE_PATH=./data/knowledge-graph.sqlite
-UPLOAD_DIR=./data/uploads
+DATA_DIR=./backend/server/data
+DATABASE_PATH=./backend/server/data/knowledge-graph.sqlite
+UPLOAD_DIR=./backend/server/data/uploads
 SQLITE_POOL_MAX_SIZE=4
 SQLITE_POOL_MIN_IDLE=1
 SQLITE_POOL_CONNECTION_TIMEOUT_MS=3000
@@ -61,7 +65,7 @@ SQLITE_BUSY_TIMEOUT_MS=5000
 FRONTEND_ORIGIN=http://localhost:3010
 ```
 
-上述相对路径以 `backend/server` 作为启动工作目录，对应仓库中的 `backend/server/data/`。如果从其他工作目录启动，请使用绝对路径，或同时设置 `DATA_DIR`、`DATABASE_PATH` 和 `UPLOAD_DIR`，不要依赖调用方当前目录的隐式差异。
+约定从仓库根目录启动后端，不再使用 `./data` 作为默认路径。SQLite 文件和上传文件始终位于同一套 `backend/server/data/` 运行目录；如果从其他工作目录启动，请改为这套目录的绝对路径。
 
 数据库连接池由 Spring Boot JDBC Starter 默认的 HikariCP 自动配置，默认最多 4 条连接、保留 1 条空闲连接，池耗尽后最多等待 3 秒。SQLite 连接统一启用 WAL、外键和 5 秒 `busy_timeout`：WAL 允许写事务期间读取已提交快照，但不会改变 SQLite 同一时刻只有一个写事务的约束；`SQLITE_POOL_CONNECTION_TIMEOUT_MS` 处理池耗尽，`SQLITE_BUSY_TIMEOUT_MS` 处理数据库写锁等待，两者职责不同。
 
@@ -73,9 +77,9 @@ server/src/main/resources/db/schema.sql
 
 当前脚本包含 `import_batches`、`source_documents` 表及索引，并使用中文 SQL 行注释说明表、字段和约束。SQLite 不支持 MySQL 风格的持久化表/字段 COMMENT，因此表结构说明以该 SQL 文件为事实源。MyBatis-Plus 负责业务表字段映射和 CRUD，数据库初始化仍由 SQLite 初始化器负责。
 
-当前脚本同时包含 `knowledge_spaces`、`graph_nodes`、`graph_edges`、`evidences`、`review_actions`、`ai_extraction_runs`，所有来源资料、导入批次、抽取运行和后续图谱数据通过 `space_id` 隔离。旧版本数据库启动时会自动补充 `space_id` 并归入 `default-space`。
+当前脚本同时包含 `knowledge_spaces`、`graph_nodes`、`graph_edges`、`evidences`、`review_actions`、`ai_extraction_runs`，所有来源资料、导入批次、抽取运行和后续图谱数据通过 `space_id` 隔离。生产数据库首次启动不会自动创建知识空间，旧版本数据库的兼容迁移仅处理已有历史记录。
 
-当前导入接口只支持 UTF-8 Markdown/TXT。服务端会将原始文件保存到 `data/uploads/<spaceId>/documents`，并保存解析文本和 SHA-256 内容指纹；同一空间内完全相同的字节内容不会重复落库。`kind` 表示 `markdown/txt` 文件格式，可选 `documentType` 表示 `general/prd` 业务语义。`GET /api/v1/spaces/{spaceId}/documents/{documentId}/content` 返回当前知识空间内的解析原文，前端默认按 Markdown 语法渲染，同时保留适用于 Markdown/TXT 的“原文”切换，不执行文档中的 HTML 或脚本。DOCX/PDF 解析仍在后续计划中。
+当前导入接口只支持 UTF-8 Markdown/TXT。服务端会将原始文件保存到 `backend/server/data/uploads/<spaceId>/documents`，并保存解析文本和 SHA-256 内容指纹；同一空间内完全相同的字节内容不会重复落库。`kind` 表示 `markdown/txt` 文件格式，可选 `documentType` 表示 `general/prd` 业务语义。`GET /api/v1/spaces/{spaceId}/documents/{documentId}/content` 返回当前知识空间内的解析原文，前端默认按 Markdown 语法渲染，同时保留适用于 Markdown/TXT 的“原文”切换，不执行文档中的 HTML 或脚本。DOCX/PDF 解析仍在后续计划中。
 
 ## AI 模型配置
 

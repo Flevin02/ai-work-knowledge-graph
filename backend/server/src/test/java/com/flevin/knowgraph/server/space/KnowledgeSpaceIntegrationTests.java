@@ -5,6 +5,7 @@ import com.flevin.knowgraph.server.model.space.CreateKnowledgeSpaceRequest;
 import com.flevin.knowgraph.server.model.space.KnowledgeSpaceResponse;
 import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
+import com.flevin.knowgraph.server.support.TestKnowledgeSpaceFixtures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,7 +34,7 @@ import static org.springframework.http.MediaType.APPLICATION_JSON;
 @AutoConfigureMockMvc
 class KnowledgeSpaceIntegrationTests {
 
-    private static final String DEFAULT_SPACE_ID = "default-space";
+    private static final String DEFAULT_SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
 
     @Autowired
     private KnowledgeSpaceService knowledgeSpaceService;
@@ -56,11 +57,8 @@ class KnowledgeSpaceIntegrationTests {
         // 清理除默认空间外的测试空间
         jdbcTemplate.update("DELETE FROM knowledge_spaces WHERE id <> ?", DEFAULT_SPACE_ID);
 
-        // 恢复默认空间为有效状态，保证每个测试从可导入状态开始
-        jdbcTemplate.update(
-                "UPDATE knowledge_spaces SET status = 'active' WHERE id = ?",
-                DEFAULT_SPACE_ID
-        );
+        // 为依赖固定标识的测试准备测试空间，生产 schema 不提供默认空间
+        TestKnowledgeSpaceFixtures.ensureDefaultSpace(jdbcTemplate);
     }
 
     @Test
@@ -131,7 +129,7 @@ class KnowledgeSpaceIntegrationTests {
     }
 
     @Test
-    void controllerSupportsCreateListAndLastSpaceProtection() throws Exception {
+    void controllerSupportsCreateListAndEmptySpaceState() throws Exception {
         // 通过 Controller 创建知识空间
         mockMvc.perform(post("/v1/spaces")
                         .contentType(APPLICATION_JSON)
@@ -146,7 +144,7 @@ class KnowledgeSpaceIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(2));
 
-        // 默认空间仍是最后一个有效空间时，禁止删除以保护可用入口
+        // 删除新建空间后，保留固定测试空间以验证正常软删除
         knowledgeSpaceService.deleteSpace(
                 knowledgeSpaceService.listSpaces().stream()
                         .filter(space -> !DEFAULT_SPACE_ID.equals(space.id()))
@@ -155,9 +153,13 @@ class KnowledgeSpaceIntegrationTests {
                         .id()
         );
 
+        // 删除最后一个有效空间后允许进入无空间空态
         mockMvc.perform(delete("/v1/spaces/" + DEFAULT_SPACE_ID))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value(true))
-                .andExpect(jsonPath("$.msg").value("至少保留一个有效知识空间"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.error").value(false));
+
+        mockMvc.perform(get("/v1/spaces"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0));
     }
 }

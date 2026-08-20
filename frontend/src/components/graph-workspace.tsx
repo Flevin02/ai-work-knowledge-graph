@@ -5,7 +5,6 @@ import {
     AlertTriangle,
     Archive,
     Check,
-    ChevronLeft,
     ChevronRight,
     CircleHelp,
     Eye,
@@ -166,10 +165,10 @@ function toExtractionState(document: SourceDocument): DocumentExtractionState | 
 export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     const [graph, setGraph] = useState(initialGraph);
     const [view, setView] = useState<View>('graph');
-    const [selectedNodeId, setSelectedNodeId] = useState<string | null>('project-annual-party');
+    const [selectedNodeId, setSelectedNodeId] = useState<string | null>(initialGraph.nodes[0]?.id ?? null);
     const [search, setSearch] = useState('');
     const [typeFilter, setTypeFilter] = useState<NodeType | 'all'>('all');
-    const [notice, setNotice] = useState('演示图谱已加载，正在连接后端来源资料服务。');
+    const [notice, setNotice] = useState('正在连接后端知识空间和图谱服务。');
     const [noticeTone, setNoticeTone] = useState<NoticeTone>('loading');
     const [spaces, setSpaces] = useState<KnowledgeSpace[]>([]);
     const [currentSpaceId, setCurrentSpaceId] = useState<string | null>(null);
@@ -196,18 +195,24 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     const [documentSearchQuery, setDocumentSearchQuery] = useState('');
     const [documentTotal, setDocumentTotal] = useState(0);
     const [documentTotalPages, setDocumentTotalPages] = useState(0);
+    const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
+    const [isLoadingMoreDocuments, setIsLoadingMoreDocuments] = useState(false);
+    const [documentLoadMoreError, setDocumentLoadMoreError] = useState<string | null>(null);
     const [documentRefreshKey, setDocumentRefreshKey] = useState(0);
     const [graphRefreshKey, setGraphRefreshKey] = useState(0);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const preservedDocumentNoticeSpaceIdRef = useRef<string | null>(null);
     const suppressDocumentSearchNoticeRef = useRef(false);
     const documentSearchPendingRef = useRef(false);
+    const documentLoadMorePendingRef = useRef(false);
     const queuedBatchExtractionDocumentIdsRef = useRef<Record<string, boolean>>({});
 
     useEffect(() => {
-        // 切换知识空间、分页或筛选条件后清空不可见卡片选择，批量操作只作用于当前列表
+        // 切换知识空间或筛选条件后清空不可见卡片选择，批量操作只作用于当前列表
         setSelectedDocumentIds({});
-    }, [currentSpaceId, documentPage, documentSearchQuery]);
+        documentLoadMorePendingRef.current = false;
+        setDocumentLoadMoreError(null);
+    }, [currentSpaceId, documentSearchQuery]);
 
     useEffect(() => {
         // 切换知识空间时不再跟踪上一空间中已受理但尚未开始的批量抽取任务
@@ -234,12 +239,24 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 const loadedSpaces = await listKnowledgeSpaces();
                 if (cancelled) return;
                 setSpaces(loadedSpaces);
+                if (!loadedSpaces.length) {
+                    setCurrentSpaceId(null);
+                    setPersistedDocuments([]);
+                    setDocumentTotal(0);
+                    setDocumentTotalPages(0);
+                    setDocumentExtractionStates({});
+                    setGraph({nodes: [], edges: [], documents: []});
+                    setSelectedNodeId(null);
+                    setNotice('当前还没有知识空间，请先创建一个。');
+                    setNoticeTone('warning');
+                    return;
+                }
                 setCurrentSpaceId((current) => current && loadedSpaces.some((space) => space.id === current)
                     ? current
                     : loadedSpaces[0]?.id ?? null);
             } catch (error) {
                 if (cancelled) return;
-                setNotice(`后端知识空间服务未连接，真实数据功能暂不可用：${error instanceof Error ? error.message : '未知错误'}`);
+                setNotice(`后端知识空间服务未连接，当前暂不可用：${error instanceof Error ? error.message : '未知错误'}`);
                 setNoticeTone('error');
             }
         };
@@ -263,43 +280,70 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
         let pollingErrorVisible = false;
         let pollingTimer: ReturnType<typeof setTimeout> | undefined;
         const abortController = new AbortController();
+        const currentPage = documentPage;
+        const isAppendingRequest = documentLoadMorePendingRef.current && currentPage > 1;
 
         const loadPersistedDocuments = async (isPolling = false) => {
+            const pagesToLoad = isPolling
+                ? Array.from({length: currentPage}, (_, index) => index + 1)
+                : isAppendingRequest
+                    ? [currentPage]
+                    : currentPage > 1
+                        ? Array.from({length: currentPage}, (_, index) => index + 1)
+                        : [1];
             const shouldPreserveNotice = !isPolling
                 && preservedDocumentNoticeSpaceIdRef.current === currentSpaceId;
             const isSearchRequest = suppressDocumentSearchNoticeRef.current;
+            if (!isPolling) {
+                setIsLoadingDocuments(currentPage === 1);
+                setIsLoadingMoreDocuments(isAppendingRequest);
+                setDocumentLoadMoreError(null);
+            }
             if (!isPolling && !shouldPreserveNotice && !isSearchRequest) {
-                setNotice('正在加载当前知识空间的真实来源资料。');
+                setNotice('正在加载当前知识空间的来源资料。');
                 setNoticeTone('loading');
             }
             try {
-                const response = await listSourceDocuments(
+                // 追加时只请求下一页；刷新或轮询时同步当前已经加载的全部页面，保持前面卡片状态可更新
+                const responses = await Promise.all(pagesToLoad.map((page) => listSourceDocuments(
                     currentSpaceId,
-                    documentPage,
+                    page,
                     DOCUMENT_PAGE_SIZE,
                     documentSearchQuery,
                     abortController.signal
-                );
+                )));
                 if (cancelled) return;
+                const response = responses[responses.length - 1];
+                if (!response) return;
+                const incomingDocuments = responses.flatMap((item) => item.items);
 
-                if (!response.items.length && documentPage > 1 && response.totalPages > 0) {
-                    setDocumentPage(response.totalPages);
+                if (!isPolling && isAppendingRequest && !incomingDocuments.length) {
+                    documentLoadMorePendingRef.current = false;
+                    if (response.totalPages > 0) {
+                        setDocumentPage(response.totalPages);
+                    } else {
+                        setDocumentPage(1);
+                        setPersistedDocuments([]);
+                        setDocumentExtractionStates({});
+                    }
                     return;
                 }
 
-                setPersistedDocuments(response.items);
+                const shouldReplaceDocuments = !isPolling && !isAppendingRequest && currentPage === 1;
+                setPersistedDocuments((current) => shouldReplaceDocuments
+                    ? incomingDocuments
+                    : mergeDocuments(current, incomingDocuments));
                 setDocumentPage(response.page);
                 setDocumentTotal(response.total);
                 setDocumentTotalPages(response.totalPages);
                 setDocumentExtractionStates((current) => {
-                    const nextStates = Object.fromEntries(
-                        response.items.flatMap((document) => {
-                            const state = toExtractionState(document);
-                            if (state) delete queuedBatchExtractionDocumentIdsRef.current[document.id];
-                            return state ? [[document.id, state]] : [];
-                        }),
-                    ) as Record<string, DocumentExtractionState>;
-                    response.items.forEach((document) => {
+                    const nextStates = shouldReplaceDocuments ? {} : {...current};
+                    incomingDocuments.forEach((document) => {
+                        const state = toExtractionState(document);
+                        if (state) {
+                            delete queuedBatchExtractionDocumentIdsRef.current[document.id];
+                            nextStates[document.id] = state;
+                        }
                         if (queuedBatchExtractionDocumentIdsRef.current[document.id]) {
                             // 后台线程尚未创建运行记录时，在当前卡片保留已受理状态并继续轮询
                             nextStates[document.id] = current[document.id] ?? {
@@ -314,18 +358,19 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                     ...current,
                     documents: mergeDocuments(
                         current.documents.filter((document) => !document.spaceId),
-                        response.items,
+                        incomingDocuments,
                     ),
                 }));
-                const hasProcessingDocument = response.items.some(
+                const loadedDocuments = mergeDocuments(persistedDocuments, incomingDocuments);
+                const hasProcessingDocument = loadedDocuments.some(
                     (document) => document.latestExtraction?.status === 'processing'
-                ) || response.items.some(
+                ) || loadedDocuments.some(
                     (document) => queuedBatchExtractionDocumentIdsRef.current[document.id]
                 );
                 if (!isPolling && !shouldPreserveNotice && !isSearchRequest) {
                     setNotice(response.total
-                        ? `已加载当前空间第 ${response.page} 页，共 ${response.total} 份真实来源资料；图谱节点仍为虚构演示数据。`
-                        : '当前知识空间尚未导入真实来源资料；图谱节点仍为虚构演示数据。');
+                        ? `已加载 ${Math.min(response.total, currentPage * DOCUMENT_PAGE_SIZE)} / ${response.total} 份来源资料。`
+                        : '当前知识空间尚未导入来源资料。');
                     setNoticeTone('success');
                 } else if (pollingErrorVisible) {
                     pollingErrorVisible = false;
@@ -342,12 +387,13 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 }
 
                 if (hasProcessingDocument) {
-                    // 等本次请求完成后再刷新当前页，避免慢请求重叠并发
+                    // 等本次请求完成后再刷新当前已加载页面，避免慢请求重叠并发
                     pollingTimer = setTimeout(
                         () => void loadPersistedDocuments(true),
                         DOCUMENT_PROCESSING_POLL_INTERVAL_MS
                     );
                 }
+                if (!isPolling) documentLoadMorePendingRef.current = false;
             } catch (error) {
                 if (cancelled) return;
                 if (isPolling) {
@@ -360,15 +406,28 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                     );
                     return;
                 }
+                if (currentPage > 1) {
+                    documentLoadMorePendingRef.current = false;
+                    setDocumentLoadMoreError(error instanceof Error ? error.message : '未知错误');
+                    setNotice(`${isAppendingRequest ? '加载更多' : '刷新'}来源资料失败：${error instanceof Error ? error.message : '未知错误'}`);
+                    setNoticeTone('warning');
+                    return;
+                }
                 setPersistedDocuments([]);
                 setDocumentTotal(0);
                 setDocumentTotalPages(0);
+                setIsLoadingDocuments(false);
                 setDocumentExtractionStates({});
                 preservedDocumentNoticeSpaceIdRef.current = null;
                 // 搜索请求不显示中间加载态，但最终失败仍保留一次稳定错误提示
                 suppressDocumentSearchNoticeRef.current = false;
                 setNotice(`来源资料加载失败：${error instanceof Error ? error.message : '未知错误'}`);
                 setNoticeTone('error');
+            } finally {
+                if (!cancelled && !isPolling) {
+                    setIsLoadingDocuments(false);
+                    setIsLoadingMoreDocuments(false);
+                }
             }
         };
 
@@ -386,16 +445,16 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
 
         const loadGraph = async () => {
             try {
-                // 查询当前知识空间真实图谱，候选关系和审核状态均来自服务端
+                // 查询当前知识空间图谱，候选关系和审核状态均来自服务端
                 const loadedGraph = await getGraph(currentSpaceId);
-                if (cancelled || (!loadedGraph.nodes.length && !loadedGraph.edges.length)) return;
+                if (cancelled) return;
                 setGraph((current) => ({...loadedGraph, documents: current.documents}));
                 setSelectedNodeId((current) => loadedGraph.nodes.some((node) => node.id === current)
                     ? current
                     : loadedGraph.nodes[0]?.id ?? null);
             } catch (error) {
                 if (cancelled) return;
-                setNotice(`真实图谱加载失败，暂保留当前演示图谱：${error instanceof Error ? error.message : '未知错误'}`);
+                setNotice(`图谱加载失败，当前暂无法展示图谱：${error instanceof Error ? error.message : '未知错误'}`);
                 setNoticeTone('warning');
             }
         };
@@ -426,6 +485,27 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     }, [graph.edges, visibleNodes]);
     const confirmedEdgeCount = graph.edges.filter((edge) => edge.status === 'confirmed').length;
 
+    const loadMoreDocuments = () => {
+        if (
+            documentLoadMorePendingRef.current
+            || isLoadingDocuments
+            || isLoadingMoreDocuments
+            || documentLoadMoreError
+            || documentPage >= documentTotalPages
+        ) {
+            return;
+        }
+        documentLoadMorePendingRef.current = true;
+        setDocumentPage((current) => current + 1);
+    };
+
+    const retryLoadMoreDocuments = () => {
+        if (!documentLoadMoreError || documentLoadMorePendingRef.current) return;
+        setDocumentLoadMoreError(null);
+        documentLoadMorePendingRef.current = true;
+        setDocumentRefreshKey((current) => current + 1);
+    };
+
     const reviewAiRelations = async (
         extractionId: string,
         documentId: string,
@@ -454,7 +534,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
             setGraphRefreshKey((current) => current + 1);
             setNotice(response.pendingCount
                 ? `已保存 ${decisions.length} 条审核结果，当前抽取还剩 ${response.pendingCount} 条待审核关联。`
-                : '本次 AI 抽取的关联审核已完成，真实图谱已更新。');
+                : '本次 AI 抽取的关联审核已完成，图谱已更新。');
             setNoticeTone('success');
         } catch (error) {
             setNotice(`关联审核保存失败，未改变当前卡片状态：${error instanceof Error ? error.message : '未知错误'}`);
@@ -518,11 +598,6 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     };
 
     const removeCurrentSpace = async (space: KnowledgeSpace) => {
-        if (spaces.length <= 1) {
-            setNotice('至少保留一个有效知识空间。');
-            setNoticeTone('warning');
-            return;
-        }
         setIsManagingSpace(true);
         try {
             await deleteKnowledgeSpace(space.id);
@@ -530,6 +605,14 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
             setSpaces(remainingSpaces);
             setDocumentPage(1);
             setCurrentSpaceId(remainingSpaces[0]?.id ?? null);
+            if (!remainingSpaces.length) {
+                setPersistedDocuments([]);
+                setDocumentTotal(0);
+                setDocumentTotalPages(0);
+                setDocumentExtractionStates({});
+                setGraph({nodes: [], edges: [], documents: []});
+                setSelectedNodeId(null);
+            }
             setNotice(`知识空间“${space.name}”已移除，历史事实仍保留。`);
             setNoticeTone('success');
         } catch (error) {
@@ -567,7 +650,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
             setNotice(failureDetails ? `${summary} ${failureDetails}` : summary);
             setNoticeTone(response.failedCount ? 'warning' : 'success');
         } catch (error) {
-            setNotice(`真实导入失败，未使用浏览器本地数据兜底：${error instanceof Error ? error.message : '未知错误'}`);
+            setNotice(`导入失败，未能保存来源资料：${error instanceof Error ? error.message : '未知错误'}`);
             setNoticeTone('error');
         } finally {
             setIsImporting(false);
@@ -580,11 +663,9 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
         setDeletingDocumentId(document.id);
         try {
             await deleteSourceDocument(currentSpaceId, document.id);
-            const remainingTotal = Math.max(0, documentTotal - 1);
-            const remainingPages = Math.ceil(remainingTotal / DOCUMENT_PAGE_SIZE);
-            // 删除后的列表刷新只同步有效页码和资料数据，保留本次删除结果提示
+            // 删除后回到列表起点重新加载，避免追加列表保留已经失效的卡片顺序
             preservedDocumentNoticeSpaceIdRef.current = currentSpaceId;
-            setDocumentPage(Math.min(documentPage, Math.max(1, remainingPages)));
+            setDocumentPage(1);
             setDocumentRefreshKey((current) => current + 1);
             setDocumentExtractionStates((current) => {
                 const nextStates = {...current};
@@ -621,11 +702,9 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
             );
             const deletedDocumentIds = new Set(response.documentIds);
             const deletedDocuments = documents.filter((document) => deletedDocumentIds.has(document.id));
-            const remainingTotal = Math.max(0, documentTotal - response.deletedCount);
-            const remainingPages = Math.ceil(remainingTotal / DOCUMENT_PAGE_SIZE);
-            // 后端事务完成后只刷新一次列表，避免前端对每份资料重复请求分页接口
+            // 后端事务完成后只刷新一次列表，并回到列表起点清理已删除卡片
             preservedDocumentNoticeSpaceIdRef.current = currentSpaceId;
-            setDocumentPage(Math.min(documentPage, Math.max(1, remainingPages)));
+            setDocumentPage(1);
             setDocumentRefreshKey((current) => current + 1);
             setDocumentExtractionStates((current) => {
                 const nextStates = {...current};
@@ -912,25 +991,16 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
         }
     };
 
-    const resetDemo = () => {
-        setGraph({...initialGraph, documents: mergeDocuments(initialGraph.documents, persistedDocuments)});
-        setSelectedNodeId('project-annual-party');
-        setSearch('');
-        setTypeFilter('all');
-        setNotice('虚构演示图谱已恢复，后端持久化的真实来源资料仍保留。');
-        setNoticeTone('success');
-    };
-
     const pageTitle = view === 'graph'
         ? '工作图谱'
         : view === 'documents'
             ? '来源资料'
             : '知识健康检查';
     const pageDescription = view === 'graph'
-        ? '从项目、任务、人员和资料之间的关系中找到工作上下文。'
+        ? currentSpaceId ? '从项目、任务、人员和资料之间的关系中找到工作上下文。' : '先创建知识空间，再导入文档并生成图谱。'
         : view === 'documents'
-            ? '查看当前知识空间中真实持久化的来源文件、解析状态和文本预览。'
-            : '先处理会影响知识可信度的问题，再继续扩展图谱。';
+            ? currentSpaceId ? '查看当前知识空间中已保存的来源文件、解析状态和文本预览。' : '先创建知识空间，再管理来源资料。'
+            : currentSpaceId ? '先处理会影响知识可信度的问题，再继续扩展图谱。' : '创建知识空间后，这里会显示知识健康检查结果。';
 
     return (
         <main className="app-shell">
@@ -943,8 +1013,6 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                     </div>
                 </div>
                 <div className="topbar-actions">
-                    <span className="local-badge"><span className="status-dot"/> 本地数据模式</span>
-                    <button className="ghost-button" onClick={resetDemo}>恢复演示资料</button>
                     <button className="primary-button" disabled={isImporting || !currentSpaceId}
                         onClick={() => fileInputRef.current?.click()}>{isImporting ?
                         <LoaderCircle className="spin" size={16}/> :
@@ -959,42 +1027,34 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 <aside className="sidebar">
                     <section className="space-card">
                         <div className="eyebrow">当前知识空间</div>
-                        <div className="space-switcher">
-                            <select aria-label="选择知识空间" value={currentSpaceId ?? ''} onChange={(event) => {
-                                suppressDocumentSearchNoticeRef.current = false;
-                                documentSearchPendingRef.current = false;
-                                setDocumentPage(1);
-                                setCurrentSpaceId(event.target.value);
-                            }} disabled={!spaces.length || isManagingSpace}>
-                                {!spaces.length && <option value="">后端未连接</option>}
-                                {spaces.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
-                            </select>
-                            <button className="space-icon-button" aria-label="新建知识空间" title="新建知识空间"
-                                onClick={() => setIsSpaceFormOpen((current) => !current)}><FolderPlus size={15}/>
-                            </button>
-                            <button className="space-icon-button danger" aria-label="删除当前知识空间"
-                                title="删除当前知识空间"
-                                disabled={!currentSpace || spaces.length <= 1 || isManagingSpace}
-                                onClick={() => currentSpace && setDeleteConfirmation({
-                                    kind: 'space',
-                                    item: currentSpace
-                                })}><Trash2 size={15}/></button>
-                        </div>
-                        <div className="space-title"><span className="space-icon"><Archive
-                            size={17}/></span>{currentSpace?.name ?? '等待后端连接'}</div>
-                        <p>{currentSpace?.description ?? '每个知识空间使用独立目录保存来源资料。'}</p>
-                        {isSpaceFormOpen && <div className="space-form">
-                            <input aria-label="知识空间名称" value={newSpaceName}
-                                onChange={(event) => setNewSpaceName(event.target.value)} placeholder="知识空间名称"
-                                maxLength={40}/>
-                            <input aria-label="知识空间说明" value={newSpaceDescription}
-                                onChange={(event) => setNewSpaceDescription(event.target.value)}
-                                placeholder="用途说明（可选）" maxLength={200}/>
-                            <div className="space-form-actions">
-                                <button className="ghost-button" onClick={() => setIsSpaceFormOpen(false)}>取消</button>
-                                <button className="primary-button" disabled={isManagingSpace}
-                                    onClick={() => void submitNewSpace()}>{isManagingSpace ? '创建中' : '创建'}</button>
+                        {spaces.length ? <>
+                            <div className="space-switcher">
+                                <select aria-label="选择知识空间" value={currentSpaceId ?? ''} onChange={(event) => {
+                                    suppressDocumentSearchNoticeRef.current = false;
+                                    documentSearchPendingRef.current = false;
+                                    setDocumentPage(1);
+                                    setCurrentSpaceId(event.target.value);
+                                }} disabled={isManagingSpace}>
+                                    {spaces.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
+                                </select>
+                                <button className="space-icon-button" aria-label="新建知识空间" title="新建知识空间"
+                                    onClick={() => setIsSpaceFormOpen((current) => !current)}><FolderPlus size={15}/>
+                                </button>
+                                <button className="space-icon-button danger" aria-label="删除当前知识空间"
+                                    title="删除当前知识空间"
+                                    disabled={!currentSpace || isManagingSpace}
+                                    onClick={() => currentSpace && setDeleteConfirmation({
+                                        kind: 'space',
+                                        item: currentSpace
+                                    })}><Trash2 size={15}/></button>
                             </div>
+                            <div className="space-title"><span className="space-icon"><Archive
+                                size={17}/></span>{currentSpace?.name}</div>
+                            <p>{currentSpace?.description ?? '每个知识空间使用独立目录保存来源资料。'}</p>
+                        </> : <div className="space-empty-state">
+                            <span className="space-icon"><Archive size={17}/></span>
+                            <strong>尚未创建知识空间</strong>
+                            <p>创建后才能导入文档、执行 AI 抽取和生成图谱。</p>
                         </div>}
                     </section>
 
@@ -1035,12 +1095,12 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 <section className="content-area">
                     <div className="page-heading">
                         <div>
-                            <div className="eyebrow">工作台 / {currentSpace?.name ?? '未连接知识空间'}</div>
+                            <div className="eyebrow">工作台 / {currentSpace?.name ?? '未创建知识空间'}</div>
                             <h1>{pageTitle}</h1><p>{pageDescription}</p></div>
                         <div className="page-stats">
-                            <div><strong>{graph.nodes.length}</strong><span>演示节点</span></div>
-                            <div><strong>{confirmedEdgeCount}</strong><span>演示关系</span></div>
-                            <div><strong>{documentTotal}</strong><span>真实资料</span></div>
+                            <div><strong>{graph.nodes.length}</strong><span>图谱节点</span></div>
+                            <div><strong>{confirmedEdgeCount}</strong><span>已采纳关系</span></div>
+                            <div><strong>{documentTotal}</strong><span>来源资料</span></div>
                         </div>
                     </div>
 
@@ -1050,6 +1110,13 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                         <button onClick={() => setNotice('')} aria-label="关闭提示"><X size={15}/></button>
                     </div>}
 
+                    {!currentSpaceId ? <div className="state-card workspace-empty-state">
+                        <Archive size={30}/>
+                        <h3>尚未创建知识空间</h3>
+                        <p>请在主界面创建知识空间，再导入文档。</p>
+                        <button className="primary-button" type="button"
+                            onClick={() => setIsSpaceFormOpen(true)}><FolderPlus size={14}/> 创建知识空间</button>
+                    </div> : <>
                     {view === 'graph' && <>
                         <div className="toolbar-card">
                             <div className="search-box"><Search size={17}/><input value={search}
@@ -1073,6 +1140,8 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                         search={documentSearch}
                         onSearchChange={(value) => {
                             const normalizedSearch = value.trim();
+                            documentLoadMorePendingRef.current = false;
+                            setDocumentLoadMoreError(null);
                             if (normalizedSearch !== documentSearchQuery) {
                                 suppressDocumentSearchNoticeRef.current = true;
                                 documentSearchPendingRef.current = true;
@@ -1086,7 +1155,6 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                         onPreview={(document) => setDocumentPreview({document, initialTab: 'rendered'})}
                         onDelete={(document) => setDeleteConfirmation({kind: 'document', item: document})}
                         onExtract={(document) => void extractDocument(document)}
-                        onViewExtraction={(document) => void viewExtractionResult(document)}
                         selectedDocumentIds={selectedDocumentIds}
                         onToggleSelection={(documentId) => setSelectedDocumentIds((current) => ({
                             ...current,
@@ -1098,20 +1166,24 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                         isBatchExtracting={isBatchExtracting}
                         deletingDocumentId={deletingDocumentId}
                         extractionStates={documentExtractionStates}
-                        loadingExtractionResultId={loadingExtractionResultId}
-                        page={documentPage}
                         total={documentTotal}
-                        totalPages={documentTotalPages}
-                        onPageChange={setDocumentPage}
+                        isLoadingDocuments={isLoadingDocuments}
+                        isLoadingMore={isLoadingMoreDocuments}
+                        loadMoreError={documentLoadMoreError}
+                        onLoadMore={loadMoreDocuments}
+                        onRetryLoadMore={retryLoadMoreDocuments}
                     />}
                     {view === 'health' && <HealthPanel graph={graph} onSelectNode={(id) => {
                         setSelectedNodeId(id);
                         setView('graph');
                     }}/>}
+                    </>}
                 </section>
 
                 <aside className="detail-panel">
-                    {view === 'documents'
+                    {!currentSpaceId
+                        ? <div className="empty-detail"><Archive size={28}/><p>创建知识空间后即可开始导入文档</p></div>
+                        : view === 'documents'
                         ? <DocumentSidebar documents={persistedDocuments} space={currentSpace}/>
                         : selectedNode
                             ? <NodeDetail node={selectedNode} edges={selectedEdges} graph={graph}
@@ -1143,6 +1215,15 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                         : current);
                 }}
             />}
+            {isSpaceFormOpen && <KnowledgeSpaceFormModal
+                name={newSpaceName}
+                description={newSpaceDescription}
+                isSubmitting={isManagingSpace}
+                onNameChange={setNewSpaceName}
+                onDescriptionChange={setNewSpaceDescription}
+                onSubmit={() => void submitNewSpace()}
+                onClose={() => setIsSpaceFormOpen(false)}
+            />}
             {deleteConfirmation && <DeleteConfirmationDialog
                 target={deleteConfirmation}
                 onCancel={() => setDeleteConfirmation(null)}
@@ -1164,8 +1245,76 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     );
 }
 
+function KnowledgeSpaceFormModal({
+                                    name,
+                                    description,
+                                    isSubmitting,
+                                    onNameChange,
+                                    onDescriptionChange,
+                                    onSubmit,
+                                    onClose,
+                                }: {
+    name: string;
+    description: string;
+    isSubmitting: boolean;
+    onNameChange: (value: string) => void;
+    onDescriptionChange: (value: string) => void;
+    onSubmit: () => void;
+    onClose: () => void;
+}) {
+    const close = () => {
+        if (!isSubmitting) {
+            // 关闭创建弹窗，保留父组件对表单状态的统一管理
+            onClose();
+        }
+    };
+
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') close();
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isSubmitting, onClose]);
+
+    return <div className="document-preview-backdrop space-form-backdrop" role="presentation" onClick={close}>
+        <section className="space-form-dialog" role="dialog" aria-modal="true"
+            aria-labelledby="space-form-title" onClick={(event) => event.stopPropagation()}>
+            <header className="space-form-header">
+                <div>
+                    <div className="eyebrow">知识空间 / 新建</div>
+                    <h2 id="space-form-title">创建知识空间</h2>
+                </div>
+                <button className="space-icon-button" type="button" aria-label="关闭创建知识空间" title="关闭"
+                    disabled={isSubmitting} onClick={close}><X size={16}/></button>
+            </header>
+            <form className="space-form" onSubmit={(event) => {
+                event.preventDefault();
+                // 提交当前弹窗表单，复用父组件已有的创建和校验逻辑
+                onSubmit();
+            }}>
+                <div className="space-form-content">
+                    <p>创建后即可导入文档、执行 AI 抽取和生成图谱。</p>
+                    <input autoFocus aria-label="知识空间名称" value={name}
+                        onChange={(event) => onNameChange(event.target.value)} placeholder="知识空间名称"
+                        maxLength={40}/>
+                    <input aria-label="知识空间说明" value={description}
+                        onChange={(event) => onDescriptionChange(event.target.value)}
+                        placeholder="用途说明（可选）" maxLength={200}/>
+                </div>
+                <div className="space-form-actions">
+                    <button className="ghost-button" type="button" disabled={isSubmitting} onClick={close}>取消</button>
+                    <button className="primary-button" type="submit" disabled={isSubmitting}>
+                        {isSubmitting ? '创建中' : '创建'}
+                    </button>
+                </div>
+            </form>
+        </section>
+    </div>;
+}
+
 function formatFileSize(fileSize?: number) {
-    if (fileSize == null) return '演示数据';
+    if (fileSize == null) return '未知大小';
     if (fileSize < 1024) return `${fileSize} B`;
     return `${(fileSize / 1024).toFixed(1)} KB`;
 }
@@ -1186,7 +1335,6 @@ function DocumentPanel({
                            onPreview,
                            onDelete,
                            onExtract,
-                           onViewExtraction,
                            selectedDocumentIds,
                            onToggleSelection,
                            onBatchDelete,
@@ -1195,11 +1343,12 @@ function DocumentPanel({
                            isBatchExtracting,
                            deletingDocumentId,
                            extractionStates,
-                           loadingExtractionResultId,
-                           page,
                            total,
-                           totalPages,
-                           onPageChange,
+                           isLoadingDocuments,
+                           isLoadingMore,
+                           loadMoreError,
+                           onLoadMore,
+                           onRetryLoadMore,
                        }: {
     documents: SourceDocument[];
     search: string;
@@ -1207,7 +1356,6 @@ function DocumentPanel({
     onPreview: (document: SourceDocument) => void;
     onDelete: (document: SourceDocument) => void;
     onExtract: (document: SourceDocument) => void;
-    onViewExtraction: (document: SourceDocument) => void;
     selectedDocumentIds: Record<string, boolean>;
     onToggleSelection: (documentId: string) => void;
     onBatchDelete: (documents: SourceDocument[]) => void;
@@ -1216,12 +1364,14 @@ function DocumentPanel({
     isBatchExtracting: boolean;
     deletingDocumentId: string | null;
     extractionStates: Record<string, DocumentExtractionState>;
-    loadingExtractionResultId: string | null;
-    page: number;
     total: number;
-    totalPages: number;
-    onPageChange: (page: number) => void;
+    isLoadingDocuments: boolean;
+    isLoadingMore: boolean;
+    loadMoreError: string | null;
+    onLoadMore: () => void;
+    onRetryLoadMore: () => void;
 }) {
+    const loadMoreRef = useRef<HTMLDivElement>(null);
     const selectedDocuments = documents.filter((document) => selectedDocumentIds[document.id]);
     const hasProcessingSelection = selectedDocuments.some(
         (document) => extractionStates[document.id]?.status === 'processing'
@@ -1231,13 +1381,27 @@ function DocumentPanel({
         ? '所选资料包含提取中的任务，请等待完成后再执行批量操作'
         : undefined;
 
+    useEffect(() => {
+        const target = loadMoreRef.current;
+        if (!target || isLoadingDocuments || isLoadingMore || loadMoreError || !total || documents.length >= total) {
+            return;
+        }
+        const observer = new IntersectionObserver((entries) => {
+            if (entries.some((entry) => entry.isIntersecting)) onLoadMore();
+        }, {rootMargin: '320px 0px'});
+        observer.observe(target);
+        return () => observer.disconnect();
+    }, [documents.length, isLoadingDocuments, isLoadingMore, loadMoreError, onLoadMore, total]);
+
     if (!documents.length) {
         return <>
             <DocumentSearchBox value={search} onChange={onSearchChange}/>
             <div className="state-card document-empty">
-                <FileText size={28}/>
-                <h3>{search.trim() ? '未找到匹配资料' : '尚未导入来源资料'}</h3>
-                <p>{search.trim() ? '请尝试其他文件名，或清空搜索条件恢复完整列表。' : '点击右上角“导入资料”，选择 UTF-8 Markdown、TXT 或可复制文本 PDF 文件。'}</p>
+                {isLoadingDocuments ? <LoaderCircle className="spin" size={28}/> : <FileText size={28}/>}
+                <h3>{isLoadingDocuments ? '正在加载来源资料' : search.trim() ? '未找到匹配资料' : '尚未导入来源资料'}</h3>
+                <p>{isLoadingDocuments
+                    ? '正在从当前知识空间读取资料，请稍候。'
+                    : search.trim() ? '请尝试其他文件名，或清空搜索条件恢复完整列表。' : '点击右上角“导入资料”，选择 UTF-8 Markdown、TXT 或可复制文本 PDF 文件。'}</p>
             </div>
         </>;
     }
@@ -1269,12 +1433,6 @@ function DocumentPanel({
             {documents.map((document) => {
                 const extractionState = extractionStates[document.id];
                 const isExtracting = extractionState?.status === 'processing';
-                const completedExtractionId = extractionState?.status === 'success'
-                    ? extractionState.extractionId
-                    : document.latestCompletedExtractionId;
-                const latestRunCompleted = extractionState?.status === 'success'
-                    || (!extractionState && document.latestExtraction?.status === 'completed');
-                const isLoadingResult = loadingExtractionResultId === document.id;
                 const extractionButtonLabel = isExtracting
                     ? '提取中…'
                     : extractionState?.status === 'error'
@@ -1282,18 +1440,6 @@ function DocumentPanel({
                         : extractionState?.status === 'success'
                             ? '重新提取'
                             : 'AI 提取';
-                const resultButtonLabel = isLoadingResult
-                    ? '加载中'
-                    : completedExtractionId && !latestRunCompleted
-                        ? '查看上次结果'
-                        : '查看结果';
-                const resultUnavailableMessage = completedExtractionId
-                    ? undefined
-                    : isExtracting
-                        ? 'AI 正在提取，请稍后查看结果'
-                        : extractionState?.status === 'error'
-                            ? `AI 提取失败，请先点击“${extractionButtonLabel}”`
-                            : `暂无可查看结果，请先点击“${extractionButtonLabel}”`;
                 const deleteButtonLabel = deletingDocumentId === document.id
                     ? `正在删除来源资料：${document.name}`
                     : `删除来源资料：${document.name}`;
@@ -1351,24 +1497,19 @@ function DocumentPanel({
                             onClick={() => onExtract(document)}>{isExtracting ?
                             <LoaderCircle className="spin" size={14}/> :
                             <Sparkles size={14}/>} {extractionButtonLabel}</button>
-                        <span className="result-button-tip" data-tooltip={resultUnavailableMessage}>
-            <button className="secondary-button" aria-label={resultUnavailableMessage || resultButtonLabel}
-                disabled={!completedExtractionId || isLoadingResult || isBatchDeleting}
-                onClick={() => onViewExtraction(document)}>{isLoadingResult ?
-                <LoaderCircle className="spin" size={14}/> : <FileText size={14}/>} {resultButtonLabel}</button>
-          </span>
                     </div>
                 </article>;
             })}
         </div>
-        {totalPages > 1 && <nav className="document-pagination" aria-label="来源资料分页">
-            <button className="secondary-button" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
-                <ChevronLeft size={15}/> 上一页
-            </button>
-            <span>第 {page} / {totalPages} 页 · 共 {total} 份</span>
-            <button className="secondary-button" disabled={page >= totalPages}
-                onClick={() => onPageChange(page + 1)}>下一页 <ChevronRight size={15}/></button>
-        </nav>}
+        <div ref={loadMoreRef} className="document-load-more" role="status" aria-live="polite">
+            {loadMoreError ? <>
+                <span>加载更多失败：{loadMoreError}</span>
+                <button className="secondary-button" type="button" onClick={onRetryLoadMore}>重试</button>
+            </> : isLoadingMore ? <>
+                <LoaderCircle className="spin" size={15}/>
+                <span>正在加载更多来源资料…</span>
+            </> : documents.length < total ? <span>继续下滑加载更多来源资料</span> : <span>已加载全部 {total} 份来源资料</span>}
+        </div>
     </>;
 }
 
@@ -1810,7 +1951,7 @@ function AiExtractionProgressPanel({
                             ? `模型正在生成结构化候选，当前分片已接收 ${view.rawOutput.length} 个字符。完整返回并通过校验后，下方会展示可读结果。`
                             : isFailed
                                 ? '失败前供应商未返回完整的可校验结果。'
-                                : '等待模型返回内容；这里只展示真实运行状态，不生成虚假识别结果。'}</p>
+                                : '等待模型返回内容；这里只展示当前运行状态，不使用占位识别结果。'}</p>
                     </div>
                 </section>
                 {view.chunks.length > 0 && <section className="ai-stream-validated">
@@ -2034,12 +2175,12 @@ function DocumentSidebar({documents, space}: { documents: SourceDocument[]; spac
 
     return <div className="detail-content document-sidebar">
         <div className="detail-kicker"><span className="type-dot" style={{background: '#94a3b8'}}/>来源资料<span
-            className="status-pill active">本地持久化</span></div>
+            className="status-pill active">服务端持久化</span></div>
         <h2>{space?.name ?? '未连接空间'}</h2>
         <p className="detail-summary">原始文件保存在当前知识空间独立目录中，SQLite
             只保存结构化索引、解析文本和证据定位。</p>
         <div className="document-summary-grid">
-            <div><strong>{documents.length}</strong><span>全部资料</span></div>
+            <div><strong>{documents.length}</strong><span>已加载资料</span></div>
             <div><strong>{markdownCount}</strong><span>Markdown</span></div>
             <div><strong>{textCount}</strong><span>TXT</span></div>
             <div><strong>{pdfCount}</strong><span>PDF</span></div>

@@ -72,20 +72,6 @@ public class KnowledgeSpaceRepository {
     }
 
     /**
-     * 统计有效知识空间数量。
-     *
-     * @return 有效知识空间数量
-     */
-    public int countActive() {
-        // 使用 MyBatis-Plus COUNT 查询当前有效空间数量
-        Long count = knowledgeSpaceMapper.selectCount(
-                Wrappers.<KnowledgeSpaceEntity>lambdaQuery()
-                        .eq(KnowledgeSpaceEntity::getStatus, "active")
-        );
-        return count == null ? 0 : Math.toIntExact(count);
-    }
-
-    /**
      * 保存新知识空间。
      *
      * @param space 新知识空间模型

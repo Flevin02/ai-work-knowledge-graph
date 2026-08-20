@@ -1,6 +1,6 @@
 -- 知识空间：作为文档、节点、关系、证据和审核记录的数据隔离根。
 CREATE TABLE IF NOT EXISTS knowledge_spaces (
-    -- 知识空间唯一标识，默认空间使用稳定标识，其余空间使用 UUID。
+    -- 知识空间唯一标识，使用 UUID。
     id TEXT PRIMARY KEY,
     -- 用户可见的知识空间名称。
     name TEXT NOT NULL,
@@ -18,18 +18,6 @@ CREATE TABLE IF NOT EXISTS knowledge_spaces (
 CREATE UNIQUE INDEX IF NOT EXISTS uk_knowledge_spaces_active_name
     ON knowledge_spaces(name)
     WHERE status = 'active';
-
--- 首次启动时提供一个可直接使用的默认知识空间。
-INSERT OR IGNORE INTO knowledge_spaces (
-    id, name, description, status, created_at, updated_at
-) VALUES (
-    'default-space',
-    '公司年会筹备',
-    '用于虚构年会演示资料和本地联调。',
-    'active',
-    '2026-08-17T00:00:00Z',
-    '2026-08-17T00:00:00Z'
-);
 
 -- 来源资料导入批次：记录一次 multipart 请求的整体处理状态和分类统计。
 CREATE TABLE IF NOT EXISTS import_batches (

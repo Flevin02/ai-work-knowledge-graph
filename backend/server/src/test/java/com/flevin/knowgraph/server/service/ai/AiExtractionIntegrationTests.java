@@ -8,6 +8,7 @@ import com.flevin.knowgraph.server.model.ai.AiExtractionResult;
 import com.flevin.knowgraph.server.model.ai.AiRelationCandidate;
 import com.flevin.knowgraph.server.model.document.DocumentImportResponse;
 import com.flevin.knowgraph.server.service.document.DocumentService;
+import com.flevin.knowgraph.server.support.TestKnowledgeSpaceFixtures;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,7 +62,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class AiExtractionIntegrationTests {
 
-    private static final String SPACE_ID = "default-space";
+    private static final String SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
 
     @Autowired
     private DocumentService documentService;
@@ -88,6 +89,9 @@ class AiExtractionIntegrationTests {
         jdbcTemplate.update("DELETE FROM graph_nodes");
         jdbcTemplate.update("DELETE FROM source_documents");
         jdbcTemplate.update("DELETE FROM import_batches");
+
+        // 为依赖固定标识的测试准备测试空间，生产 schema 不提供默认空间
+        TestKnowledgeSpaceFixtures.ensureDefaultSpace(jdbcTemplate);
     }
 
     @Test

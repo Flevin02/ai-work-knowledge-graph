@@ -53,7 +53,7 @@ public class DocumentController {
 	@GetMapping(value = "", name = "查询来源资料列表")
 	@Operation(summary = "查询来源资料列表", description = "分页返回来源资料及最近一次 AI 抽取摘要，默认每页 12 条。")
 	public ApiResponse<SourceDocumentPageResponse> listDocuments(
-			@Parameter(description = "知识空间标识", example = "default-space")
+			@Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
 			@PathVariable String spaceId,
 			@Parameter(description = "按原始文件名模糊查询；为空时返回当前空间全部资料", example = "会议")
 			@RequestParam(required = false) String name,
@@ -80,7 +80,7 @@ public class DocumentController {
 	@GetMapping(value = "/{documentId}/content", name = "预览来源资料原文")
 	@Operation(summary = "预览来源资料原文", description = "返回当前知识空间内来源资料的解析文本，不暴露服务端存储路径。")
 	public ApiResponse<SourceDocumentContentResponse> getDocumentContent(
-			@Parameter(description = "知识空间标识", example = "default-space")
+			@Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
 			@PathVariable String spaceId,
 			@Parameter(description = "来源资料标识")
 			@PathVariable String documentId
@@ -102,7 +102,7 @@ public class DocumentController {
 			description = "通过 SSE 返回运行、分片、真实模型增量、完成或失败事件；完整结果通过结构和证据校验后保存，并物化为待人工审核的候选图谱事实。"
 	)
 	public ResponseEntity<StreamingResponseBody> extractDocument(
-				@Parameter(description = "知识空间标识", example = "default-space")
+				@Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
 				@PathVariable String spaceId,
 				@Parameter(description = "来源资料标识")
 				@PathVariable String documentId
@@ -133,7 +133,7 @@ public class DocumentController {
             description = "一次受理多份来源资料，并由服务端有界线程池并发执行独立抽取运行；每份资料仍通过列表状态和历史结果单独恢复。"
     )
     public ApiResponse<AiExtractionBatchResponse> submitBatchExtraction(
-            @Parameter(description = "知识空间标识", example = "default-space")
+            @Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
             @PathVariable String spaceId,
             @jakarta.validation.Valid @RequestBody DocumentBatchRequest request
     ) {
@@ -150,7 +150,7 @@ public class DocumentController {
     @GetMapping(value = "/{documentId}/extractions", name = "查询来源资料 AI 抽取记录")
     @Operation(summary = "查询来源资料 AI 抽取记录", description = "返回指定来源资料历史抽取记录摘要，最新记录优先。")
     public ApiResponse<List<AiExtractionRunSummary>> listExtractions(
-            @Parameter(description = "知识空间标识", example = "default-space")
+            @Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
             @PathVariable String spaceId,
             @Parameter(description = "来源资料标识")
             @PathVariable String documentId
@@ -168,7 +168,7 @@ public class DocumentController {
     @GetMapping(value = "/{documentId}/extractions/{extractionId}", name = "查询来源资料 AI 抽取结果")
     @Operation(summary = "查询来源资料 AI 抽取结果", description = "返回指定抽取记录的状态、错误摘要和完整候选结果。")
     public ApiResponse<AiExtractionRunDetail> getExtraction(
-            @Parameter(description = "知识空间标识", example = "default-space")
+            @Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
             @PathVariable String spaceId,
             @Parameter(description = "来源资料标识")
             @PathVariable String documentId,
@@ -192,7 +192,7 @@ public class DocumentController {
             description = "按服务端保存的抽取结果校验分片和关系顺序，批量更新关系状态并记录 review_actions。"
     )
     public ApiResponse<AiRelationReviewResponse> reviewExtractionRelations(
-            @Parameter(description = "知识空间标识", example = "default-space")
+            @Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
             @PathVariable String spaceId,
             @Parameter(description = "来源资料标识")
             @PathVariable String documentId,
@@ -218,7 +218,7 @@ public class DocumentController {
             description = "恢复指定抽取结果已经持久化的采纳或拒绝决定，供弹窗刷新后继续展示。"
     )
     public ApiResponse<List<AiRelationReviewState>> listReviewStates(
-            @Parameter(description = "知识空间标识", example = "default-space")
+            @Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
             @PathVariable String spaceId,
             @Parameter(description = "来源资料标识")
             @PathVariable String documentId,
@@ -246,7 +246,7 @@ public class DocumentController {
 			description = "逐文件解析 UTF-8 文本或带页码边界的 PDF 文本、计算原始字节的 SHA-256 内容指纹，并返回成功、重复或失败结果；扫描 PDF 暂不支持 OCR。"
 	)
 	public ApiResponse<DocumentImportResponse> importDocuments(
-			@Parameter(description = "知识空间标识", example = "default-space")
+			@Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
 			@PathVariable String spaceId,
 			@Parameter(description = "文档业务类型；未提供时按 general 处理", example = "prd")
 			@RequestPart(value = "documentType", required = false) String documentType,
@@ -266,7 +266,7 @@ public class DocumentController {
             description = "在一个事务中软删除多份来源资料，并同步失效仅由这些资料支撑的图谱节点和关系；原始文件和历史证据继续保留。"
     )
     public ApiResponse<DocumentBatchDeleteResponse> deleteDocuments(
-            @Parameter(description = "知识空间标识", example = "default-space")
+            @Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
             @PathVariable String spaceId,
             @jakarta.validation.Valid @RequestBody DocumentBatchRequest request
     ) {
@@ -286,7 +286,7 @@ public class DocumentController {
 			description = "软删除来源资料，并同步失效仅由该资料支撑的图谱节点和关系；原始文件和证据记录继续保留。"
 	)
 	public ApiResponse<Void> deleteDocument(
-			@Parameter(description = "知识空间标识", example = "default-space")
+			@Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
 			@PathVariable String spaceId,
 			@Parameter(description = "来源资料标识")
 			@PathVariable String documentId

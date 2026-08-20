@@ -27,7 +27,7 @@ public interface KnowledgeSpaceService {
     KnowledgeSpaceResponse createSpace(CreateKnowledgeSpaceRequest request);
 
     /**
-     * 软删除知识空间；至少保留一个有效空间，且不删除事实来源。
+     * 软删除知识空间；允许当前有效空间列表为空，且不删除事实来源。
      *
      * @param spaceId 待删除知识空间标识
      */

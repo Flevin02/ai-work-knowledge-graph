@@ -9,6 +9,7 @@ import com.flevin.knowgraph.server.model.space.KnowledgeSpaceResponse;
 import com.flevin.knowgraph.server.repository.graph.GraphRepository;
 import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
+import com.flevin.knowgraph.server.support.TestKnowledgeSpaceFixtures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,7 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class GraphIntegrationTests {
 
-    private static final String DEFAULT_SPACE_ID = "default-space";
+    private static final String DEFAULT_SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
     private static final Instant TEST_TIME = Instant.parse("2026-08-17T09:00:00Z");
 
     @Autowired
@@ -66,11 +67,8 @@ class GraphIntegrationTests {
         // 清理上一次运行留下的非默认知识空间，避免固定测试数据库造成同名冲突
         jdbcTemplate.update("DELETE FROM knowledge_spaces WHERE id <> ?", DEFAULT_SPACE_ID);
 
-        // 确保默认知识空间仍然可以承接本轮图谱测试数据
-        jdbcTemplate.update(
-                "UPDATE knowledge_spaces SET status = 'active' WHERE id = ?",
-                DEFAULT_SPACE_ID
-        );
+        // 为依赖固定标识的测试准备测试空间，生产 schema 不提供默认空间
+        TestKnowledgeSpaceFixtures.ensureDefaultSpace(jdbcTemplate);
     }
 
     @Test

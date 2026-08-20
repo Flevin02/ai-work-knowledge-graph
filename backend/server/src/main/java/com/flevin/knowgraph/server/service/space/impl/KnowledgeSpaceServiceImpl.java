@@ -97,7 +97,7 @@ public class KnowledgeSpaceServiceImpl implements KnowledgeSpaceService {
     }
 
     /**
-     * 软删除知识空间；至少保留一个有效空间，且不删除事实来源。
+     * 软删除知识空间；允许当前有效空间列表为空，且不删除事实来源。
      *
      * @param spaceId 待删除知识空间标识
      */
@@ -105,11 +105,6 @@ public class KnowledgeSpaceServiceImpl implements KnowledgeSpaceService {
     public void deleteSpace(String spaceId) {
         // 校验待删除空间当前仍然有效
         requireActive(spaceId);
-
-        // 至少保留一个有效空间，避免前端进入无法导入资料的无空间状态
-        if (knowledgeSpaceRepository.countActive() <= 1) {
-            throw new TipsException(ErrorCode.BUSINESS_ERROR, "至少保留一个有效知识空间");
-        }
 
         // 仅软删除空间记录，不清理其目录、来源资料或图谱事实
         int updatedRows = knowledgeSpaceRepository.softDelete(spaceId, Instant.now());

@@ -9,8 +9,6 @@ coverage/
 .env.*
 !.env.example
 uploads/
-/data/
-/backend/data/
 /backend/server/data/
 backend/.env
 backend/.env.*

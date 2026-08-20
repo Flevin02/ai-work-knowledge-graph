@@ -8,6 +8,7 @@ import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
+import java.time.Instant;
 
 /**
  * SQLite 表结构初始化器，应用启动时以幂等方式创建当前阶段所需数据表。
@@ -16,7 +17,7 @@ import javax.sql.DataSource;
 @DependsOn("localStorageInitializer")
 public class DatabaseSchemaInitializer {
 
-    private static final String DEFAULT_SPACE_ID = "default-space";
+    private static final String LEGACY_SPACE_ID = "legacy-migrated-space";
 
     private final DataSource dataSource;
     private final JdbcTemplate jdbcTemplate;
@@ -71,17 +72,8 @@ public class DatabaseSchemaInitializer {
                 "ALTER TABLE ai_extraction_runs ADD COLUMN document_summary TEXT"
         );
 
-        // 将升级前已有批次归入默认知识空间
-        jdbcTemplate.update(
-                "UPDATE import_batches SET space_id = ? WHERE space_id IS NULL OR space_id = ''",
-                DEFAULT_SPACE_ID
-        );
-
-        // 将升级前已有来源资料归入默认知识空间
-        jdbcTemplate.update(
-                "UPDATE source_documents SET space_id = ? WHERE space_id IS NULL OR space_id = ''",
-                DEFAULT_SPACE_ID
-        );
+        // 仅在旧数据库确实存在未归属记录时创建历史迁移空间，避免新库首次启动出现默认空间
+        migrateLegacyRecordsWhenNeeded();
 
         // 移除旧版本的全局内容指纹唯一索引，改为知识空间内唯一
         jdbcTemplate.execute("DROP INDEX IF EXISTS uk_source_documents_content_hash");
@@ -127,5 +119,49 @@ public class DatabaseSchemaInitializer {
 
         // 仅在字段缺失时执行兼容性迁移
         jdbcTemplate.execute(alterSql);
+    }
+
+    /**
+     * 为旧版本无空间归属的记录补充独立历史迁移空间；全新数据库不写入任何知识空间。
+     */
+    private void migrateLegacyRecordsWhenNeeded() {
+        // 统计升级前尚未归属知识空间的批次和来源资料
+        Integer legacyRecordCount = jdbcTemplate.queryForObject("""
+                SELECT (
+                    SELECT COUNT(1) FROM import_batches WHERE space_id IS NULL OR space_id = ''
+                ) + (
+                    SELECT COUNT(1) FROM source_documents WHERE space_id IS NULL OR space_id = ''
+                )
+                """, Integer.class);
+        if (legacyRecordCount == null || legacyRecordCount == 0) {
+            return;
+        }
+
+        String migratedAt = Instant.now().toString();
+
+        // 创建仅承接历史无归属记录的迁移空间，不作为新用户默认空间展示
+        jdbcTemplate.update("""
+                INSERT OR IGNORE INTO knowledge_spaces (
+                    id, name, description, status, created_at, updated_at
+                ) VALUES (?, ?, ?, 'active', ?, ?)
+                """,
+                LEGACY_SPACE_ID,
+                "历史资料迁移空间",
+                "升级前未归属知识空间的历史资料",
+                migratedAt,
+                migratedAt
+        );
+
+        // 将升级前已有批次归入历史迁移空间
+        jdbcTemplate.update(
+                "UPDATE import_batches SET space_id = ? WHERE space_id IS NULL OR space_id = ''",
+                LEGACY_SPACE_ID
+        );
+
+        // 将升级前已有来源资料归入历史迁移空间
+        jdbcTemplate.update(
+                "UPDATE source_documents SET space_id = ? WHERE space_id IS NULL OR space_id = ''",
+                LEGACY_SPACE_ID
+        );
     }
 }
