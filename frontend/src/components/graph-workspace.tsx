@@ -363,10 +363,14 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 ) || loadedDocuments.some(
                     (document) => queuedBatchExtractionDocumentIdsRef.current[document.id]
                 );
-                if (!isPolling && !shouldPreserveNotice && !isSearchRequest) {
-                    setNotice(response.total
-                        ? `已加载 ${Math.min(response.total, currentPage * DOCUMENT_PAGE_SIZE)} / ${response.total} 份来源资料。`
-                        : '当前知识空间尚未导入来源资料。');
+                if (!isPolling && !shouldPreserveNotice) {
+                    setNotice(documentSearchQuery
+                        ? response.total
+                            ? `已找到 ${response.total} 份匹配的来源资料。`
+                            : '未找到匹配的来源资料。'
+                        : response.total
+                            ? `已加载 ${Math.min(response.total, currentPage * DOCUMENT_PAGE_SIZE)} / ${response.total} 份来源资料。`
+                            : '当前知识空间尚未导入来源资料。');
                     setNoticeTone('success');
                 } else if (pollingErrorVisible) {
                     pollingErrorVisible = false;
@@ -378,7 +382,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                     preservedDocumentNoticeSpaceIdRef.current = null;
                 }
                 if (!isPolling && isSearchRequest) {
-                    // 名称搜索只更新列表和空态，不切换顶部全局消息，避免输入时提示框闪烁
+                    // 名称搜索只在请求完成后更新最终结果，不显示中间加载文案，避免输入时提示框闪烁
                     suppressDocumentSearchNoticeRef.current = false;
                 }
 
@@ -1440,7 +1444,7 @@ function DocumentPanel({
     return <>
         <DocumentSearchBox value={search} onChange={onSearchChange}/>
         <div className="document-batch-toolbar">
-            <span>{selectedDocuments.length
+            <span role="status" aria-live="polite" aria-atomic="true">{selectedDocuments.length
                 ? `已选择 ${selectedDocuments.length} 份资料`
                 : '点击资料卡片即可多选，再执行批量操作'}</span>
             <div className="document-batch-actions">
@@ -1479,6 +1483,7 @@ function DocumentPanel({
                     className={`document-card ${isSelected ? 'selected' : ''}`}
                     key={document.id}
                     data-selected={isSelected}
+                    aria-label={`来源资料：${document.name}，${isSelected ? '已选择' : '未选择'}，按回车或空格切换选择`}
                     tabIndex={0}
                     onClick={(event) => {
                         if (event.target instanceof Element && event.target.closest('button')) return;
