@@ -29,5 +29,17 @@ class AiPromptResourceTests {
                 .contains("## 分片摘要规则")
                 .contains("## 证据规则")
                 .contains("## 输出约束");
+
+        ClassPathResource summaryPromptResource = new ClassPathResource(
+                "prompts/document-summary-system.md"
+        );
+
+        // 验证全文摘要 Prompt 也会进入最终运行时产物
+        assertThat(summaryPromptResource.exists()).isTrue();
+        String summaryPromptContent = summaryPromptResource.getContentAsString(StandardCharsets.UTF_8);
+        assertThat(summaryPromptContent)
+                .contains("# 工作资料全文摘要器")
+                .contains("禁止出现“本分片”“当前分片”")
+                .contains("只返回一段 0～160 个字符的中文摘要");
     }
 }

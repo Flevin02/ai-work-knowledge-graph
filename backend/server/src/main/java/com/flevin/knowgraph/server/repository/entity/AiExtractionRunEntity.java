@@ -48,6 +48,15 @@ public class AiExtractionRunEntity {
     @TableField("document_summary")
     private String documentSummary;
 
+    @TableField("document_summary_prompt_version")
+    private String documentSummaryPromptVersion;
+
+    @TableField("document_summary_status")
+    private String documentSummaryStatus;
+
+    @TableField("document_summary_error")
+    private String documentSummaryError;
+
     @TableField("error_message")
     private String errorMessage;
 

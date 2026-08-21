@@ -61,7 +61,10 @@ public class AiExtractionRunRepository {
      * @param extractionId 抽取记录标识
      * @param sectionCount 章节数量
      * @param chunkCount 分片数量
-     * @param documentSummary 按分片顺序聚合的文档摘要
+     * @param documentSummary 文档级全文摘要；生成失败时为空
+     * @param documentSummaryPromptVersion 文档级全文摘要 Prompt 版本
+     * @param documentSummaryStatus 文档级全文摘要状态
+     * @param documentSummaryError 文档级全文摘要失败原因
      * @param resultJson 完整结构化结果 JSON
      * @param completedAt 完成时间
      */
@@ -70,6 +73,9 @@ public class AiExtractionRunRepository {
             int sectionCount,
             int chunkCount,
             String documentSummary,
+            String documentSummaryPromptVersion,
+            String documentSummaryStatus,
+            String documentSummaryError,
             String resultJson,
             String completedAt
     ) {
@@ -78,6 +84,9 @@ public class AiExtractionRunRepository {
         updateEntity.setSectionCount(sectionCount);
         updateEntity.setChunkCount(chunkCount);
         updateEntity.setDocumentSummary(documentSummary);
+        updateEntity.setDocumentSummaryPromptVersion(documentSummaryPromptVersion);
+        updateEntity.setDocumentSummaryStatus(documentSummaryStatus);
+        updateEntity.setDocumentSummaryError(documentSummaryError);
         updateEntity.setResultJson(resultJson);
         updateEntity.setErrorMessage(null);
         updateEntity.setCompletedAt(completedAt);

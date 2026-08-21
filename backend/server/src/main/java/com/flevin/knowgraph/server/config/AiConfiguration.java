@@ -134,6 +134,7 @@ public class AiConfiguration {
                 streamingChatModel,
                 validator,
                 properties.getPromptVersion(),
+                properties.getSummaryPromptVersion(),
                 properties.getSchemaVersion(),
                 properties.isJsonSchemaEnabled()
         );

@@ -2,6 +2,7 @@ package com.flevin.knowgraph.server.service.ai;
 
 import com.flevin.knowgraph.server.model.ai.AiExtractionRequest;
 import com.flevin.knowgraph.server.model.ai.AiExtractionResult;
+import com.flevin.knowgraph.server.model.ai.AiDocumentSummaryRequest;
 
 import java.util.function.Consumer;
 
@@ -9,6 +10,16 @@ import java.util.function.Consumer;
  * AI 结构化抽取领域接口，隔离 LangChain4j 和具体模型供应商。
  */
 public interface AiExtractionClient {
+
+    /**
+     * 根据已校验的分片摘要生成一段自然的文档级全文摘要。
+     *
+     * @param request 包含来源资料定位和按原文顺序排列的分片摘要
+     * @return 不超过 160 个字符的文档级摘要；不支持该能力的客户端可抛出运行时异常
+     */
+    default String summarize(AiDocumentSummaryRequest request) {
+        throw new UnsupportedOperationException("当前 AI 客户端不支持文档级全文摘要");
+    }
 
     /**
      * 从单个可追溯来源分片中提取实体、关系、证据和冲突候选。

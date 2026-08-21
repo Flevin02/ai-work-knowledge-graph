@@ -9,7 +9,6 @@ import {
     CircleHelp,
     Eye,
     FileText,
-    Filter,
     FolderPlus,
     GitBranch,
     Inbox,
@@ -51,7 +50,6 @@ import {
     type GraphEdge,
     type GraphNode,
     type KnowledgeSpace,
-    type NodeType,
     type SourceDocument,
     type SourceDocumentContent,
     type SourceDocumentKind,
@@ -101,7 +99,6 @@ type DeleteConfirmation =
     | { kind: 'document'; item: SourceDocument }
     | { kind: 'documents'; items: SourceDocument[] };
 
-const allTypes: Array<NodeType | 'all'> = ['all', 'project', 'department', 'person', 'task', 'document', 'meeting', 'risk', 'decision', 'requirement', 'feature'];
 const DOCUMENT_PAGE_SIZE = 12;
 const DOCUMENT_PROCESSING_POLL_INTERVAL_MS = 3000;
 const documentKindLabels: Record<SourceDocumentKind, string> = {
@@ -167,7 +164,6 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     const [view, setView] = useState<View>('graph');
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(initialGraph.nodes[0]?.id ?? null);
     const [search, setSearch] = useState('');
-    const [typeFilter, setTypeFilter] = useState<NodeType | 'all'>('all');
     const [notice, setNotice] = useState('正在连接后端知识空间和图谱服务。');
     const [noticeTone, setNoticeTone] = useState<NoticeTone>('loading');
     const [spaces, setSpaces] = useState<KnowledgeSpace[]>([]);
@@ -472,12 +468,8 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
 
     const visibleNodes = useMemo(() => {
         const keyword = search.trim().toLowerCase();
-        return graph.nodes.filter((node) => {
-            const matchesType = typeFilter === 'all' || node.type === typeFilter;
-            const matchesSearch = !keyword || `${node.label} ${node.summary}`.toLowerCase().includes(keyword);
-            return matchesType && matchesSearch;
-        });
-    }, [graph.nodes, search, typeFilter]);
+        return graph.nodes.filter((node) => !keyword || `${node.label} ${node.summary}`.toLowerCase().includes(keyword));
+    }, [graph.nodes, search]);
 
     const visibleEdges = useMemo(() => {
         const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
@@ -869,6 +861,43 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                         message: `第 ${event.chunkIndex} / ${event.chunkCount} 个分片已通过结构和证据校验`,
                     } : current);
                 },
+                onDocumentSummaryStarted: (event) => {
+                    setExtractionView((current) => current?.documentId === document.id ? {
+                        ...current,
+                        status: 'processing',
+                        extractionId: event.extractionRunId,
+                        currentChunkIndex: event.chunkCount,
+                        chunkCount: event.chunkCount,
+                        message: '正在生成全文摘要',
+                    } : current);
+                    setDocumentExtractionStates((current) => ({
+                        ...current,
+                        [document.id]: {
+                            status: 'processing',
+                            extractionId: event.extractionRunId,
+                            message: '正在生成全文摘要',
+                        },
+                    }));
+                },
+                onDocumentSummaryCompleted: (event) => {
+                    const message = event.status === 'completed'
+                        ? '全文摘要已生成，正在保存完整结果'
+                        : event.errorMessage || '全文摘要生成失败，已保留候选事实';
+                    setExtractionView((current) => current?.documentId === document.id ? {
+                        ...current,
+                        status: 'processing',
+                        extractionId: event.extractionRunId,
+                        message,
+                    } : current);
+                    setDocumentExtractionStates((current) => ({
+                        ...current,
+                        [document.id]: {
+                            status: 'processing',
+                            extractionId: event.extractionRunId,
+                            message,
+                        },
+                    }));
+                },
                 onCompleted: (event) => {
                     const entityCount = event.result.chunks.reduce((count, chunk) => count + chunk.extraction.entities.length, 0);
                     const relationCount = event.result.chunks.reduce((count, chunk) => count + chunk.extraction.relations.length, 0);
@@ -879,7 +908,9 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                         currentChunkIndex: event.result.chunkCount,
                         chunkCount: event.result.chunkCount,
                         chunks: event.result.chunks,
-                        message: '完整结果已通过校验并保存',
+                        message: event.result.summary
+                            ? '完整结果和全文摘要已通过校验并保存'
+                            : '候选结果已通过校验并保存，全文摘要生成失败',
                         result: event.result,
                     } : current);
                     setDocumentExtractionStates((current) => ({
@@ -1071,21 +1102,24 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                     </nav>
 
                     <section className="sidebar-section">
-                        <div className="section-heading">图谱类型</div>
-                        <div className="type-list">
-                            {allTypes.map((type) => (
-                                <button key={type}
-                                    className={typeFilter === type ? 'type-filter selected' : 'type-filter'}
-                                    onClick={() => {
-                                        setTypeFilter(type);
-                                        setView('graph');
-                                    }}>
-                                    {type === 'all' ? <span className="type-dot all-dot"/> :
-                                        <span className="type-dot" style={{background: nodeTypeColors[type]}}/>}
-                                    {type === 'all' ? '全部节点' : nodeTypeLabels[type]}
-                                    <span>{type === 'all' ? graph.nodes.length : graph.nodes.filter((node) => node.type === type).length}</span>
-                                </button>
-                            ))}
+                        <div className="section-heading">待处理</div>
+                        <div className="work-queue-list">
+                            <button className="queue-row" onClick={() => setView('health')}>
+                                <span className="queue-row-label"><ShieldCheck size={14}/>待审核关联</span>
+                                <span>{graph.edges.filter((edge) => edge.status === 'suggested').length}</span>
+                            </button>
+                            <button className="queue-row" onClick={() => setView('documents')}>
+                                <span className="queue-row-label"><Sparkles size={14}/>已加载失败</span>
+                                <span>{persistedDocuments.filter((document) => document.latestExtraction?.status === 'failed').length}</span>
+                            </button>
+                        </div>
+                    </section>
+
+                    <section className="sidebar-section">
+                        <div className="section-heading">标签</div>
+                        <div className="tag-navigation-empty">
+                            <Inbox size={15}/>
+                            <span>完成 AI 分析并确认标签后，这里会显示文档标签。</span>
                         </div>
                     </section>
 
@@ -1122,9 +1156,6 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                             <div className="search-box"><Search size={17}/><input value={search}
                                 onChange={(event) => setSearch(event.target.value)}
                                 placeholder="搜索项目、任务、人员或资料"/></div>
-                            <div className="toolbar-divider"/>
-                            <div className="filter-label"><Filter
-                                size={15}/> {typeFilter === 'all' ? '全部类型' : nodeTypeLabels[typeFilter]}</div>
                             <span className="toolbar-hint">实线：已采纳　虚线：待审核　红框：需关注</span>
                         </div>
                         <div className="graph-card"><GraphCanvas nodes={visibleNodes} edges={visibleEdges}

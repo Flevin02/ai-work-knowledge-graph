@@ -185,6 +185,12 @@ CREATE TABLE IF NOT EXISTS ai_extraction_runs (
     result_json TEXT,
     -- 成功运行按分片顺序聚合的文档摘要，供来源资料列表展示；失败或旧版运行可为空。
     document_summary TEXT,
+    -- 文档级全文摘要使用的独立 Prompt 版本。
+    document_summary_prompt_version TEXT,
+    -- 文档级全文摘要状态：not_started、completed 或 failed。
+    document_summary_status TEXT,
+    -- 文档级全文摘要失败原因；摘要成功或未开始时为空。
+    document_summary_error TEXT,
     -- 失败或校验错误摘要；成功时为空。
     error_message TEXT,
     -- 运行创建时间，使用 ISO-8601 UTC 字符串。

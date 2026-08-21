@@ -2,6 +2,8 @@ import type {
   AiExtractionChunkCompletedEvent,
   AiExtractionChunkStartedEvent,
   AiExtractionCompletedEvent,
+  AiExtractionDocumentSummaryCompletedEvent,
+  AiExtractionDocumentSummaryStartedEvent,
   AiExtractionDeltaEvent,
   AiExtractionErrorEvent,
   AiExtractionRunDetail,
@@ -115,6 +117,8 @@ export type AiExtractionStreamHandlers = {
   onChunkStarted?: (event: AiExtractionChunkStartedEvent) => void;
   onDelta?: (event: AiExtractionDeltaEvent) => void;
   onChunkCompleted?: (event: AiExtractionChunkCompletedEvent) => void;
+  onDocumentSummaryStarted?: (event: AiExtractionDocumentSummaryStartedEvent) => void;
+  onDocumentSummaryCompleted?: (event: AiExtractionDocumentSummaryCompletedEvent) => void;
   onCompleted?: (event: AiExtractionCompletedEvent) => void;
   onError?: (event: AiExtractionErrorEvent) => void;
 };
@@ -202,6 +206,12 @@ function dispatchExtractionStreamEvent(
       return false;
     case 'chunk_completed':
       handlers.onChunkCompleted?.(payload as AiExtractionChunkCompletedEvent);
+      return false;
+    case 'document_summary_started':
+      handlers.onDocumentSummaryStarted?.(payload as AiExtractionDocumentSummaryStartedEvent);
+      return false;
+    case 'document_summary_completed':
+      handlers.onDocumentSummaryCompleted?.(payload as AiExtractionDocumentSummaryCompletedEvent);
       return false;
     case 'completed':
       handlers.onCompleted?.(payload as AiExtractionCompletedEvent);

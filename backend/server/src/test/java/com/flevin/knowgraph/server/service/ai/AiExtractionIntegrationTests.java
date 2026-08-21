@@ -3,6 +3,7 @@ package com.flevin.knowgraph.server.service.ai;
 import com.flevin.knowgraph.server.model.ai.AiEntityCandidate;
 import com.flevin.knowgraph.server.model.ai.AiEntityType;
 import com.flevin.knowgraph.server.model.ai.AiEvidenceCandidate;
+import com.flevin.knowgraph.server.model.ai.AiDocumentSummaryRequest;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRequest;
 import com.flevin.knowgraph.server.model.ai.AiExtractionResult;
 import com.flevin.knowgraph.server.model.ai.AiRelationCandidate;
@@ -122,6 +123,8 @@ class AiExtractionIntegrationTests {
             deltaConsumer.accept("{\"summary\":");
             return fakeResult(invocation.getArgument(0));
         });
+        when(aiExtractionClient.summarize(any(AiDocumentSummaryRequest.class)))
+                .thenReturn("用户中心的登录功能支持手机号验证码。");
 
         // 调用 AI 抽取 SSE 入口，读取完成前的全部运行事件
         String extractionStream = performStreamingExtraction(documentId);
@@ -133,6 +136,10 @@ class AiExtractionIntegrationTests {
         assertThat(extractionStream.indexOf("event:delta"))
                 .isLessThan(extractionStream.indexOf("event:chunk_completed"));
         assertThat(extractionStream.indexOf("event:chunk_completed"))
+                .isLessThan(extractionStream.indexOf("event:document_summary_started"));
+        assertThat(extractionStream.indexOf("event:document_summary_started"))
+                .isLessThan(extractionStream.indexOf("event:document_summary_completed"));
+        assertThat(extractionStream.indexOf("event:document_summary_completed"))
                 .isLessThan(extractionStream.indexOf("event:completed"));
         assertThat(countStreamEvents(extractionStream, "chunk_started")).isEqualTo(2);
         assertThat(countStreamEvents(extractionStream, "chunk_completed")).isEqualTo(2);
@@ -144,7 +151,7 @@ class AiExtractionIntegrationTests {
         assertThat(completedEvent.path("result").path("sectionCount").asInt()).isEqualTo(2);
         assertThat(completedEvent.path("result").path("chunkCount").asInt()).isEqualTo(2);
         assertThat(completedEvent.path("result").path("summary").asText())
-                .isEqualTo("用户中心；登录功能支持手机号验证码。");
+                .isEqualTo("用户中心的登录功能支持手机号验证码。");
         assertThat(completedEvent.path("result").path("chunks").get(0)
                 .path("extraction").path("entities").size()).isEqualTo(2);
 
@@ -209,7 +216,7 @@ class AiExtractionIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[0].latestExtraction.extractionId").value(extractionId))
                 .andExpect(jsonPath("$.data.items[0].latestExtraction.status").value("completed"))
-                .andExpect(jsonPath("$.data.items[0].excerpt").value("用户中心；登录功能支持手机号验证码。"))
+                .andExpect(jsonPath("$.data.items[0].excerpt").value("用户中心的登录功能支持手机号验证码。"))
                 .andExpect(jsonPath("$.data.items[0].latestCompletedExtractionId").value(extractionId));
 
         String failedExtractionId = "failed-after-completed";
@@ -244,7 +251,7 @@ class AiExtractionIntegrationTests {
                 .andExpect(jsonPath("$.data.items[0].latestExtraction.extractionId").value(failedExtractionId))
                 .andExpect(jsonPath("$.data.items[0].latestExtraction.status").value("failed"))
                 .andExpect(jsonPath("$.data.items[0].latestExtraction.errorMessage").value("模型返回内容未通过结构校验"))
-                .andExpect(jsonPath("$.data.items[0].excerpt").value("用户中心；登录功能支持手机号验证码。"))
+                .andExpect(jsonPath("$.data.items[0].excerpt").value("用户中心的登录功能支持手机号验证码。"))
                 .andExpect(jsonPath("$.data.items[0].latestCompletedExtractionId").value(extractionId));
 
         // 查询历史抽取记录摘要，验证最近失败和此前成功结果都保持可追溯
@@ -270,8 +277,131 @@ class AiExtractionIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.summary.extractionId").value(extractionId))
                 .andExpect(jsonPath("$.data.result.documentId").value(documentId))
-                .andExpect(jsonPath("$.data.result.summary").value("用户中心；登录功能支持手机号验证码。"))
+                .andExpect(jsonPath("$.data.result.summary").value("用户中心的登录功能支持手机号验证码。"))
                 .andExpect(jsonPath("$.data.result.chunks.length()").value(2));
+    }
+
+    @Test
+    void summaryFailureDoesNotFailValidatedCandidates() throws Exception {
+        MockMultipartFile documentFile = new MockMultipartFile(
+                "files",
+                "摘要失败资料.md",
+                "text/markdown",
+                "# 项目说明\n\n## 任务\n发布前完成验收。".getBytes(StandardCharsets.UTF_8)
+        );
+
+        // 导入虚构资料，准备一份可被 Fake 模型校验的来源分片
+        DocumentImportResponse importResponse = documentService.importDocuments(
+                SPACE_ID,
+                "prd",
+                List.of(documentFile)
+        );
+        String documentId = importResponse.results().getFirst().document().id();
+
+        String historicalExtractionId = "historical-summary-success";
+        Instant historicalCreatedAt = Instant.now().minusSeconds(60);
+        jdbcTemplate.update(
+                """
+                INSERT INTO ai_extraction_runs (
+                    id, space_id, source_document_id, provider, model,
+                    prompt_version, schema_version, status, section_count,
+                    chunk_count, result_json, document_summary,
+                    document_summary_prompt_version, document_summary_status,
+                    created_at, completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                historicalExtractionId,
+                SPACE_ID,
+                documentId,
+                "fake",
+                "fake-model",
+                "prompt-v1",
+                "schema-v1",
+                "completed",
+                1,
+                1,
+                "{}",
+                "历史成功摘要不应被后续摘要失败覆盖。",
+                "document-summary-v1",
+                "completed",
+                historicalCreatedAt.toString(),
+                historicalCreatedAt.plusSeconds(1).toString()
+        );
+
+        when(aiExtractionClient.extract(
+                any(AiExtractionRequest.class),
+                org.mockito.ArgumentMatchers.<Consumer<String>>any()
+        )).thenAnswer(invocation -> fakeResult(invocation.getArgument(0)));
+        when(aiExtractionClient.summarize(any(AiDocumentSummaryRequest.class)))
+                .thenThrow(new IllegalStateException("Fake 汇总模型不可用"));
+
+        // 摘要失败只应发布摘要失败阶段并继续完成整次候选抽取
+        String extractionStream = performStreamingExtraction(documentId);
+        assertThat(extractionStream).contains("event:document_summary_completed")
+                .contains("全文摘要生成失败，已保留候选事实")
+                .contains("event:completed")
+                .doesNotContain("event:error");
+
+        JsonNode completedEvent = readStreamEvent(extractionStream, "completed");
+        String extractionId = completedEvent.path("extractionRunId").asText();
+        assertThat(completedEvent.path("result").path("summary").asText()).isEmpty();
+        assertThat(completedEvent.path("result").path("chunks").size()).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT document_summary_status FROM ai_extraction_runs WHERE id = ?",
+                String.class,
+                extractionId
+        )).isEqualTo("failed");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT document_summary_error FROM ai_extraction_runs WHERE id = ?",
+                String.class,
+                extractionId
+        )).isEqualTo("AI 全文摘要生成失败，已保留候选事实");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM graph_nodes WHERE space_id = ?",
+                Integer.class,
+                SPACE_ID
+        )).isGreaterThan(0);
+        mockMvc.perform(get("/v1/spaces/{spaceId}/documents", SPACE_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].latestExtraction.extractionId").value(extractionId))
+                .andExpect(jsonPath("$.data.items[0].latestExtraction.status").value("completed"))
+                .andExpect(jsonPath("$.data.items[0].latestCompletedExtractionId").value(extractionId))
+                .andExpect(jsonPath("$.data.items[0].excerpt")
+                        .value("历史成功摘要不应被后续摘要失败覆盖。"));
+    }
+
+    @Test
+    void singleChunkDocumentUsesIndependentSummaryReduce() throws Exception {
+        MockMultipartFile documentFile = new MockMultipartFile(
+                "files",
+                "单分片资料.txt",
+                "text/plain",
+                "单分片资料用于验证摘要汇总。".getBytes(StandardCharsets.UTF_8)
+        );
+
+        // 导入没有 Markdown 标题的纯文本资料，确保只生成一个根分片
+        DocumentImportResponse importResponse = documentService.importDocuments(
+                SPACE_ID,
+                "general",
+                List.of(documentFile)
+        );
+        String documentId = importResponse.results().getFirst().document().id();
+
+        when(aiExtractionClient.extract(
+                any(AiExtractionRequest.class),
+                org.mockito.ArgumentMatchers.<Consumer<String>>any()
+        )).thenAnswer(invocation -> fakeResult(invocation.getArgument(0)));
+        when(aiExtractionClient.summarize(any(AiDocumentSummaryRequest.class)))
+                .thenReturn("单分片资料用于验证全文摘要汇总。");
+
+        // 单分片也必须经过独立全文摘要阶段，而不是回到字符串拼接逻辑
+        JsonNode completedEvent = readStreamEvent(
+                performStreamingExtraction(documentId),
+                "completed"
+        );
+        assertThat(completedEvent.path("result").path("chunkCount").asInt()).isEqualTo(1);
+        assertThat(completedEvent.path("result").path("summary").asText())
+                .isEqualTo("单分片资料用于验证全文摘要汇总。");
     }
 
     @Test

@@ -27,4 +27,5 @@ interface OpenAiCompatibleExtractionAssistant {
      */
     @SystemMessage(fromResource = "prompts/prd-extraction-system.md")
     TokenStream extractStreaming(@UserMessage String sourceContext);
+
 }

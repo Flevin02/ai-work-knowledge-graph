@@ -22,7 +22,7 @@ import java.util.List;
  * @param schemaVersion 结构化输出 Schema 版本
  * @param sectionCount 解析章节数量
  * @param chunkCount 抽取分片数量
- * @param summary 按分片顺序聚合的文档级 AI 摘要
+ * @param summary 经独立汇总模型生成的文档级 AI 摘要；汇总失败时为空
  * @param chunks 按原文顺序返回的分片抽取结果
  */
 @Schema(description = "单份来源资料的 AI 抽取预览")
@@ -40,7 +40,7 @@ public record AiDocumentExtractionResponse(
         String schemaVersion,
         int sectionCount,
         int chunkCount,
-        @Schema(description = "按分片顺序聚合的文档级 AI 摘要；旧版历史结果可能为空")
+        @Schema(description = "经独立汇总模型生成的文档级 AI 摘要；汇总失败或旧版历史结果可能为空")
         String summary,
         List<AiChunkExtractionResult> chunks
 ) {

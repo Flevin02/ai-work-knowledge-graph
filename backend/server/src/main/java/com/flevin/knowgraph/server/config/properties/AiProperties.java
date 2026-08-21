@@ -56,6 +56,11 @@ public class AiProperties {
     private String promptVersion = "prd-extraction-v1";
 
     /**
+     * 文档级全文摘要 Prompt 版本。
+     */
+    private String summaryPromptVersion = "document-summary-v1";
+
+    /**
      * 当前结构化输出 Schema 版本。
      */
     private String schemaVersion = "extraction-v1";

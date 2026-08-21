@@ -2,6 +2,7 @@ package com.flevin.knowgraph.server.service.ai.openai;
 
 import com.flevin.knowgraph.server.model.ai.AiExtractionRequest;
 import com.flevin.knowgraph.server.model.ai.AiExtractionResult;
+import com.flevin.knowgraph.server.model.ai.AiDocumentSummaryRequest;
 import com.flevin.knowgraph.server.service.ai.AiExtractionClient;
 import com.flevin.knowgraph.server.service.ai.AiExtractionResultValidator;
 import com.flevin.knowgraph.server.service.ai.AiExtractionValidationException;
@@ -25,8 +26,10 @@ import java.util.function.Consumer;
 public class OpenAiCompatibleAiExtractionClient implements AiExtractionClient {
 
     private final OpenAiCompatibleExtractionAssistant assistant;
+    private final OpenAiCompatibleSummaryAssistant summaryAssistant;
     private final AiExtractionResultValidator validator;
     private final String promptVersion;
+    private final String summaryPromptVersion;
     private final String schemaVersion;
     private final boolean jsonSchemaEnabled;
     private final ServiceOutputParser outputParser;
@@ -36,6 +39,7 @@ public class OpenAiCompatibleAiExtractionClient implements AiExtractionClient {
             StreamingChatModel streamingChatModel,
             AiExtractionResultValidator validator,
             String promptVersion,
+            String summaryPromptVersion,
             String schemaVersion,
             boolean jsonSchemaEnabled
     ) {
@@ -45,6 +49,10 @@ public class OpenAiCompatibleAiExtractionClient implements AiExtractionClient {
                 )
                 .chatModel(chatModel)
                 .streamingChatModel(streamingChatModel);
+        AiServices<OpenAiCompatibleSummaryAssistant> summaryAssistantBuilder = AiServices.builder(
+                        OpenAiCompatibleSummaryAssistant.class
+                )
+                .chatModel(chatModel);
 
         if (jsonSchemaEnabled) {
             // 为 TokenStream 请求显式补入结构化响应格式，避免流式返回类型丢失目标 DTO Schema
@@ -62,10 +70,34 @@ public class OpenAiCompatibleAiExtractionClient implements AiExtractionClient {
 
         // 同一个无聊天记忆的 AI Service 分别承载同步和流式模型调用
         this.assistant = assistantBuilder.build();
+        // 全文摘要使用独立 AI Service，避免结构化抽取 JSON Schema 误套到文本响应
+        this.summaryAssistant = summaryAssistantBuilder.build();
         this.validator = validator;
         this.promptVersion = promptVersion;
+        this.summaryPromptVersion = summaryPromptVersion;
         this.schemaVersion = schemaVersion;
         this.jsonSchemaEnabled = jsonSchemaEnabled;
+    }
+
+    /**
+     * 调用 OpenAI-compatible 模型生成文档级全文摘要，并校验展示边界。
+     *
+     * @param request 包含来源资料定位和已校验分片摘要的请求
+     * @return 规范化后的文档级全文摘要
+     */
+    @Override
+    public String summarize(AiDocumentSummaryRequest request) {
+        Objects.requireNonNull(request, "全文摘要请求不能为空");
+
+        // 构建仅包含已校验分片摘要的全文汇总上下文
+        String summary = summaryAssistant.summarizeDocument(buildSummaryContext(request));
+        String normalizedSummary = summary == null
+                ? ""
+                : summary.replaceAll("\\s+", " ").strip();
+        if (normalizedSummary.length() > 160) {
+            throw new IllegalArgumentException("文档全文摘要不能超过 160 个字符");
+        }
+        return normalizedSummary;
     }
 
     /**
@@ -219,5 +251,35 @@ public class OpenAiCompatibleAiExtractionClient implements AiExtractionClient {
                 request.sectionPath(),
                 request.content()
         );
+    }
+
+    /**
+     * 构建全文摘要模型输入，保留章节顺序并避免把原始全文重复发送给汇总模型。
+     *
+     * @param request 文档级摘要请求
+     * @return 带版本和分片摘要定位的模型用户消息
+     */
+    private String buildSummaryContext(AiDocumentSummaryRequest request) {
+        StringBuilder context = new StringBuilder("""
+                summaryPromptVersion: %s
+                sourceDocumentId: %s
+                documentName: %s
+                documentType: %s
+
+                分片摘要（按原文顺序）：
+                """.formatted(
+                summaryPromptVersion,
+                request.sourceDocumentId(),
+                request.documentName(),
+                request.documentType()
+        ));
+        request.chunks().forEach(chunk -> context.append("- ")
+                .append(chunk.sectionPath())
+                .append("（")
+                .append(chunk.chunkId())
+                .append("）：")
+                .append(chunk.summary())
+                .append(System.lineSeparator()));
+        return context.toString();
     }
 }

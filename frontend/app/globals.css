@@ -22,7 +22,7 @@ button { cursor: pointer; }
 
 .app-shell { height: 100vh; height: 100dvh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .topbar { height: 72px; flex: 0 0 72px; display: flex; align-items: center; justify-content: space-between; padding: 0 28px; border-bottom: 1px solid var(--line); background: rgba(11, 17, 32, .86); backdrop-filter: blur(16px); }
-.brand-lockup, .topbar-actions, .page-stats, .page-stats div, .primary-button, .ghost-button, .secondary-button, .nav-item, .type-filter, .notice, .toolbar-card, .filter-label, .detail-kicker, .relation-row, .source-row, .evidence-title, .health-card-heading, .health-items button { display: flex; align-items: center; }
+.brand-lockup, .topbar-actions, .page-stats, .page-stats div, .primary-button, .ghost-button, .secondary-button, .nav-item, .notice, .toolbar-card, .detail-kicker, .relation-row, .source-row, .evidence-title, .health-card-heading, .health-items button { display: flex; align-items: center; }
 .brand-lockup { gap: 11px; }
 .brand-mark { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, #8b5cf6, #4f46e5); box-shadow: 0 8px 24px rgba(99, 102, 241, .28); }
 .brand-name { font-weight: 760; letter-spacing: .04em; }
@@ -75,12 +75,15 @@ button { cursor: pointer; }
 .warning-count { color: var(--warning) !important; }
 .sidebar-section { border-top: 1px solid var(--line); padding-top: 20px; }
 .section-heading { color: var(--muted-2); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; margin: 0 10px 10px; }
-.type-list { display: grid; gap: 2px; }
-.type-filter { width: 100%; border: 0; border-radius: 7px; padding: 8px 10px; gap: 9px; color: var(--muted); background: transparent; text-align: left; font-size: 11px; }
-.type-filter span:last-child { margin-left: auto; color: var(--muted-2); }
-.type-filter.selected, .type-filter:hover { color: var(--text); background: rgba(52, 65, 92, .48); }
+.work-queue-list { display: grid; gap: 2px; }
+.queue-row { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 0; border-radius: 7px; padding: 8px 10px; color: var(--muted); background: transparent; text-align: left; font-size: 11px; }
+.queue-row:hover { color: var(--text); background: rgba(52, 65, 92, .48); }
+.queue-row > span:last-child { color: var(--muted-2); }
+.queue-row-label { display: flex; align-items: center; gap: 8px; }
+.queue-row-label svg { color: #c4b5fd; }
+.tag-navigation-empty { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; color: var(--muted-2); font-size: 10px; line-height: 1.5; }
+.tag-navigation-empty svg { flex: 0 0 auto; margin-top: 1px; color: #94a3b8; }
 .type-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; display: inline-block; }
-.all-dot { background: linear-gradient(135deg, #8b5cf6 0 33%, #0ea5e9 33% 66%, #f59e0b 66%); }
 .sidebar-footer { color: var(--muted-2); display: flex; align-items: flex-start; gap: 7px; font-size: 10px; line-height: 1.45; margin-top: auto; padding: 0 9px; }
 
 .content-area { min-width: 0; min-height: 0; padding: 29px 30px; display: flex; flex-direction: column; overflow-x: hidden; overflow-y: auto; }
@@ -103,8 +106,6 @@ button { cursor: pointer; }
 .search-box { display: flex; align-items: center; gap: 8px; flex: 0 1 310px; color: var(--muted-2); }
 .search-box input { width: 100%; border: 0; outline: 0; color: var(--text); background: transparent; font-size: 12px; }
 .search-box input::placeholder { color: var(--muted-2); }
-.toolbar-divider { width: 1px; align-self: stretch; background: var(--line); }
-.filter-label { gap: 7px; color: var(--muted); font-size: 11px; }
 .toolbar-hint { margin-left: auto; color: var(--muted-2); font-size: 10px; }
 .graph-card { position: relative; min-height: 0; flex: 1 1 auto; margin-top: 12px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: radial-gradient(circle at 50% 44%, rgba(57, 75, 112, .23), rgba(11, 17, 32, .6) 60%), #0d1628; }
 .graph-canvas { position: absolute; inset: 0 0 31px; }

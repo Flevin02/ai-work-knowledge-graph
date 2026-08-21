@@ -11,6 +11,8 @@ public final class AiExtractionStreamEvents {
     public static final String CHUNK_STARTED = "chunk_started";
     public static final String DELTA = "delta";
     public static final String CHUNK_COMPLETED = "chunk_completed";
+    public static final String DOCUMENT_SUMMARY_STARTED = "document_summary_started";
+    public static final String DOCUMENT_SUMMARY_COMPLETED = "document_summary_completed";
     public static final String COMPLETED = "completed";
     public static final String ERROR = "error";
 
@@ -71,6 +73,30 @@ public final class AiExtractionStreamEvents {
             int chunkIndex,
             int chunkCount,
             AiChunkExtractionResult chunk,
+            Instant occurredAt
+    ) {
+    }
+
+    /**
+     * 所有分片完成校验后开始生成文档级全文摘要。
+     */
+    public record DocumentSummaryStarted(
+            String extractionRunId,
+            String documentId,
+            int chunkCount,
+            Instant occurredAt
+    ) {
+    }
+
+    /**
+     * 文档级全文摘要生成完成或失败，但不影响已校验候选事实落库。
+     */
+    public record DocumentSummaryCompleted(
+            String extractionRunId,
+            String documentId,
+            String status,
+            String summary,
+            String errorMessage,
             Instant occurredAt
     ) {
     }

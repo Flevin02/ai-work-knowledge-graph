@@ -72,6 +72,27 @@ public class DatabaseSchemaInitializer {
                 "ALTER TABLE ai_extraction_runs ADD COLUMN document_summary TEXT"
         );
 
+        // 为旧版本数据库补充文档级全文摘要的 Prompt 版本字段
+        addColumnIfMissing(
+                "ai_extraction_runs",
+                "document_summary_prompt_version",
+                "ALTER TABLE ai_extraction_runs ADD COLUMN document_summary_prompt_version TEXT"
+        );
+
+        // 为旧版本数据库补充文档级全文摘要状态字段
+        addColumnIfMissing(
+                "ai_extraction_runs",
+                "document_summary_status",
+                "ALTER TABLE ai_extraction_runs ADD COLUMN document_summary_status TEXT"
+        );
+
+        // 为旧版本数据库补充文档级全文摘要失败原因字段
+        addColumnIfMissing(
+                "ai_extraction_runs",
+                "document_summary_error",
+                "ALTER TABLE ai_extraction_runs ADD COLUMN document_summary_error TEXT"
+        );
+
         // 仅在旧数据库确实存在未归属记录时创建历史迁移空间，避免新库首次启动出现默认空间
         migrateLegacyRecordsWhenNeeded();
 

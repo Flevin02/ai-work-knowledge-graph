@@ -2,6 +2,7 @@ package com.flevin.knowgraph.server.service.ai;
 
 import com.flevin.knowgraph.server.model.ai.AiExtractionRequest;
 import com.flevin.knowgraph.server.model.ai.AiExtractionResult;
+import com.flevin.knowgraph.server.model.ai.AiDocumentSummaryRequest;
 import com.flevin.knowgraph.server.service.ai.openai.OpenAiCompatibleAiExtractionClient;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.ChatModel;
@@ -81,6 +82,7 @@ class OpenAiCompatibleAiExtractionClientTests {
                     streamingChatModel,
                     validator,
                     "prompt-test",
+                    "summary-prompt-test",
                     "schema-test",
                     false
             );
@@ -101,6 +103,53 @@ class OpenAiCompatibleAiExtractionClientTests {
             assertThat(result.summary()).isEqualTo("登录功能支持手机号验证码。");
             assertThat(result.entities()).hasSize(1);
             assertThat(result.evidences()).hasSize(1);
+        }
+    }
+
+    @Test
+    void generatesNaturalDocumentSummaryFromOrderedChunkSummaries() {
+        ChatModel chatModel = new ChatModel() {
+            @Override
+            public ChatResponse doChat(ChatRequest chatRequest) {
+                // Fake 同步模型只返回一段完整的自然中文摘要
+                return ChatResponse.builder()
+                        .aiMessage(AiMessage.from("用户中心支持手机号验证码登录，资料同时说明了发布前验收要求。"))
+                        .build();
+            }
+        };
+        StreamingChatModel streamingChatModel = new StreamingChatModel() {
+        };
+
+        try (ValidatorFactory validatorFactory = Validation.buildDefaultValidatorFactory()) {
+            AiExtractionResultValidator validator = new AiExtractionResultValidator(
+                    validatorFactory.getValidator()
+            );
+            OpenAiCompatibleAiExtractionClient client = new OpenAiCompatibleAiExtractionClient(
+                    chatModel,
+                    streamingChatModel,
+                    validator,
+                    "prompt-test",
+                    "summary-prompt-test",
+                    "schema-test",
+                    false
+            );
+
+            // 只把分片摘要按原文顺序交给全文汇总客户端
+            String summary = client.summarize(new AiDocumentSummaryRequest(
+                    "document-1",
+                    "用户中心.md",
+                    "prd",
+                    List.of(
+                            new AiDocumentSummaryRequest.ChunkSummary(
+                                    "chunk-1", "用户中心", "用户中心提供登录能力。"
+                            ),
+                            new AiDocumentSummaryRequest.ChunkSummary(
+                                    "chunk-2", "发布要求", "发布前需要完成验收。"
+                            )
+                    )
+            ));
+
+            assertThat(summary).isEqualTo("用户中心支持手机号验证码登录，资料同时说明了发布前验收要求。");
         }
     }
 }

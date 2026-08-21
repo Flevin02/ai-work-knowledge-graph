@@ -195,6 +195,22 @@ export type AiExtractionChunkCompletedEvent = {
   occurredAt: string;
 };
 
+export type AiExtractionDocumentSummaryStartedEvent = {
+  extractionRunId: string;
+  documentId: string;
+  chunkCount: number;
+  occurredAt: string;
+};
+
+export type AiExtractionDocumentSummaryCompletedEvent = {
+  extractionRunId: string;
+  documentId: string;
+  status: 'completed' | 'failed';
+  summary?: string;
+  errorMessage?: string;
+  occurredAt: string;
+};
+
 export type AiExtractionCompletedEvent = {
   extractionRunId: string;
   documentId: string;

@@ -11,6 +11,7 @@ import com.flevin.knowgraph.server.model.ai.AiExtractionResult;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRunDetail;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRunSummary;
 import com.flevin.knowgraph.server.model.ai.AiExtractionStreamEvents;
+import com.flevin.knowgraph.server.model.ai.AiDocumentSummaryRequest;
 import com.flevin.knowgraph.server.model.ai.AiRelationReviewRequest;
 import com.flevin.knowgraph.server.model.ai.AiRelationReviewResponse;
 import com.flevin.knowgraph.server.model.ai.AiRelationReviewState;
@@ -303,8 +304,34 @@ public class AiExtractionServiceImpl implements AiExtractionService {
                 );
             }
 
-            // 按原文分片顺序聚合模型摘要，形成来源资料卡片使用的文档级摘要
-            String documentSummary = buildDocumentSummary(chunkResults);
+            // 通知前端开始执行独立的文档级全文摘要汇总阶段
+            eventPublisher.publish(
+                    AiExtractionStreamEvents.DOCUMENT_SUMMARY_STARTED,
+                    new AiExtractionStreamEvents.DocumentSummaryStarted(
+                            extractionId,
+                            document.id(),
+                            chunks.size(),
+                            Instant.now()
+                    )
+            );
+
+            // 使用一次独立模型调用汇总分片摘要；失败时保留已校验候选事实
+            DocumentSummaryOutcome summaryOutcome = buildDocumentSummary(
+                    extractionClient,
+                    document,
+                    chunkResults
+            );
+            eventPublisher.publish(
+                    AiExtractionStreamEvents.DOCUMENT_SUMMARY_COMPLETED,
+                    new AiExtractionStreamEvents.DocumentSummaryCompleted(
+                            extractionId,
+                            document.id(),
+                            summaryOutcome.status(),
+                            summaryOutcome.summary(),
+                            summaryOutcome.errorMessage(),
+                            Instant.now()
+                    )
+            );
 
             Instant completedAt = Instant.now();
             AiDocumentExtractionResponse response = new AiDocumentExtractionResponse(
@@ -321,7 +348,7 @@ public class AiExtractionServiceImpl implements AiExtractionService {
                     aiProperties.getSchemaVersion(),
                     sections.size(),
                     chunks.size(),
-                    documentSummary,
+                    summaryOutcome.summary(),
                     List.copyOf(chunkResults)
             );
 
@@ -333,7 +360,10 @@ public class AiExtractionServiceImpl implements AiExtractionService {
                     extractionId,
                     sections.size(),
                     chunks.size(),
-                    documentSummary,
+                    summaryOutcome.summary(),
+                    aiProperties.getSummaryPromptVersion(),
+                    summaryOutcome.status(),
+                    summaryOutcome.errorMessage(),
                     writeResultJson(response),
                     completedAt.toString()
             );
@@ -510,6 +540,8 @@ public class AiExtractionServiceImpl implements AiExtractionService {
         entity.setStatus("processing");
         entity.setSectionCount(0);
         entity.setChunkCount(0);
+        entity.setDocumentSummaryPromptVersion(aiProperties.getSummaryPromptVersion());
+        entity.setDocumentSummaryStatus("not_started");
         entity.setCreatedAt(createdAt.toString());
         return entity;
     }
@@ -536,28 +568,59 @@ public class AiExtractionServiceImpl implements AiExtractionService {
     }
 
     /**
-     * 按来源分片顺序聚合模型摘要，并限制为资料列表可展示的长度。
+     * 使用一次模型调用把按章节排列的分片摘要汇总为自然的全文摘要。
      *
+     * @param extractionClient 已启用的 AI 客户端
+     * @param document 来源资料
      * @param chunkResults 已通过结构和证据校验的分片抽取结果
-     * @return 去除重复内容后不超过 160 个字符的文档摘要
+     * @return 全文摘要结果及其独立状态；失败不抛出到整次抽取流程
      */
-    private String buildDocumentSummary(List<AiChunkExtractionResult> chunkResults) {
-        // 规范化每个分片摘要并去除完全重复内容，保留原始分片顺序
-        List<String> summaries = chunkResults.stream()
-                .map(chunk -> chunk.extraction().summary().replaceAll("\\s+", " ").strip())
-                .distinct()
-                .toList();
+    private DocumentSummaryOutcome buildDocumentSummary(
+            AiExtractionClient extractionClient,
+            SourceDocument document,
+            List<AiChunkExtractionResult> chunkResults
+    ) {
+        AiDocumentSummaryRequest request = new AiDocumentSummaryRequest(
+                document.id(),
+                document.name(),
+                document.documentType().getValue(),
+                chunkResults.stream()
+                        .map(chunk -> new AiDocumentSummaryRequest.ChunkSummary(
+                                chunk.chunkId(),
+                                chunk.sectionPath(),
+                                chunk.extraction().summary().replaceAll("\\s+", " ").strip()
+                        ))
+                        .toList()
+        );
 
-        // 使用中文分号连接分片摘要，避免再次产生模型调用和额外费用
-        String documentSummary = String.join("；", summaries);
-
-        // 未超过列表摘要边界时保留完整聚合结果
-        if (documentSummary.length() <= DOCUMENT_SUMMARY_MAX_LENGTH) {
-            return documentSummary;
+        try {
+            // 调用领域客户端执行全文摘要 Reduce，不把原始全文再次发送给模型
+            String summary = extractionClient.summarize(request);
+            String normalizedSummary = summary == null
+                    ? ""
+                    : summary.replaceAll("\\s+", " ").strip();
+            if (normalizedSummary.isEmpty()) {
+                return new DocumentSummaryOutcome(null, "failed", "AI 未生成有效的全文摘要");
+            }
+            if (normalizedSummary.length() > DOCUMENT_SUMMARY_MAX_LENGTH) {
+                return new DocumentSummaryOutcome(null, "failed", "全文摘要超过 160 个字符");
+            }
+            return new DocumentSummaryOutcome(normalizedSummary, "completed", null);
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "文档级全文摘要生成失败，保留已校验候选事实: documentId={}",
+                    document.id(),
+                    exception
+            );
+            return new DocumentSummaryOutcome(null, "failed", "AI 全文摘要生成失败，已保留候选事实");
         }
+    }
 
-        // 截取超长聚合结果，保持与来源资料卡片现有 160 字边界一致
-        return documentSummary.substring(0, DOCUMENT_SUMMARY_MAX_LENGTH);
+    private record DocumentSummaryOutcome(
+            String summary,
+            String status,
+            String errorMessage
+    ) {
     }
 
     private String writeResultJson(AiDocumentExtractionResponse response) {
