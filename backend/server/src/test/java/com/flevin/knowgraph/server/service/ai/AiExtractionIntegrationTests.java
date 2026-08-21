@@ -12,6 +12,7 @@ import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.flevin.knowgraph.server.support.TestKnowledgeSpaceFixtures;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.exception.InternalServerException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -662,6 +663,51 @@ class AiExtractionIntegrationTests {
                 extractionId
         );
         assertThat(storedResultCount).isZero();
+    }
+
+    @Test
+    void reportsRetriableUpstreamFailureWithoutPersistingPartialResult() throws Exception {
+        MockMultipartFile documentFile = new MockMultipartFile(
+                "files",
+                "上游服务不可用.md",
+                "text/markdown",
+                "# 风险\n\n上游模型服务暂时不可用时应保留可恢复的失败原因。".getBytes(StandardCharsets.UTF_8)
+        );
+
+        // 导入单分片虚构资料，准备验证上游服务失败的运行记录
+        DocumentImportResponse importResponse = documentService.importDocuments(
+                SPACE_ID,
+                "prd",
+                List.of(documentFile)
+        );
+        String documentId = importResponse.results().getFirst().document().id();
+
+        // 模拟 LangChain4j 对供应商五百错误归类出的可重试异常
+        when(aiExtractionClient.extract(
+                any(AiExtractionRequest.class),
+                org.mockito.ArgumentMatchers.<Consumer<String>>any()
+        )).thenThrow(new InternalServerException("Upstream service temporarily unavailable"));
+
+        // 消费完整 SSE 响应，确认前端收到可定位且不泄露供应商正文的失败原因
+        String extractionStream = performStreamingExtraction(documentId);
+        JsonNode errorEvent = readStreamEvent(extractionStream, "error");
+        String extractionId = errorEvent.path("extractionRunId").asText();
+        assertThat(errorEvent.path("recoverable").asBoolean()).isTrue();
+        assertThat(errorEvent.path("message").asText()).isEqualTo("AI 上游服务暂时不可用，请稍后重试");
+        assertThat(extractionStream).doesNotContain("Upstream service temporarily unavailable");
+
+        // 查询运行记录，确认安全错误摘要可恢复且失败运行没有完整结果 JSON
+        mockMvc.perform(get(
+                        "/v1/spaces/{spaceId}/documents/{documentId}/extractions/{extractionId}",
+                        SPACE_ID,
+                        documentId,
+                        extractionId
+                ))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.summary.status").value("failed"))
+                .andExpect(jsonPath("$.data.summary.errorMessage")
+                        .value("AI 上游服务暂时不可用，请稍后重试"))
+                .andExpect(jsonPath("$.data.result").doesNotExist());
     }
 
     @Test

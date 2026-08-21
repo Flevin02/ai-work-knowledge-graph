@@ -33,6 +33,7 @@ import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.exception.RetriableException;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.task.TaskExecutor;
@@ -744,6 +745,17 @@ public class AiExtractionServiceImpl implements AiExtractionService {
             throw new TipsException(
                     ErrorCode.AI_SERVICE_UNAVAILABLE,
                     "AI 返回的结构化结果未通过证据校验"
+            );
+        } catch (RetriableException exception) {
+            log.warn(
+                    "AI 上游服务暂时不可用: documentId={}, chunkId={}",
+                    document.id(),
+                    chunk.chunkId(),
+                    exception
+            );
+            throw new TipsException(
+                    ErrorCode.AI_SERVICE_UNAVAILABLE,
+                    "AI 上游服务暂时不可用，请稍后重试"
             );
         } catch (RuntimeException exception) {
             log.error(

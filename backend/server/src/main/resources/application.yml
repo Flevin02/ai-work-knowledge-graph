@@ -43,7 +43,7 @@ app:
 ai:
   enabled: ${AI_ENABLED:true}
   provider: ${AI_PROVIDER:openai-compatible}
-  model: ${AI_MODEL:gpt-5.4-mini}
+  model: ${AI_MODEL:gpt-5.5}
   api-key: ${AI_API_KEY:}
   base-url: ${AI_BASE_URL:https://api.psydo.top/v1}
   json-schema-enabled: ${AI_JSON_SCHEMA_ENABLED:true}
