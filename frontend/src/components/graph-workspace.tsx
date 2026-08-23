@@ -378,7 +378,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                     setNoticeTone('success');
                 }
                 if (!isPolling && shouldPreserveNotice) {
-                    // 资料变更后的列表刷新只同步分页数据，保留导入或删除结果提示
+                    // 资料变更或批量任务后的列表刷新只同步分页数据，保留当前操作结果提示
                     preservedDocumentNoticeSpaceIdRef.current = null;
                 }
                 if (!isPolling && isSearchRequest) {
@@ -754,6 +754,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 return next;
             });
             // 立即刷新当前页，并持续轮询已受理但尚未创建运行记录的后台任务
+            preservedDocumentNoticeSpaceIdRef.current = currentSpaceId;
             setDocumentRefreshKey((current) => current + 1);
             if (!response.acceptedCount) {
                 setNotice('批量 AI 提取未被服务端受理，请稍后重试。');
