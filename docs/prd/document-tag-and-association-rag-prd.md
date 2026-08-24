@@ -1,7 +1,7 @@
 ---
 title: 文档关系图、标签关联与有据问答 PRD
-version: v1.4
-status: 阶段 0 已完成，阶段 1 待实施
+version: v1.5
+status: 阶段 1 持久化基础已完成，候选召回待实施
 created: 2026-08-19
 updated: 2026-08-24
 owner: 知脉产品与研发
@@ -13,6 +13,8 @@ related_prd: ai-work-knowledge-graph-maintainer-prd.md
 本文档定义“知脉”从“文档内实体关系抽取”转向“默认文档内容关联、可选标签增强、文档关系图和有据问答”的产品目标、业务规则、交互流程、AI/RAG 链路、未来 Agent 扩展边界、验证指标、实施顺序和回滚边界。
 
 当前文档只形成产品和技术设计，不代表相关数据库、接口、AI Prompt、RAG 检索、问答或 Agent 编排已经实现。2026-08-21 已完成当前实现核验并确认本 PRD 的目标态；2026-08-24 已完成阶段 0 的固定资料、正负样本、Prompt/Schema/策略版本和验收规程冻结，下一步进入阶段 1 的无标签、无 Embedding 文档内容关联后端基础链路。
+
+2026-08-24 已完成阶段 1 第一小切片：四张文档关联持久化表、MyBatis-Plus 分层和领域边界校验已落地并通过 Java 21 SQLite 集成测试；候选召回、关联模型、HTTP API、前端审核和文档关系图仍未实现。
 
 ## 1.1 当前实现核验结论
 
@@ -858,6 +860,16 @@ Agent 只有在以下场景可重复验证后才能进入产品主线：
 - Embedding 模型、Prompt、Schema 和检索参数。
 - 模型请求次数、耗时、重试次数和建议数量。
 
+阶段 1 当前已落地 `document_association_runs` 表及 Entity/Mapper/Repository；运行保存 Service 已校验空间、主体文档和内容指纹，尚未接入候选召回或模型调用。
+
+### 阶段 1 当前已落地的文档关联持久化边界
+
+- `document_relations`、`document_relation_evidences` 和 `document_relation_reviews` 已落地，并与 `source_documents`、`knowledge_spaces` 建立外键。
+- 关系类型固定为五种白名单；对称关系保存前按文档标识规范化，有向关系保留方向字段；稳定关系键包含空间内文档、关系类型、方向、内容指纹和策略版本。
+- 证据只能来自关系两端的有效来源资料，`quote` 必须逐字反查；`source`、`target` 和 `cross_reference` 角色分别受服务端校验。
+- AI/规则关系默认可保存为 `suggested`，审核动作只允许 `suggested → confirmed/rejected`；审核历史采用不可变插入，不覆盖旧动作。
+- 当前没有新增 Controller/API、候选召回、关联模型、标签表、Embedding、文档关系图或前端审核；下一小切片是无 Embedding 候选召回。
+
 ### `conversations` 与 `conversation_messages`
 
 保存知识空间内的只读问答会话和消息状态：
@@ -1128,7 +1140,8 @@ spaceId
 
 ## 阶段 1：默认文档内容关联
 
-- 第一小切片先建立文档关联运行、关系、证据和审核的 SQLite/MyBatis 持久化基础及自动测试，不同时实现标签、Embedding、文档关系图或前端审核。
+- 第一小切片已完成：建立文档关联运行、关系、证据和审核的 SQLite/MyBatis 持久化基础及自动测试，没有同时实现标签、Embedding、文档关系图或前端审核。
+- 下一小切片实现无 Embedding 的显式引用、文件名、标题、摘要、章节标题和关键词候选召回，直接复用已落地持久化基础。
 - 新增文档关系、关系证据、审核和运行记录所需的数据表、Repository、Service、API 和测试。
 - 实现显式引用、文件名、标题、摘要、章节标题和关键词的内容候选召回。
 - 使用 Fake AI 判断五种白名单关系或 `none`，通过服务端验证候选文档标识和逐字证据。

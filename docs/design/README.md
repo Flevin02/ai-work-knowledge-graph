@@ -20,3 +20,4 @@
 - [文档关联 v1 冻结契约](./document-association-v1-contract.md)：候选召回、五种关系、Prompt、Schema、方向和证据规则。
 - `document-association-output-schema-v1.json`：阶段 1 文档关联模型输出 JSON Schema。
 - `document-tag-output-schema-v1.json`：阶段 2 可选标签模型输出 JSON Schema。
+- 阶段 1 当前已落地 `document_association_runs`、`document_relations`、`document_relation_evidences` 和 `document_relation_reviews` 的 SQLite/MyBatis 持久化基础；候选召回、模型判断和 HTTP API 按路线图后续实现。

@@ -203,6 +203,194 @@ CREATE TABLE IF NOT EXISTS ai_extraction_runs (
     FOREIGN KEY (source_document_id) REFERENCES source_documents(id)
 );
 
+-- 文档关联运行：保存一次文档候选关联分析的版本、状态、召回统计和失败上下文。
+CREATE TABLE IF NOT EXISTS document_association_runs (
+    -- 关联运行唯一标识。
+    id TEXT PRIMARY KEY,
+    -- 关联运行所属知识空间。
+    space_id TEXT NOT NULL,
+    -- 本次作为关联主体的来源资料。
+    source_document_id TEXT NOT NULL,
+    -- 运行开始时主体文档的内容指纹。
+    source_content_hash TEXT NOT NULL,
+    -- 运行状态：processing、completed 或 failed。
+    status TEXT NOT NULL CHECK (status IN ('processing', 'completed', 'failed')),
+    -- 失败阶段，例如 retrieval_failed、association_model_failed 或 evidence_invalid。
+    failure_stage TEXT,
+    -- 面向用户或运维的稳定错误摘要。
+    error_message TEXT,
+    -- 所有召回通道合并前的候选数量。
+    candidate_count INTEGER NOT NULL DEFAULT 0 CHECK (candidate_count >= 0),
+    -- 实际交给关联判断模型比较的候选数量。
+    compared_count INTEGER NOT NULL DEFAULT 0 CHECK (compared_count >= 0),
+    -- 最终写入的候选关系建议数量。
+    suggestion_count INTEGER NOT NULL DEFAULT 0 CHECK (suggestion_count >= 0),
+    -- 标签通道候选数量；阶段 1 默认保持 0。
+    tag_candidate_count INTEGER NOT NULL DEFAULT 0 CHECK (tag_candidate_count >= 0),
+    -- 关键词、标题和显式引用通道候选数量。
+    keyword_candidate_count INTEGER NOT NULL DEFAULT 0 CHECK (keyword_candidate_count >= 0),
+    -- 语义通道候选数量；Embedding 未启用时保持 0。
+    semantic_candidate_count INTEGER NOT NULL DEFAULT 0 CHECK (semantic_candidate_count >= 0),
+    -- 关联判断 Prompt 版本。
+    prompt_version TEXT NOT NULL,
+    -- 关联判断 Schema 版本。
+    schema_version TEXT NOT NULL,
+    -- 候选召回策略版本。
+    candidate_recall_policy_version TEXT NOT NULL,
+    -- 文档关联策略版本。
+    association_policy_version TEXT NOT NULL,
+    -- 可选 Embedding 供应商快照。
+    embedding_provider TEXT,
+    -- 可选 Embedding 模型快照。
+    embedding_model TEXT,
+    -- 可选 Embedding 版本快照。
+    embedding_version TEXT,
+    -- 召回 TopK 快照。
+    top_k INTEGER CHECK (top_k IS NULL OR top_k > 0),
+    -- 召回相似度阈值快照；未启用向量时为空。
+    similarity_threshold REAL CHECK (
+        similarity_threshold IS NULL OR (similarity_threshold >= 0 AND similarity_threshold <= 1)
+    ),
+    -- 聊天模型请求次数。
+    model_request_count INTEGER NOT NULL DEFAULT 0 CHECK (model_request_count >= 0),
+    -- 重试次数。
+    retry_count INTEGER NOT NULL DEFAULT 0 CHECK (retry_count >= 0),
+    -- 运行耗时毫秒。
+    duration_ms INTEGER CHECK (duration_ms IS NULL OR duration_ms >= 0),
+    -- 运行创建时间，使用 ISO-8601 UTC 字符串。
+    created_at TEXT NOT NULL,
+    -- 运行完成或失败时间；处理中为空。
+    completed_at TEXT,
+    -- 保证运行所属知识空间真实存在。
+    FOREIGN KEY (space_id) REFERENCES knowledge_spaces(id),
+    -- 保证关联主体文档真实存在。
+    FOREIGN KEY (source_document_id) REFERENCES source_documents(id)
+);
+
+-- 文档关联：保存真实来源文档之间的候选、确认、拒绝或失效关系。
+CREATE TABLE IF NOT EXISTS document_relations (
+    -- 文档关系唯一标识。
+    id TEXT PRIMARY KEY,
+    -- 文档关系所属知识空间。
+    space_id TEXT NOT NULL,
+    -- 有向关系主体；对称关系保存规范化排序后的左侧文档。
+    source_document_id TEXT NOT NULL,
+    -- 有向关系客体；对称关系保存规范化排序后的右侧文档。
+    target_document_id TEXT NOT NULL,
+    -- 第一版固定关系类型白名单。
+    relation_type TEXT NOT NULL CHECK (
+        relation_type IN ('related_to', 'references', 'supports', 'updates', 'conflicts_with')
+    ),
+    -- 关系方向：有向关系使用 current_to_candidate/candidate_to_current，
+    -- 对称关系使用 symmetric。
+    direction TEXT NOT NULL CHECK (
+        (relation_type IN ('related_to', 'conflicts_with') AND direction = 'symmetric')
+        OR (relation_type IN ('references', 'supports', 'updates')
+            AND direction IN ('current_to_candidate', 'candidate_to_current'))
+    ),
+    -- 关系状态：suggested、confirmed、rejected 或 stale。
+    status TEXT NOT NULL CHECK (status IN ('suggested', 'confirmed', 'rejected', 'stale')),
+    -- 关系生成方式，用于解释和评估，不替代关系类型。
+    generation_mode TEXT NOT NULL CHECK (
+        generation_mode IN (
+            'explicit_reference',
+            'tag_match',
+            'keyword_match',
+            'semantic_match',
+            'hybrid',
+            'user'
+        )
+    ),
+    -- 模型或规则对候选关系的估计置信度。
+    confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+    -- 供人工审核阅读的关系原因。
+    reason TEXT NOT NULL,
+    -- 产生关系的文档关联运行；手工关系可以为空。
+    association_run_id TEXT,
+    -- 关系主体内容指纹快照。
+    source_content_hash TEXT NOT NULL,
+    -- 关系客体内容指纹快照。
+    target_content_hash TEXT NOT NULL,
+    -- 关系策略版本快照。
+    association_policy_version TEXT NOT NULL,
+    -- 按空间、方向、关系类型、文档和内容指纹计算的稳定幂等键。
+    relation_key TEXT NOT NULL,
+    -- 关系创建时间，使用 ISO-8601 UTC 字符串。
+    created_at TEXT NOT NULL,
+    -- 关系最近更新时间，使用 ISO-8601 UTC 字符串。
+    updated_at TEXT NOT NULL,
+    -- 禁止文档自关联。
+    CHECK (source_document_id != target_document_id),
+    -- 保证关系所属知识空间真实存在。
+    FOREIGN KEY (space_id) REFERENCES knowledge_spaces(id),
+    -- 保证关系主体文档真实存在。
+    FOREIGN KEY (source_document_id) REFERENCES source_documents(id),
+    -- 保证关系客体文档真实存在。
+    FOREIGN KEY (target_document_id) REFERENCES source_documents(id),
+    -- 保证关联运行可以被历史追溯。
+    FOREIGN KEY (association_run_id) REFERENCES document_association_runs(id)
+);
+
+-- 文档关系证据：保存关系两端或跨文档引用的可定位原文片段。
+CREATE TABLE IF NOT EXISTS document_relation_evidences (
+    -- 文档关系证据唯一标识。
+    id TEXT PRIMARY KEY,
+    -- 证据所属知识空间。
+    space_id TEXT NOT NULL,
+    -- 被证据支撑的文档关系。
+    document_relation_id TEXT NOT NULL,
+    -- 证据实际所在的来源资料；必须是关系两端之一。
+    source_document_id TEXT NOT NULL,
+    -- 当前文档内稳定的分片标识。
+    chunk_id TEXT NOT NULL,
+    -- 分片所属章节路径。
+    section_path TEXT NOT NULL,
+    -- 可逐字反查的原文片段。
+    quote TEXT NOT NULL,
+    -- 原文起始偏移，使用半开区间；未知时为空。
+    start_offset INTEGER CHECK (start_offset IS NULL OR start_offset >= 0),
+    -- 原文结束偏移，不包含该位置字符；未知时为空。
+    end_offset INTEGER CHECK (end_offset IS NULL OR end_offset >= 0),
+    -- 证据角色：source、target 或 cross_reference。
+    evidence_role TEXT NOT NULL CHECK (
+        evidence_role IN ('source', 'target', 'cross_reference')
+    ),
+    -- 证据创建时间，使用 ISO-8601 UTC 字符串。
+    created_at TEXT NOT NULL,
+    -- 保证证据所属知识空间真实存在。
+    FOREIGN KEY (space_id) REFERENCES knowledge_spaces(id),
+    -- 保证证据支撑的文档关系真实存在。
+    FOREIGN KEY (document_relation_id) REFERENCES document_relations(id),
+    -- 保证证据来源资料真实存在。
+    FOREIGN KEY (source_document_id) REFERENCES source_documents(id),
+    -- 已知偏移必须保持半开区间顺序。
+    CHECK (
+        start_offset IS NULL OR end_offset IS NULL OR end_offset >= start_offset
+    )
+);
+
+-- 文档关系审核历史：保存不可变的采纳、拒绝和手工创建动作。
+CREATE TABLE IF NOT EXISTS document_relation_reviews (
+    -- 文档关系审核记录唯一标识。
+    id TEXT PRIMARY KEY,
+    -- 审核记录所属知识空间。
+    space_id TEXT NOT NULL,
+    -- 被审核的文档关系。
+    document_relation_id TEXT NOT NULL,
+    -- 审核动作：accept、reject 或 create。
+    action TEXT NOT NULL CHECK (action IN ('accept', 'reject', 'create')),
+    -- 拒绝原因、采纳说明或手工创建说明。
+    reason TEXT,
+    -- 操作者展示名称；本地单用户阶段默认 local-user。
+    operator_name TEXT NOT NULL,
+    -- 审核时间，使用 ISO-8601 UTC 字符串。
+    created_at TEXT NOT NULL,
+    -- 保证审核记录所属知识空间真实存在。
+    FOREIGN KEY (space_id) REFERENCES knowledge_spaces(id),
+    -- 保证审核目标关系真实存在。
+    FOREIGN KEY (document_relation_id) REFERENCES document_relations(id)
+);
+
 -- 关系审核记录：保留接受、拒绝和修改动作，避免相同错误建议反复出现。
 CREATE TABLE IF NOT EXISTS review_actions (
     -- 审核记录唯一标识。
@@ -264,3 +452,31 @@ CREATE INDEX IF NOT EXISTS idx_ai_extraction_runs_document_created_at
 -- 支持查询一条关系的完整审核历史。
 CREATE INDEX IF NOT EXISTS idx_review_actions_edge_created_at
     ON review_actions(edge_id, created_at DESC);
+
+-- 支持按空间、主体文档和创建时间查询关联运行。
+CREATE INDEX IF NOT EXISTS idx_document_association_runs_space_source_created_at
+    ON document_association_runs(space_id, source_document_id, created_at DESC);
+
+-- 支持按空间和运行状态观察关联处理进度。
+CREATE INDEX IF NOT EXISTS idx_document_association_runs_space_status
+    ON document_association_runs(space_id, status, created_at DESC);
+
+-- 同一空间内稳定关系键唯一，保证相同版本和内容指纹不重复生成建议。
+CREATE UNIQUE INDEX IF NOT EXISTS uk_document_relations_space_relation_key
+    ON document_relations(space_id, relation_key);
+
+-- 支持按空间、文档和状态查询关系建议及审核结果。
+CREATE INDEX IF NOT EXISTS idx_document_relations_space_source_status
+    ON document_relations(space_id, source_document_id, status, updated_at DESC);
+
+-- 支持按关系查询文档关系证据。
+CREATE INDEX IF NOT EXISTS idx_document_relation_evidences_relation_created_at
+    ON document_relation_evidences(document_relation_id, created_at ASC);
+
+-- 支持按来源资料反查文档关系证据。
+CREATE INDEX IF NOT EXISTS idx_document_relation_evidences_source_document
+    ON document_relation_evidences(space_id, source_document_id, created_at ASC);
+
+-- 支持按关系查询不可变审核历史。
+CREATE INDEX IF NOT EXISTS idx_document_relation_reviews_relation_created_at
+    ON document_relation_reviews(document_relation_id, created_at DESC);
