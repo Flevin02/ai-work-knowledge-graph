@@ -151,6 +151,54 @@ public class DocumentTagRepository {
     }
 
     /**
+     * 查询一次标签运行实际新保存的文档标签关系。
+     *
+     * @param spaceId 知识空间标识
+     * @param runId 标签运行标识
+     * @return 按创建时间和标识排序的文档标签关系
+     */
+    public List<DocumentTag> findAllByExtractionRun(
+            String spaceId,
+            String runId
+    ) {
+        // 按空间和运行标识批量读取本次新保存候选，幂等复用的旧候选不属于新运行
+        return documentTagMapper.selectList(
+                        Wrappers.<DocumentTagEntity>lambdaQuery()
+                                .eq(DocumentTagEntity::getSpaceId, spaceId)
+                                .eq(DocumentTagEntity::getExtractionRunId, runId)
+                                .orderByAsc(DocumentTagEntity::getCreatedAt)
+                                .orderByAsc(DocumentTagEntity::getId)
+                ).stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    /**
+     * 批量查询当前空间内的标签定义。
+     *
+     * @param spaceId 知识空间标识
+     * @param tagIds 标签标识列表
+     * @return 标签定义列表
+     */
+    public List<KnowledgeTag> findTagsByIds(
+            String spaceId,
+            List<String> tagIds
+    ) {
+        if (tagIds.isEmpty()) {
+            return List.of();
+        }
+
+        // 使用空间和标签标识集合一次读取全部标签定义，避免响应组装产生 N+1
+        return knowledgeTagMapper.selectList(
+                        Wrappers.<KnowledgeTagEntity>lambdaQuery()
+                                .eq(KnowledgeTagEntity::getSpaceId, spaceId)
+                                .in(KnowledgeTagEntity::getId, tagIds)
+                ).stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    /**
      * 保存文档标签关系。
      *
      * @param documentTag 已通过领域校验的文档标签关系
@@ -186,6 +234,34 @@ public class DocumentTagRepository {
                         Wrappers.<DocumentTagEvidenceEntity>lambdaQuery()
                                 .eq(DocumentTagEvidenceEntity::getSpaceId, spaceId)
                                 .eq(DocumentTagEvidenceEntity::getDocumentTagId, documentTagId)
+                                .orderByAsc(DocumentTagEvidenceEntity::getCreatedAt)
+                                .orderByAsc(DocumentTagEvidenceEntity::getId)
+                ).stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    /**
+     * 批量查询多条文档标签关系的全部逐字证据。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentTagIds 文档标签关系标识列表
+     * @return 按关系、创建时间和标识排序的证据列表
+     */
+    public List<DocumentTagEvidence> findEvidenceByDocumentTags(
+            String spaceId,
+            List<String> documentTagIds
+    ) {
+        if (documentTagIds.isEmpty()) {
+            return List.of();
+        }
+
+        // 使用文档标签标识集合一次读取全部证据，供运行恢复批量组装
+        return evidenceMapper.selectList(
+                        Wrappers.<DocumentTagEvidenceEntity>lambdaQuery()
+                                .eq(DocumentTagEvidenceEntity::getSpaceId, spaceId)
+                                .in(DocumentTagEvidenceEntity::getDocumentTagId, documentTagIds)
+                                .orderByAsc(DocumentTagEvidenceEntity::getDocumentTagId)
                                 .orderByAsc(DocumentTagEvidenceEntity::getCreatedAt)
                                 .orderByAsc(DocumentTagEvidenceEntity::getId)
                 ).stream()

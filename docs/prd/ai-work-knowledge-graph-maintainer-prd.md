@@ -1,6 +1,6 @@
 ---
 title: AI 工作知识图谱维护助手 PRD
-version: v0.31
+version: v0.32
 status: 开发中
 created: 2026-08-17
 updated: 2026-08-24
@@ -675,7 +675,10 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 已完成专项阶段 1 固定资料端到端质量评估：12 份资料均从关系两端执行真实候选召回、有限分片上下文、服务端证据校验和 SQLite 持久化，Fake 仅按冻结标注返回关系类型、方向和精确 quote。最终 7 条正例全部落库，Recall@8、关系类型准确率、方向准确率、证据有效率和非 none Precision 均为 1.0000；无依据、重复、自关联、跨空间关系和硬负例召回均为 0。Precision@8 微平均为 0.1707，作为后续标签/混合召回降低噪声的对照基线。
 - 评估首次从关系两端运行时暴露有向关系重复建议率 0.3636；已按冻结幂等契约从关系键中移除“相对于本次运行”的 `direction`，保留最终主体/客体、关系类型、内容指纹和策略版本，并补充反向运行回归。Java 21 根 Reactor 67 项测试全部通过，评估报告位于 `docs/tests/document-association-evaluation-report-v1.md`。
 - 已完成专项阶段 2 第一小切片：新增 `tags`、`document_tags` 和 `document_tag_evidences` 三张 SQLite 表及索引，使用 MyBatis-Plus Entity/Mapper 和聚合 Repository 隔离 ORM；`DocumentTagPersistenceService` 负责空间/来源资料/内容指纹校验、标签轻量规范化、AI `suggested` 与用户 `confirmed` 初始状态、模型版本快照和逐字证据原子保存。
-- 标签字典按 `spaceId + normalizedKey` 复用；AI 文档标签按照第 17.1 节冻结的 `spaceId + sourceDocumentId + contentHash + normalizedTagKey + promptVersion + schemaVersion` 生成 SHA-256 稳定键，同版本重复运行复用旧候选，Prompt 版本变化保留新候选。标签专项 4 项和隔离后的 Java 21 根 Reactor 71 项测试通过；Fake 标签模型、标签运行、审核历史/API、前端标签导航和浏览器仍未实现。
+- 标签字典按 `spaceId + normalizedKey` 复用；AI 文档标签按照第 17.1 节冻结的 `spaceId + sourceDocumentId + contentHash + normalizedTagKey + promptVersion + schemaVersion` 生成 SHA-256 稳定键，同版本重复运行复用旧候选，Prompt 版本变化保留新候选。标签专项 4 项和隔离后的 Java 21 根 Reactor 71 项测试通过；该切片当时尚未实现标签运行、审核历史/API、前端标签导航和浏览器。
+- 已完成专项阶段 2 第二小切片：新增独立 `document_tagging_runs`、MyBatis-Plus 运行映射与 `DocumentTaggingClient` 供应商隔离边界；`POST /documents/{documentId}/tagging-runs` 同步执行 Fake 标签 Pipeline，`GET /documents/{documentId}/tagging-runs/{runId}` 按空间、文档和运行标识恢复状态、摘要和本次新保存候选。
+- 标签输入固定经过“来源原文 → 确定性章节 → 章节感知分片 → 最多 32 分片且合计不超过 24,000 字符的安全上下文 → document-tag-v1 输出”；服务端依次执行 DTO/Bean 结构校验、候选/证据局部标识和引用校验、当前文档分片/章节/quote 逐字反查，再由服务端生成数据库标识并以 `suggested` 批量原子物化。相同内容和 Prompt/Schema 重复运行保留新运行记录但不重复增加标签或证据。
+- 新增标签运行 Fake/SQLite/MockMvc 与 OpenAPI 测试，覆盖成功运行和 GET 恢复、未知证据引用、无效 quote 不落候选、重复运行幂等、12 章节长文档上下文和旧 SQLite 缺列兼容迁移；Java 21 根 Reactor 全量 80 项测试通过。该结果不代表固定 `expectedTags` 全量 Precision/Recall、真实标签模型、标签审核、前端或生产联调。
 - 已引入 MapStruct 1.6.3 和 Lombok 绑定注解处理配置，将 AI 抽取运行、文档关联、来源资料、知识空间及图谱 Repository 中重复的 ORM Entity/领域模型转换集中为编译期映射器，并将知识空间、来源资料、文档关联和图谱的接口响应转换从 Service 实现中独立出来；查询、排序、事务、状态迁移和外部 API 字段保持不变。
 - 持久化映射统一复用 `PersistenceMappingSupport` 处理 ISO-8601 时间、文档类型兼容回退、可空数值和图谱来源标识 JSON，所有映射器使用 `unmappedTargetPolicy=ERROR` 在编译期拒绝遗漏目标字段；新增 4 项集中映射边界测试，Java 21 根 Reactor 全量 75 项测试通过。
 
@@ -707,7 +710,8 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 来源资料卡片的桌面三列布局、整卡片鼠标/键盘多选、批量按钮、右上角 icon-only 删除入口和渲染预览 Tab 指纹完整值已通过桌面 Chrome 回归；浏览器内的批量删除本轮只验证确认弹窗并取消，没有删除隔离数据。移动端和读屏回归已明确顺延。
 - 批量提取接口仅验证了后端 Fake 模型下的 2 并发任务受理、独立运行持久化和队列拒绝响应结构；尚未验证真实模型并发限额、线程池满载、真实 SQLite 写锁等待、页面离开后状态恢复或生产部署中的任务观测。批量删除已验证事务内成功路径，尚未对中途异常的完整回滚做故障注入测试。
 - 当前 `document_summary` 已改为“分片摘要 Map → 一次模型 Reduce 汇总”的自然全文摘要；单分片和多分片均执行独立汇总阶段，失败时不影响已校验候选事实落库并回退导入原文 excerpt。Fake/SQLite/MockMvc 已验证状态、事件和失败原因，真实 `gpt-5.4-mini` 的摘要质量、长度遵循度和跨章节自然度仍未验证。
-- 已确认文档关联主线的产品边界：默认业务节点收敛为真实来源文档，默认先按文档内容关联；标签仅作为用户可选的筛选、补充候选和解释条件。独立图谱类型不再是后续用户流程或新增 AI 识别的必选维度。文档关系持久化和后端 API 已落地；标签字典、文档标签和标签证据持久化基础已完成，但标签运行、审核 API、文档关系图及真实标签导航仍待专项阶段 2/4。
+- 已确认文档关联主线的产品边界：默认业务节点收敛为真实来源文档，默认先按文档内容关联；标签仅作为用户可选的筛选、补充候选和解释条件。独立图谱类型不再是后续用户流程或新增 AI 识别的必选维度。文档关系持久化和后端 API 已落地；标签字典、文档标签、标签证据、独立 Fake 标签运行及恢复 API 已完成，但标签审核历史/API、真实模型、前端标签导航和文档关系图仍待专项阶段 2/4。
+- 当前标签运行只使用测试注入的 Fake `DocumentTaggingClient`；默认生产上下文没有真实实现时会以 `tag_extraction_failed` 结束并可恢复。当前上下文上限为 32 分片、24,000 字符，超限明确记录 `chunk_failed`，不会静默只分析部分原文；该参数尚未通过真实模型 Token、延迟或长文质量评估。
 - 文档关联阶段 1 已完成运行、关系、证据、审核的本地持久化基础、无 Embedding 候选召回、Fake 关系判断、逐字证据校验、后端审核 API 和固定资料完整指标评估。当前结果仅证明固定虚构资料上的 Fake/SQLite Pipeline；真实模型关系质量、前端关联审核、文档关系图、浏览器和生产验证仍未完成，Precision@8 0.1707 也表明候选上下文噪声仍需后续对照优化。
 - 2026-08-21 已完成目标态核验：当前浏览器中的真实页面仍是实体/关系混合图，节点点击只更新右侧详情，来源资料名称没有详情页跳转；标签区是空态；没有问答、引用或 Agent 运行入口；Cytoscape 没有悬浮/键盘邻居高亮。新目标已写入 [`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)，文档关系图、标签叠加、详情页、固定 RAG 有据问答和可选 Agent 均保持未实现状态。
 - 本轮 PDF 前端契约已经通过 TypeScript 检查和生产构建，但当前会话缺少浏览器控制运行工具，未执行 PDF 文件选择、卡片标签和预览弹窗的新增浏览器回归；既有 Markdown/TXT 浏览器证据不能替代该项验收。
@@ -720,7 +724,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 
 # 19. 下一步代办与新会话入口
 
-新会话开始时，先阅读本节、`docs/roadmap.md`、[`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)、[`docs/tests/document-association-evaluation-report-v1.md`](../tests/document-association-evaluation-report-v1.md) 和 `document-tag-v1` 契约，然后直接进入专项阶段 2 的第二个后端小切片：建立独立标签运行记录和供应商无关 `DocumentTaggingClient`，使用 Fake 输出完成 Schema/业务引用/逐字证据校验、suggested 幂等物化及运行恢复；再单独接入标签审核历史和审核 API。本切片不同时实现真实模型、前端标签导航、标签候选补充、Embedding、文档关系图、问答或 Agent。二阶段自然全文摘要和 `prd-extraction-v3` 的真实模型质量边界仍需单独补充，但不阻塞标签后端推进。
+新会话开始时，先阅读本节、`docs/roadmap.md`、[`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)、[`docs/tests/document-association-evaluation-report-v1.md`](../tests/document-association-evaluation-report-v1.md) 和 `document-tag-v1` 契约，然后直接进入专项阶段 2 的第三个后端小切片：新增不可变标签审核历史、标签查询和批量 `accept/reject` 审核 API，服务端只接受文档标签关系标识与审核动作，并验证 `suggested → confirmed/rejected` 状态机、空间/文档归属、重复审核冲突和刷新恢复。该后端契约完成后，下一切片立即进入桌面 Web 的标签运行、查询和审核联调；不等待 Embedding 或文档关系图。本切片仍不同时实现真实模型、标签候选补充、Embedding、文档关系图、问答或 Agent。
 
 ## 19.1 已完成验收：SQLite 有界连接池与流式抽取主线
 
@@ -743,7 +747,7 @@ v0.13 已完成分页接口、MyBatis-Plus SQLite 分页、最近运行与最近
 
 ### 19.1.3 已完成验收：连接池、流式抽取、来源资料交互与审核质量
 
-以下事项是 AI 抽取链路进入可用状态前的配套任务；第 1～10 项、候选审核持久化、无 Embedding 候选召回、Fake 关系判断、逐字证据校验、后端审核 API、固定资料完整指标评估和标签持久化基础均已完成各自记录的代码和验证边界，下一优先级进入专项阶段 2 的 Fake 标签运行闭环：
+以下事项是 AI 抽取链路进入可用状态前的配套任务；第 1～12 项、候选审核持久化、无 Embedding 候选召回、Fake 关系判断、逐字证据校验、后端审核 API、固定资料完整指标评估、标签持久化基础和 Fake 标签运行闭环均已完成各自记录的代码和验证边界，下一优先级进入专项阶段 2 的标签审核历史与审核 API：
 
 1. **已完成验收：配置数据库连接池**：v0.15 已改用 Spring Boot 自动配置 HikariCP，默认最大连接数 4、最小空闲 1、池获取超时 3 秒；SQLite 每条连接启用 WAL、外键和 5 秒 `busy_timeout`。自动测试验证了池耗尽异常携带稳定池名、WAL 写期间可读取已提交快照、第二写者返回 `SQLITE_BUSY`，以及池上限为 1、Fake 模型阻塞时仍能并发导入和查看资料。该证据只覆盖本地单进程和 Fake 模型，不代表生产负载、多实例或 SQLite 多写能力。
 2. **已完成当前自动验证：将 AI 抽取改为流式输出**：v0.16 已在 Spring MVC + `fetch` 链路使用 `text/event-stream`，事件固定为 `run_started`、`chunk_started`、`delta`、`chunk_completed`、`document_summary_started`、`document_summary_completed`、`completed` 和 `error`。前端通过 `ReadableStream` 增量消费；主视图显示中文处理进度、全文摘要阶段和已校验结果，模型原始 JSON 默认折叠为技术详情。服务端只转发供应商真实增量，完整响应通过 Schema、业务引用和逐字证据校验并成功落库后才发送 `completed`；客户端断线不取消后台运行。Java 21 根 Reactor 51 项测试、前端类型检查和生产构建均通过，OpenAPI 已断言 SSE 媒体类型。真实 `gpt-5.4-mini` 流、全文摘要质量、5 秒首事件、网络代理、浏览器视觉和自动重试仍未验证。
@@ -759,6 +763,7 @@ v0.13 已完成分页接口、MyBatis-Plus SQLite 分页、最近运行与最近
 9. **已完成当前自动验证：无 Embedding 文档候选召回、Fake 关系闭环与固定资料评估**：`DocumentCandidateRecallService` 以 `document-candidate-recall-v1` 固定 TopK=8 执行有效空间过滤、主体排除、显式引用/文件名/标题/章节标题/摘要/正文关键词通道融合、稳定去重和硬负例抑制；`DocumentAssociationService` 再通过 `DocumentAssociationClient` 接入 Fake 判断、候选集合封闭校验、逐字分片证据验证、suggested 幂等物化、运行恢复和批量审核 API。固定 12 份资料的 7 条正例/5 组负例端到端评估达到 Recall@8、关系类型、方向、证据、非 none Precision 和去重门槛，Precision@8 微平均为 0.1707；Java 21 根 Reactor 67 项测试通过。真实资料、真实模型和浏览器前端仍待验证。
 10. **已完成当前自动验证：可选标签持久化基础**：新增标签字典、文档标签和标签证据三张表及 MyBatis-Plus 分层；AI 候选只能以 `suggested` 创建且必须保留置信度、抽取运行、Prompt/Schema 版本和逐字证据，用户手工标签只能以 `confirmed` 创建且不伪造模型字段。标签名称只折叠大小写和空格，不做语义同义词合并；同版本稳定键重复运行复用旧候选，Prompt 变化保留新候选。标签专项 4 项和隔离后的 Java 21 根 Reactor 71 项测试通过；真实模型、标签运行、审核 API、前端和浏览器未验证。
 11. **已完成当前自动验证：MapStruct 映射收敛**：引入 MapStruct 编译期映射和 Lombok 绑定，将 9 组持久化映射及 4 组接口响应映射从 Repository/ServiceImpl 手写代码中独立出来；统一时间、枚举、可空数值和 JSON 转换，目标字段遗漏在编译期失败。新增 4 项映射边界测试后，Java 21 根 Reactor 全量 75 项测试通过；该重构不改变数据库、接口契约或业务状态机，也不替代真实模型、浏览器和生产联调。
+12. **已完成当前自动验证：Fake 标签运行闭环**：新增独立标签运行表、MapStruct 运行映射、供应商无关 `DocumentTaggingClient`、创建/恢复 REST API 和批量原子物化；模型只接收当前来源资料最多 32 个章节感知分片且合计不超过 24,000 字符，输出最多 8 个标签，必须通过 Bean、局部引用和逐字证据三层校验。重复版本运行不重复写入，旧 SQLite 缺少上下文统计列时幂等补列。新增 5 项标签运行测试后 Java 21 根 Reactor 全量 80 项测试通过；真实标签模型、固定资料标签 Precision/Recall、审核 API、前端和生产未验证。
 
 ### 19.1.4 后续 RAG / Embedding 增强计划
 
@@ -784,7 +789,7 @@ v0.13 已完成分页接口、MyBatis-Plus SQLite 分页、最近运行与最近
    - 已完成桌面 Web 真实 Chrome 下的来源资料无限滚动、卡片多选、批量操作、三 Tab、空态、历史恢复、错误/重试和上游连接中断验证；移动端、触控和读屏顺延到后续专项；
    - 已完成现有实体关系白名单、主体/客体方向和跨分片精确规范化键合并的 Fake/SQLite 验收；
    - 已完成专项阶段 0，冻结 12 份资料、7 条正例、5 组负例、7 个召回用例、Prompt/Schema/策略版本、方向和验收规程；
-   - 已完成阶段 1 的文档关联运行、关系、证据和审核持久化基础、无 Embedding 候选召回、Fake 关系判断、候选集合/逐字证据校验、关联审核 API 和固定资料完整关系指标评估；阶段 2 第一小切片也已完成标签字典、文档标签、标签证据、来源状态、版本幂等和逐字证据持久化边界，下一步接入 Fake 标签运行闭环，不在同一切片实现真实模型或前端；
+   - 已完成阶段 1 的文档关联运行、关系、证据和审核持久化基础、无 Embedding 候选召回、Fake 关系判断、候选集合/逐字证据校验、关联审核 API 和固定资料完整关系指标评估；阶段 2 已完成标签持久化基础及独立 Fake 标签运行、Schema/业务引用/逐字证据校验、suggested 幂等物化和恢复 API，下一步接入标签审核历史与审核 API，再进入桌面 Web 联调；
    - 在具备真实模型密钥和受控预算时，单独补充二阶段自然全文摘要与 `prd-extraction-v3` 关系约束的真实模型质量边界，不以 Fake 结果代替真实模型结论，也不阻塞候选召回；
    - 之后按“文档关系判断 → 证据校验 → 关联审核 → 可选标签生成/审核/关联 → 文档关系图 → RAG/Embedding 评估”的顺序实现。
 6. **禁止提前扩张**：阶段 2 只允许按冻结契约新增标签持久化、候选、证据和审核能力；Embedding 索引、文档关系图切换、会话引用和 Agent 编排仍等待各自阶段。
@@ -795,7 +800,7 @@ v0.13 已完成分页接口、MyBatis-Plus SQLite 分页、最近运行与最近
 2. 实现孤立、失效来源、缺字段和冲突检查。
 3. 在文本型 PDF 首版完成后增加 DOCX 解析，并继续实现增量导入和 Markdown/JSON/PNG 导出；扫描 PDF OCR 仍不进入当前首版。
 4. **阶段 1 已完成，进入阶段 2**：默认主线为文档内容关联，标签关联可选；不再保留独立图谱类型导航或把实体类型识别作为新增主线前置；现有实体图谱保留兼容和实验用途。专项 PRD、固定资料、标注答案、关系方向、五种关系优先级、版本契约、持久化基础、无 Embedding 候选召回、Fake 判断、证据校验、后端审核 API 和固定资料完整指标评估已完成。
-5. **专项方案实施顺序**：可选标签与文档标签的持久化基础、状态/来源/幂等规则和集成测试已完成；下一小切片接入独立标签运行、Fake 标签候选生成、Schema/业务/证据校验和运行恢复，再实现标签审核历史/API、标签候选补充及独立文档关系图前端，最后评估是否引入向量召回和混合 RAG。固定 Fake 关系基线已经达标，但 Precision@8 0.1707 仍作为后续降噪对照，不把向量相似度当作正式关系依据。
+5. **专项方案实施顺序**：可选标签持久化基础和独立 Fake 标签运行、Schema/业务/证据校验、suggested 幂等物化及运行恢复已经完成；下一小切片实现标签审核历史、标签查询与批量审核 API，随后立即进行桌面 Web 标签运行/查询/审核联调，再推进标签候选补充及独立文档关系图前端，最后评估是否引入向量召回和混合 RAG。固定 Fake 关系基线已经达标，但 Precision@8 0.1707 仍作为后续降噪对照，不把向量相似度当作正式关系依据。
 6. **未来 Agent 扩展边界**：仅当出现动态工具选择、长流程暂停/恢复、复杂多步骤编排或可回放工作流需求时，才评估在专项 PRD 第 14 节定义的 `AgentOrchestrator`；当前标签与关联主线继续使用固定 Pipeline，不能为了引入 Agent 而绕过领域 Service、证据校验或审核状态机。
 
 ## 19.3 提交约定

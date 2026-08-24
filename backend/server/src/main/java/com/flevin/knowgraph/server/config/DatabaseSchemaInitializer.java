@@ -93,6 +93,14 @@ public class DatabaseSchemaInitializer {
                 "ALTER TABLE ai_extraction_runs ADD COLUMN document_summary_error TEXT"
         );
 
+        // 为已创建标签运行表的本地数据库补充实际上下文字符数
+        addColumnIfMissing(
+                "document_tagging_runs",
+                "context_character_count",
+                "ALTER TABLE document_tagging_runs "
+                        + "ADD COLUMN context_character_count INTEGER NOT NULL DEFAULT 0"
+        );
+
         // 仅在旧数据库确实存在未归属记录时创建历史迁移空间，避免新库首次启动出现默认空间
         migrateLegacyRecordsWhenNeeded();
 

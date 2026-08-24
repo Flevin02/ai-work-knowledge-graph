@@ -5,6 +5,7 @@ import com.flevin.knowgraph.common.exception.TipsException;
 import com.flevin.knowgraph.server.model.document.SourceDocument;
 import com.flevin.knowgraph.server.model.tag.DocumentTag;
 import com.flevin.knowgraph.server.model.tag.DocumentTagEvidence;
+import com.flevin.knowgraph.server.model.tag.DocumentTagSuggestion;
 import com.flevin.knowgraph.server.model.tag.KnowledgeTag;
 import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
 import com.flevin.knowgraph.server.repository.space.KnowledgeSpaceRepository;
@@ -60,6 +61,46 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
     @Override
     @Transactional
     public DocumentTag saveAiSuggestion(
+            KnowledgeTag tag,
+            DocumentTag documentTag,
+            List<DocumentTagEvidence> evidences
+    ) {
+        // 复用单条内部保存流程，保持旧调用方的原子事务语义
+        return saveAiSuggestionInternal(tag, documentTag, evidences);
+    }
+
+    /**
+     * 在一个事务中幂等保存一次标签运行的全部 AI 候选。
+     *
+     * @param suggestions 已通过 Pipeline 引用和分片校验的标签建议
+     * @return 按输入顺序返回新保存或复用的文档标签关系
+     */
+    @Override
+    @Transactional
+    public List<DocumentTag> saveAiSuggestions(List<DocumentTagSuggestion> suggestions) {
+        if (suggestions == null) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "标签建议集合不能为空");
+        }
+
+        // 在同一事务中保存全部候选，任一数据库写入失败时整批回滚
+        return suggestions.stream()
+                .map(suggestion -> saveAiSuggestionInternal(
+                        suggestion.tag(),
+                        suggestion.documentTag(),
+                        suggestion.evidences()
+                ))
+                .toList();
+    }
+
+    /**
+     * 执行单条 AI 标签建议的领域校验、规范化、幂等和持久化。
+     *
+     * @param tag 待创建或复用的标签定义
+     * @param documentTag 待保存的 suggested 文档标签关系
+     * @param evidences 当前标签的全部逐字证据
+     * @return 新保存或按稳定键复用的文档标签关系
+     */
+    private DocumentTag saveAiSuggestionInternal(
             KnowledgeTag tag,
             DocumentTag documentTag,
             List<DocumentTagEvidence> evidences

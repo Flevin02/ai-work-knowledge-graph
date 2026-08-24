@@ -227,6 +227,56 @@ CREATE TABLE IF NOT EXISTS tags (
 CREATE UNIQUE INDEX IF NOT EXISTS uk_tags_space_normalized_key
     ON tags(space_id, normalized_key);
 
+-- 文档标签运行：保存一次标签抽取的版本、状态、摘要、统计和失败上下文。
+CREATE TABLE IF NOT EXISTS document_tagging_runs (
+    -- 标签运行唯一标识。
+    id TEXT PRIMARY KEY,
+    -- 标签运行所属知识空间。
+    space_id TEXT NOT NULL,
+    -- 本次分析的真实来源资料。
+    source_document_id TEXT NOT NULL,
+    -- 运行开始时来源资料的内容指纹。
+    source_content_hash TEXT NOT NULL,
+    -- 运行状态：processing、completed 或 failed。
+    status TEXT NOT NULL CHECK (status IN ('processing', 'completed', 'failed')),
+    -- 失败阶段，例如 chunk_failed、tag_extraction_failed、structured_output_invalid、evidence_invalid 或 persistence_failed。
+    failure_stage TEXT,
+    -- 面向用户或运维的稳定错误摘要。
+    error_message TEXT,
+    -- 模型返回并通过结构校验的文档摘要；失败或尚未生成时为空。
+    summary TEXT,
+    -- 实际提供给标签客户端的章节感知分片数量。
+    chunk_count INTEGER NOT NULL DEFAULT 0 CHECK (chunk_count >= 0),
+    -- 实际提供给标签客户端的分片文本字符总数。
+    context_character_count INTEGER NOT NULL DEFAULT 0 CHECK (context_character_count >= 0),
+    -- 本次新写入的 suggested 标签数量；幂等复用不重复计数。
+    suggestion_count INTEGER NOT NULL DEFAULT 0 CHECK (suggestion_count >= 0),
+    -- 因逐字证据失败而未物化的标签候选数量。
+    evidence_failure_count INTEGER NOT NULL DEFAULT 0 CHECK (evidence_failure_count >= 0),
+    -- 标签 Prompt 版本快照。
+    prompt_version TEXT NOT NULL,
+    -- 标签 Schema 版本快照。
+    schema_version TEXT NOT NULL,
+    -- 标签模型请求次数。
+    model_request_count INTEGER NOT NULL DEFAULT 0 CHECK (model_request_count >= 0),
+    -- 标签模型重试次数；当前 Fake 基线固定为 0。
+    retry_count INTEGER NOT NULL DEFAULT 0 CHECK (retry_count >= 0),
+    -- 运行耗时毫秒。
+    duration_ms INTEGER CHECK (duration_ms IS NULL OR duration_ms >= 0),
+    -- 运行创建时间，使用 ISO-8601 UTC 字符串。
+    created_at TEXT NOT NULL,
+    -- 运行完成或失败时间；处理中为空。
+    completed_at TEXT,
+    -- 保证运行所属知识空间真实存在。
+    FOREIGN KEY (space_id) REFERENCES knowledge_spaces(id),
+    -- 保证标签运行能够追溯到来源资料。
+    FOREIGN KEY (source_document_id) REFERENCES source_documents(id)
+);
+
+-- 支持按空间、来源资料和创建时间恢复标签运行历史。
+CREATE INDEX IF NOT EXISTS idx_document_tagging_runs_space_document_created_at
+    ON document_tagging_runs(space_id, source_document_id, created_at DESC, id DESC);
+
 -- 文档标签：保存 AI 候选、用户确认、拒绝或失效的文档标签关系。
 CREATE TABLE IF NOT EXISTS document_tags (
     -- 文档标签关系唯一标识。
@@ -243,7 +293,7 @@ CREATE TABLE IF NOT EXISTS document_tags (
     status TEXT NOT NULL CHECK (status IN ('suggested', 'confirmed', 'rejected', 'stale')),
     -- AI 或规则对候选标签的估计置信度；用户手工标签为空。
     confidence REAL CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
-    -- 可选标签抽取运行标识；标签运行表在后续 AI 小切片确定后再增加外键。
+    -- 可选标签抽取运行标识；现有 SQLite 表保持兼容，由标签 Pipeline 生成并用于运行恢复。
     extraction_run_id TEXT,
     -- 生成或确认标签时的来源文档内容指纹。
     content_hash TEXT NOT NULL,

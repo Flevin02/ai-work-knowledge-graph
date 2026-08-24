@@ -2,6 +2,7 @@ package com.flevin.knowgraph.server.service.tag;
 
 import com.flevin.knowgraph.server.model.tag.DocumentTag;
 import com.flevin.knowgraph.server.model.tag.DocumentTagEvidence;
+import com.flevin.knowgraph.server.model.tag.DocumentTagSuggestion;
 import com.flevin.knowgraph.server.model.tag.KnowledgeTag;
 
 import java.util.List;
@@ -27,6 +28,14 @@ public interface DocumentTagPersistenceService {
             DocumentTag documentTag,
             List<DocumentTagEvidence> evidences
     );
+
+    /**
+     * 在一个事务中幂等保存一次标签运行的全部 AI 候选。
+     *
+     * @param suggestions 已通过 Pipeline 引用和分片校验的标签建议
+     * @return 按输入顺序返回新保存或复用的文档标签关系
+     */
+    List<DocumentTag> saveAiSuggestions(List<DocumentTagSuggestion> suggestions);
 
     /**
      * 幂等保存用户手工标签，文档标签关系保存后直接为 confirmed。
