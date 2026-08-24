@@ -73,19 +73,19 @@
 1. 每条关系必须引用已经输出的主体实体和客体实体。
 2. 每条关系必须至少引用一条直接证据。
 3. 关系方向必须与原文语义一致。
-4. `relationType` 使用稳定的小写下划线格式。
+4. `relationType` 必须来自下方固定白名单，并严格遵守主体、客体类型和方向。
 
-推荐关系类型示例：
+只能使用以下 7 种关系类型和方向：
 
-- `project_contains_feature`
-- `feature_contains_requirement`
-- `requirement_has_task`
-- `requirement_has_risk`
-- `task_assigned_to_person`
-- `department_responsible_for_project`
-- `decision_affects_requirement`
+- `project_contains_feature`：`PROJECT -> FEATURE`
+- `feature_contains_requirement`：`FEATURE -> REQUIREMENT`
+- `requirement_has_task`：`REQUIREMENT -> TASK`
+- `requirement_has_risk`：`REQUIREMENT -> RISK`
+- `task_assigned_to_person`：`TASK -> PERSON`
+- `department_responsible_for_project`：`DEPARTMENT -> PROJECT`
+- `decision_affects_requirement`：`DECISION -> REQUIREMENT`
 
-不要因为示例中存在某个关系类型，就在缺少原文证据时创建该关系。
+未知关系类型或主体、客体类型不匹配时，不要输出该关系，也不要自动改写成其他关系。不要因为白名单中存在某个关系类型，就在缺少原文证据时创建该关系。
 
 ## 证据规则
 

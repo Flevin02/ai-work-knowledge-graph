@@ -53,7 +53,7 @@ public class AiProperties {
     /**
      * 当前结构化抽取 Prompt 版本。
      */
-    private String promptVersion = "prd-extraction-v1";
+    private String promptVersion = "prd-extraction-v3";
 
     /**
      * 文档级全文摘要 Prompt 版本。

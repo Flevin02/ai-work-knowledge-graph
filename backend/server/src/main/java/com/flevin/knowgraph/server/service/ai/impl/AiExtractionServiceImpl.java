@@ -744,7 +744,7 @@ public class AiExtractionServiceImpl implements AiExtractionService {
             );
             throw new TipsException(
                     ErrorCode.AI_SERVICE_UNAVAILABLE,
-                    "AI 返回的结构化结果未通过证据校验"
+                    "AI 返回的结构化结果未通过业务或证据校验"
             );
         } catch (RetriableException exception) {
             log.warn(

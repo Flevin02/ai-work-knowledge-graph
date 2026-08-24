@@ -83,6 +83,70 @@ class AiExtractionResultValidatorTests {
     }
 
     @Test
+    void rejectsRelationTypeOutsideBusinessWhitelist() {
+        AiExtractionRequest request = request();
+        AiExtractionResult validResult = validResult("用户中心包含登录功能");
+        AiRelationCandidate unknownRelation = new AiRelationCandidate(
+                "entity-project",
+                "entity-feature",
+                "project_owns_feature",
+                0.9D,
+                List.of("evidence-1")
+        );
+        AiExtractionResult invalidResult = new AiExtractionResult(
+                validResult.summary(),
+                validResult.entities(),
+                List.of(unknownRelation),
+                validResult.evidences(),
+                validResult.conflicts()
+        );
+
+        try (ValidatorFactory validatorFactory = Validation.buildDefaultValidatorFactory()) {
+            AiExtractionResultValidator validator = new AiExtractionResultValidator(
+                    validatorFactory.getValidator()
+            );
+
+            // 验证格式合法但未进入业务白名单的模型关系不会进入候选图谱
+            assertThatThrownBy(() -> validator.validate(request, invalidResult))
+                    .isInstanceOf(AiExtractionValidationException.class)
+                    .hasMessageContaining("不支持的关系类型: project_owns_feature");
+        }
+    }
+
+    @Test
+    void rejectsRelationWhoseEntityTypesDoNotMatchDirectionRule() {
+        AiExtractionRequest request = request();
+        AiExtractionResult validResult = validResult("用户中心包含登录功能");
+        AiRelationCandidate reversedRelation = new AiRelationCandidate(
+                "entity-feature",
+                "entity-project",
+                "project_contains_feature",
+                0.9D,
+                List.of("evidence-1")
+        );
+        AiExtractionResult invalidResult = new AiExtractionResult(
+                validResult.summary(),
+                validResult.entities(),
+                List.of(reversedRelation),
+                validResult.evidences(),
+                validResult.conflicts()
+        );
+
+        try (ValidatorFactory validatorFactory = Validation.buildDefaultValidatorFactory()) {
+            AiExtractionResultValidator validator = new AiExtractionResultValidator(
+                    validatorFactory.getValidator()
+            );
+
+            // 验证白名单关系仍必须满足固定主体、客体类型和方向
+            assertThatThrownBy(() -> validator.validate(request, invalidResult))
+                    .isInstanceOf(AiExtractionValidationException.class)
+                    .hasMessageContaining(
+                            "关系主体/客体类型不匹配: project_contains_feature 要求 PROJECT -> FEATURE，实际 FEATURE -> PROJECT"
+                    );
+        }
+    }
+
+    @Test
     void rejectsBlankRequestBeforeRemoteModelCanBeCalled() {
         AiExtractionRequest invalidRequest = new AiExtractionRequest(
                 "document-1",

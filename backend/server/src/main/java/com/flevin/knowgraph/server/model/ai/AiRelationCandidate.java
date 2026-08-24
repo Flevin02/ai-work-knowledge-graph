@@ -25,7 +25,7 @@ public record AiRelationCandidate(
         @NotBlank String sourceEntityId,
         @Description("客体候选实体标识")
         @NotBlank String targetEntityId,
-        @Description("小写下划线关系类型，例如 feature_contains_requirement")
+        @Description("实体关系白名单中的小写下划线类型，例如 feature_contains_requirement")
         @NotBlank @Pattern(regexp = "^[a-z][a-z0-9_]*$") String relationType,
         @Description("零到一之间的候选置信度；不是人工审核结果")
         @DecimalMin("0.0") @DecimalMax("1.0") double confidence,

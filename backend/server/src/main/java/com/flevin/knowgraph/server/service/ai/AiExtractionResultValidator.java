@@ -6,6 +6,7 @@ import com.flevin.knowgraph.server.model.ai.AiEvidenceCandidate;
 import com.flevin.knowgraph.server.model.ai.AiExtractionRequest;
 import com.flevin.knowgraph.server.model.ai.AiExtractionResult;
 import com.flevin.knowgraph.server.model.ai.AiRelationCandidate;
+import com.flevin.knowgraph.server.model.ai.AiRelationType;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -80,11 +82,15 @@ public class AiExtractionResultValidator {
         }
 
         // 校验候选实体标识在本次结果内唯一
-        Set<String> entityIds = requireUniqueIds(
+        requireUniqueIds(
                 result.entities(),
                 AiEntityCandidate::candidateId,
                 "候选实体"
         );
+
+        // 按候选标识建立实体索引，供关系白名单校验主体、客体类型和方向
+        Map<String, AiEntityCandidate> entitiesById = result.entities().stream()
+                .collect(Collectors.toMap(AiEntityCandidate::candidateId, Function.identity()));
 
         // 校验证据标识在本次结果内唯一
         Set<String> evidenceIds = requireUniqueIds(
@@ -97,7 +103,7 @@ public class AiExtractionResultValidator {
         result.evidences().forEach(evidence -> validateEvidence(request, evidence));
 
         // 校验关系引用的实体和证据都存在于本次结构化结果
-        result.relations().forEach(relation -> validateRelation(relation, entityIds, evidenceIds));
+        result.relations().forEach(relation -> validateRelation(relation, entitiesById, evidenceIds));
 
         // 校验实体引用的证据都存在于本次结构化结果
         result.entities().forEach(entity -> validateEvidenceReferences(
@@ -176,22 +182,37 @@ public class AiExtractionResultValidator {
      * 校验候选关系引用的实体和证据标识。
      *
      * @param relation 候选关系
-     * @param entityIds 有效候选实体标识
+     * @param entitiesById 有效候选实体索引
      * @param evidenceIds 有效证据标识
      */
     private void validateRelation(
             AiRelationCandidate relation,
-            Set<String> entityIds,
+            Map<String, AiEntityCandidate> entitiesById,
             Set<String> evidenceIds
     ) {
-        if (!entityIds.contains(relation.sourceEntityId())) {
+        AiEntityCandidate sourceEntity = entitiesById.get(relation.sourceEntityId());
+        if (sourceEntity == null) {
             throw new AiExtractionValidationException(
                     "关系引用了不存在的主体实体: " + relation.sourceEntityId()
             );
         }
-        if (!entityIds.contains(relation.targetEntityId())) {
+        AiEntityCandidate targetEntity = entitiesById.get(relation.targetEntityId());
+        if (targetEntity == null) {
             throw new AiExtractionValidationException(
                     "关系引用了不存在的客体实体: " + relation.targetEntityId()
+            );
+        }
+
+        // 将模型字符串映射到服务端固定关系白名单，未知关系不能进入待审核图谱
+        AiRelationType relationType = AiRelationType.fromValue(relation.relationType())
+                .orElseThrow(() -> new AiExtractionValidationException(
+                        "不支持的关系类型: " + relation.relationType()
+                ));
+        if (!relationType.matches(sourceEntity.type(), targetEntity.type())) {
+            throw new AiExtractionValidationException(
+                    "关系主体/客体类型不匹配: " + relation.relationType()
+                            + " 要求 " + relationType.sourceType() + " -> " + relationType.targetType()
+                            + "，实际 " + sourceEntity.type() + " -> " + targetEntity.type()
             );
         }
 

@@ -27,6 +27,9 @@ class AiPromptResourceTests {
         assertThat(promptContent)
                 .contains("# 工作知识图谱结构化抽取器")
                 .contains("## 分片摘要规则")
+                .contains("只能使用以下 7 种关系类型和方向")
+                .contains("`project_contains_feature`：`PROJECT -> FEATURE`")
+                .contains("未知关系类型或主体、客体类型不匹配时，不要输出该关系")
                 .contains("## 证据规则")
                 .contains("## 输出约束");
 

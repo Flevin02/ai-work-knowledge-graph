@@ -156,6 +156,33 @@ class AiExtractionIntegrationTests {
         assertThat(completedEvent.path("result").path("chunks").get(0)
                 .path("extraction").path("entities").size()).isEqualTo(2);
 
+        // 两个分片重复输出同一实体和关系时，只保留两个规范化节点和一条待审核边
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM graph_nodes WHERE space_id = ?",
+                Integer.class,
+                SPACE_ID
+        )).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM graph_edges WHERE space_id = ?",
+                Integer.class,
+                SPACE_ID
+        )).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM evidences WHERE space_id = ?",
+                Integer.class,
+                SPACE_ID
+        )).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT normalized_key FROM graph_nodes WHERE space_id = ? ORDER BY normalized_key",
+                String.class,
+                SPACE_ID
+        )).containsExactly("feature:登录功能", "project:用户中心");
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT source_ids_json FROM graph_nodes WHERE space_id = ?",
+                String.class,
+                SPACE_ID
+        )).allMatch(sourceIds -> sourceIds.equals("[\"" + documentId + "\"]"));
+
         // 抽取完成后候选节点、关系和证据已经进入真实图谱，但关系仍待人工审核
         mockMvc.perform(get("/v1/spaces/{spaceId}/graph/summary", SPACE_ID))
                 .andExpect(status().isOk())
@@ -642,7 +669,7 @@ class AiExtractionIntegrationTests {
         JsonNode errorEvent = readStreamEvent(extractionStream, "error");
         String extractionId = errorEvent.path("extractionRunId").asText();
         assertThat(errorEvent.path("recoverable").asBoolean()).isTrue();
-        assertThat(errorEvent.path("message").asText()).isEqualTo("AI 返回的结构化结果未通过证据校验");
+        assertThat(errorEvent.path("message").asText()).isEqualTo("AI 返回的结构化结果未通过业务或证据校验");
 
         // 查询运行记录，确认部分 JSON 没有进入完整结果字段且失败原因可恢复
         mockMvc.perform(get(
@@ -654,7 +681,7 @@ class AiExtractionIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.summary.status").value("failed"))
                 .andExpect(jsonPath("$.data.summary.chunkCount").value(1))
-                .andExpect(jsonPath("$.data.summary.errorMessage").value("AI 返回的结构化结果未通过证据校验"))
+                .andExpect(jsonPath("$.data.summary.errorMessage").value("AI 返回的结构化结果未通过业务或证据校验"))
                 .andExpect(jsonPath("$.data.result").doesNotExist());
 
         Integer storedResultCount = jdbcTemplate.queryForObject(
@@ -795,26 +822,27 @@ class AiExtractionIntegrationTests {
 
     private AiExtractionResult fakeResult(AiExtractionRequest request) {
         String entitySummary = "用户中心包含登录功能，登录功能支持手机号验证码登录。".repeat(4);
+        boolean detailedChunk = request.content().contains("登录功能支持手机号验证码");
         AiEvidenceCandidate evidence = new AiEvidenceCandidate(
                 "evidence-1",
                 request.sourceDocumentId(),
                 request.chunkId(),
                 request.sectionPath(),
-                request.content().contains("登录功能支持手机号验证码")
+                detailedChunk
                         ? "登录功能支持手机号验证码。"
                         : request.content().substring(0, Math.min(8, request.content().length()))
         );
         AiEntityCandidate project = new AiEntityCandidate(
                 "entity-project",
                 AiEntityType.PROJECT,
-                "用户中心",
+                detailedChunk ? " 用户中心 " : "用户中心",
                 entitySummary,
                 List.of("evidence-1")
         );
         AiEntityCandidate feature = new AiEntityCandidate(
                 "entity-feature",
                 AiEntityType.FEATURE,
-                "登录功能",
+                detailedChunk ? "登录功能 " : "登录功能",
                 entitySummary,
                 List.of("evidence-1")
         );
@@ -826,7 +854,7 @@ class AiExtractionIntegrationTests {
                 List.of("evidence-1")
         );
         return new AiExtractionResult(
-                request.content().contains("登录功能支持手机号验证码")
+                detailedChunk
                         ? "登录功能支持手机号验证码。"
                         : "用户中心",
                 List.of(project, feature),
