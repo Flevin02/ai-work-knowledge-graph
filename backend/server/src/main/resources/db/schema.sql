@@ -203,6 +203,123 @@ CREATE TABLE IF NOT EXISTS ai_extraction_runs (
     FOREIGN KEY (source_document_id) REFERENCES source_documents(id)
 );
 
+-- 标签字典：保存知识空间内可复用的规范化标签，不承载具体文档的审核状态。
+CREATE TABLE IF NOT EXISTS tags (
+    -- 标签唯一标识。
+    id TEXT PRIMARY KEY,
+    -- 标签所属知识空间。
+    space_id TEXT NOT NULL,
+    -- 面向用户展示的标签名称。
+    name TEXT NOT NULL,
+    -- 轻量规范化键，用于合并大小写、首尾空格和连续空格差异。
+    normalized_key TEXT NOT NULL,
+    -- 标签字典状态；文档标签审核状态由 document_tags 单独维护。
+    status TEXT NOT NULL CHECK (status IN ('active', 'inactive')),
+    -- 标签创建时间，使用 ISO-8601 UTC 字符串。
+    created_at TEXT NOT NULL,
+    -- 标签最近更新时间，使用 ISO-8601 UTC 字符串。
+    updated_at TEXT NOT NULL,
+    -- 保证标签所属知识空间真实存在。
+    FOREIGN KEY (space_id) REFERENCES knowledge_spaces(id)
+);
+
+-- 同一知识空间内只保留一份规范化标签定义。
+CREATE UNIQUE INDEX IF NOT EXISTS uk_tags_space_normalized_key
+    ON tags(space_id, normalized_key);
+
+-- 文档标签：保存 AI 候选、用户确认、拒绝或失效的文档标签关系。
+CREATE TABLE IF NOT EXISTS document_tags (
+    -- 文档标签关系唯一标识。
+    id TEXT PRIMARY KEY,
+    -- 文档标签所属知识空间。
+    space_id TEXT NOT NULL,
+    -- 被标记的真实来源资料。
+    source_document_id TEXT NOT NULL,
+    -- 复用的空间内标签定义。
+    tag_id TEXT NOT NULL,
+    -- 标签来源：ai、user 或预留的 rule。
+    source_type TEXT NOT NULL CHECK (source_type IN ('ai', 'user', 'rule')),
+    -- 文档标签状态：suggested、confirmed、rejected 或 stale。
+    status TEXT NOT NULL CHECK (status IN ('suggested', 'confirmed', 'rejected', 'stale')),
+    -- AI 或规则对候选标签的估计置信度；用户手工标签为空。
+    confidence REAL CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
+    -- 可选标签抽取运行标识；标签运行表在后续 AI 小切片确定后再增加外键。
+    extraction_run_id TEXT,
+    -- 生成或确认标签时的来源文档内容指纹。
+    content_hash TEXT NOT NULL,
+    -- AI 标签 Prompt 版本；用户手工标签为空。
+    prompt_version TEXT,
+    -- AI 标签 Schema 版本；用户手工标签为空。
+    schema_version TEXT,
+    -- 按空间、文档、内容指纹、规范化标签和 Prompt/Schema 版本计算的稳定幂等键。
+    document_tag_key TEXT NOT NULL,
+    -- 文档标签创建时间，使用 ISO-8601 UTC 字符串。
+    created_at TEXT NOT NULL,
+    -- 文档标签最近更新时间，使用 ISO-8601 UTC 字符串。
+    updated_at TEXT NOT NULL,
+    -- AI 标签必须保留置信度和版本快照；用户标签不伪造模型字段。
+    -- 初始 suggested/confirmed 边界由 Service 校验，允许后续审核或内容变化更新状态。
+    CHECK (
+        (source_type = 'ai' AND confidence IS NOT NULL
+            AND prompt_version IS NOT NULL AND schema_version IS NOT NULL)
+        OR (source_type = 'user' AND confidence IS NULL
+            AND prompt_version IS NULL AND schema_version IS NULL)
+        OR source_type = 'rule'
+    ),
+    -- 保证文档标签所属知识空间真实存在。
+    FOREIGN KEY (space_id) REFERENCES knowledge_spaces(id),
+    -- 保证被标记的来源资料真实存在。
+    FOREIGN KEY (source_document_id) REFERENCES source_documents(id),
+    -- 保证标签定义真实存在。
+    FOREIGN KEY (tag_id) REFERENCES tags(id)
+);
+
+-- 相同资料内容、标签和 Prompt/Schema 版本重复运行时复用同一文档标签记录。
+CREATE UNIQUE INDEX IF NOT EXISTS uk_document_tags_space_tag_key
+    ON document_tags(space_id, document_tag_key);
+
+-- 支持按空间、来源资料和状态恢复标签列表。
+CREATE INDEX IF NOT EXISTS idx_document_tags_space_document_status
+    ON document_tags(space_id, source_document_id, status, updated_at DESC);
+
+-- 文档标签证据：保存 AI 候选标签在当前来源资料中的逐字依据。
+CREATE TABLE IF NOT EXISTS document_tag_evidences (
+    -- 标签证据唯一标识。
+    id TEXT PRIMARY KEY,
+    -- 标签证据所属知识空间。
+    space_id TEXT NOT NULL,
+    -- 被证据支撑的文档标签关系。
+    document_tag_id TEXT NOT NULL,
+    -- 证据实际所在的来源资料，必须与文档标签主体一致。
+    source_document_id TEXT NOT NULL,
+    -- 当前文档内稳定的分片标识。
+    chunk_id TEXT NOT NULL,
+    -- 分片所属章节路径。
+    section_path TEXT NOT NULL,
+    -- 可逐字反查的原文片段。
+    quote TEXT NOT NULL,
+    -- 原文起始偏移，使用半开区间；未知时为空。
+    start_offset INTEGER CHECK (start_offset IS NULL OR start_offset >= 0),
+    -- 原文结束偏移，不包含该位置字符；未知时为空。
+    end_offset INTEGER CHECK (end_offset IS NULL OR end_offset >= 0),
+    -- 证据创建时间，使用 ISO-8601 UTC 字符串。
+    created_at TEXT NOT NULL,
+    -- 保证证据所属知识空间真实存在。
+    FOREIGN KEY (space_id) REFERENCES knowledge_spaces(id),
+    -- 保证证据支撑的文档标签关系真实存在。
+    FOREIGN KEY (document_tag_id) REFERENCES document_tags(id),
+    -- 保证证据来源资料真实存在。
+    FOREIGN KEY (source_document_id) REFERENCES source_documents(id),
+    -- 已知偏移必须保持半开区间顺序。
+    CHECK (
+        start_offset IS NULL OR end_offset IS NULL OR end_offset >= start_offset
+    )
+);
+
+-- 支持按文档标签关系稳定恢复全部证据。
+CREATE INDEX IF NOT EXISTS idx_document_tag_evidences_document_tag_created_at
+    ON document_tag_evidences(space_id, document_tag_id, created_at, id);
+
 -- 文档关联运行：保存一次文档候选关联分析的版本、状态、召回统计和失败上下文。
 CREATE TABLE IF NOT EXISTS document_association_runs (
     -- 关联运行唯一标识。

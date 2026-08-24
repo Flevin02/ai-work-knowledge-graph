@@ -1,7 +1,7 @@
 ---
 title: 文档关系图、标签关联与有据问答 PRD
-version: v1.8
-status: 阶段 1 固定资料质量评估已完成，下一步进入阶段 2 可选标签后端
+version: v1.9
+status: 阶段 2 标签持久化基础已完成，下一步进入 Fake 标签运行闭环
 created: 2026-08-19
 updated: 2026-08-24
 owner: 知脉产品与研发
@@ -12,9 +12,9 @@ related_prd: ai-work-knowledge-graph-maintainer-prd.md
 
 本文档定义“知脉”从“文档内实体关系抽取”转向“默认文档内容关联、可选标签增强、文档关系图和有据问答”的产品目标、业务规则、交互流程、AI/RAG 链路、未来 Agent 扩展边界、验证指标、实施顺序和回滚边界。
 
-当前文档同时记录目标态和分阶段实施状态，不把未落地的标签、RAG、问答或 Agent 设计描述为已实现。2026-08-21 已完成目标态核验；2026-08-24 已完成阶段 0 冻结和阶段 1 无标签、无 Embedding 文档内容关联后端闭环及固定资料评估，下一步进入阶段 2 可选标签后端。
+当前文档同时记录目标态和分阶段实施状态，不把未落地的标签运行/API、RAG、问答或 Agent 设计描述为已实现。2026-08-21 已完成目标态核验；2026-08-24 已完成阶段 0、阶段 1 和阶段 2 第一小切片的标签持久化基础，下一步进入 Fake 标签运行闭环。
 
-2026-08-24 已完成阶段 1：四张文档关联持久化表、MyBatis-Plus 分层、无 Embedding 候选召回、供应商无关 Fake 关系判断、候选集合与逐字证据校验、suggested 关系幂等物化、运行恢复、文档关系查询和批量审核 API 均已落地。固定 12 份资料的 7 条正例/5 组负例端到端评估达到既定质量门槛；真实模型、前端审核、标签和文档关系图仍未实现。
+2026-08-24 已完成阶段 1：四张文档关联持久化表、MyBatis-Plus 分层、无 Embedding 候选召回、供应商无关 Fake 关系判断、候选集合与逐字证据校验、suggested 关系幂等物化、运行恢复、文档关系查询和批量审核 API 均已落地。固定 12 份资料的 7 条正例/5 组负例端到端评估达到既定质量门槛。同日完成阶段 2 第一小切片的标签字典、文档标签、标签证据和持久化 Service；真实标签模型、标签运行/审核 API、前端和文档关系图仍未实现。
 
 ## 1.1 当前实现核验结论
 
@@ -761,10 +761,13 @@ Agent 只有在以下场景可重复验证后才能进入产品主线：
 - `confidence`
 - `extraction_run_id`
 - `content_hash`
+- `prompt_version`
+- `schema_version`
+- `document_tag_key`
 - `created_at`
 - `updated_at`
 
-唯一约束：`source_document_id + tag_id + content_hash`。
+唯一约束：`space_id + document_tag_key`。其中 `document_tag_key` 按第 17.1 节冻结签名计算，使相同内容和版本重复运行复用旧候选，Prompt 或 Schema 变化时保留新的候选历史；标签字典仍按 `space_id + normalized_key` 复用。
 
 ### `document_tag_evidences`
 
@@ -870,7 +873,15 @@ Agent 只有在以下场景可重复验证后才能进入产品主线：
 - AI/规则关系默认可保存为 `suggested`，审核动作只允许 `suggested → confirmed/rejected`；审核历史采用不可变插入，不覆盖旧动作。
 - 已新增独立文档关联 Controller/API、关联请求/结果 DTO 和固定 Pipeline Service：创建/恢复 `association-runs`、查询 `relations`、批量 `relation-review-batches`；只接受服务端关系标识和 `accept/reject` 动作，审核状态仍按 `suggested → confirmed/rejected` 状态机更新。
 - Fake 关系判断只在服务端提供的最多 8 份候选内逐一选择五种白名单关系或 `none`；服务端校验候选集合一一对应、方向组合、标签空集、`chunkId`/`sectionPath` 归属、quote 逐字反查和分片偏移，失败候选不进入审核列表。
-- 已通过 67 项 Java 21 根 Reactor 测试，其中固定评估器从 12 份资料两端运行真实召回、有限分片上下文、证据校验和 SQLite 持久化；Fake 只选择冻结标注中的关系、方向与精确 quote。真实模型、前端审核、文档关系图、标签表和 Embedding 仍未实现或验证。
+- 阶段 1 已通过 67 项 Java 21 根 Reactor 测试，其中固定评估器从 12 份资料两端运行真实召回、有限分片上下文、证据校验和 SQLite 持久化；Fake 只选择冻结标注中的关系、方向与精确 quote。该 67 项证据不包含下述阶段 2 标签持久化，真实关系模型、前端审核、文档关系图和 Embedding 仍未实现或验证。
+
+### 阶段 2 当前已落地的标签持久化边界
+
+- `tags`、`document_tags` 和 `document_tag_evidences` 已落地，并与 `knowledge_spaces`、`source_documents` 建立外键；标签运行表尚未确定，因此可选 `extraction_run_id` 暂不增加错误外键。
+- 标签定义在空间内按大小写、首尾空格和连续空格折叠后的 `normalized_key` 复用，不自动合并语义近似或同义标签。
+- AI 标签初始状态只能为 `suggested`，必须保存置信度、抽取运行标识、Prompt/Schema 版本和至少一条当前文档内可逐字反查的证据；用户手工标签初始状态只能为 `confirmed`，不保存伪造的模型字段或证据。
+- 文档标签稳定键完整使用 `spaceId + sourceDocumentId + contentHash + normalizedTagKey + promptVersion + schemaVersion`；相同内容和版本复用旧候选，Prompt 变化保留新候选，不覆盖历史。
+- 标签专项 4 项和隔离后的 Java 21 根 Reactor 71 项测试通过，覆盖新表、AI/用户来源状态、规范化复用、Prompt 版本幂等、逐字证据、跨空间、内容指纹和失败事务回滚；标签运行、Fake/真实模型、审核历史/API、前端和浏览器仍未实现或验证。
 
 ### `conversations` 与 `conversation_messages`
 
@@ -1155,7 +1166,8 @@ spaceId
 
 ## 阶段 2：可选标签增强
 
-- 新增标签和文档标签数据表、Repository、Service、API 和测试。
+- **已完成第一小切片**：新增标签字典、文档标签和标签证据数据表、MyBatis-Plus Entity/Mapper、聚合 Repository、持久化 Service 和 SQLite 集成测试；冻结 AI/user 初始状态、轻量规范化、Prompt/Schema 版本幂等和逐字证据原子保存边界。
+- **下一小切片**：新增独立标签运行记录和供应商无关 `DocumentTaggingClient`，使用 Fake 输出完成 Schema、业务引用和逐字证据校验、suggested 幂等物化及运行恢复；标签审核历史和审核 API 随后单独接入。
 - 接入 AI 候选标签、证据校验、人工审核、编辑和恢复。
 - 提供用户主动启用的标签筛选/候选补充，不改变默认内容关联结果；共同标签不能单独确认关系。
 - 验收：固定资料验证标签开启与关闭两种路径，开启后可补充候选，关闭后内容关联仍可独立完成。
@@ -1234,7 +1246,7 @@ spaceId
 8. **文档详情和图谱交互**：文档关系图节点必须直接来自 `source_documents`；点击统一进入文档详情页，悬浮/键盘聚焦突出一跳邻居和关联标签，不能通过颜色以外的不可访问方式隐藏非相关节点。
 9. **有据问答优先于 Agent**：先实现固定 RAG 问答、可点击引用和无答案状态；Agent 仅作为后续受控编排层，不能替代引用校验、审核状态机、知识空间隔离或固定 Pipeline。
 
-阶段 0 和阶段 1 已完成，下一小切片进入阶段 2 的标签与文档标签持久化基础、状态/来源/幂等边界和集成测试，再接入候选标签生成、证据校验与审核 API；会话/引用持久化、Embedding 索引、文档关系图切换和 Agent 编排仍必须等待各自阶段。前端左侧信息架构继续保持待处理/标签空态，标签后端数据完成前不得伪造标签统计、关联数量或问答来源。
+阶段 0、阶段 1 和阶段 2 第一小切片已完成；下一小切片进入独立标签运行、供应商无关 Fake 候选生成、Schema/业务引用/逐字证据校验、suggested 幂等物化和运行恢复，再单独接入标签审核历史与审核 API。会话/引用持久化、Embedding 索引、文档关系图切换和 Agent 编排仍必须等待各自阶段。前端左侧信息架构继续保持待处理/标签空态，标签查询和审核 API 完成前不得伪造标签统计、关联数量或问答来源。
 
 # 25. 回滚方案
 
