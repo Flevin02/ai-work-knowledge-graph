@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.flevin.knowgraph.server.model.association.DocumentRelation;
 import com.flevin.knowgraph.server.repository.entity.DocumentRelationEntity;
 import com.flevin.knowgraph.server.repository.mapper.DocumentRelationMapper;
+import com.flevin.knowgraph.server.repository.mapping.DocumentRelationEntityMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -19,6 +20,7 @@ import java.util.Optional;
 public class DocumentRelationRepository {
 
     private final DocumentRelationMapper mapper;
+    private final DocumentRelationEntityMapper entityMapper;
 
     /**
      * 按知识空间和稳定关系键查询关系，支撑关联运行幂等。
@@ -37,7 +39,7 @@ public class DocumentRelationRepository {
                         .eq(DocumentRelationEntity::getSpaceId, spaceId)
                         .eq(DocumentRelationEntity::getRelationKey, relationKey)
         );
-        return Optional.ofNullable(entity).map(this::toDomain);
+        return Optional.ofNullable(entity).map(entityMapper::toDomain);
     }
 
     /**
@@ -57,7 +59,7 @@ public class DocumentRelationRepository {
                         .eq(DocumentRelationEntity::getSpaceId, spaceId)
                         .eq(DocumentRelationEntity::getId, relationId)
         );
-        return Optional.ofNullable(entity).map(this::toDomain);
+        return Optional.ofNullable(entity).map(entityMapper::toDomain);
     }
 
     /**
@@ -79,7 +81,7 @@ public class DocumentRelationRepository {
                                 .orderByAsc(DocumentRelationEntity::getCreatedAt)
                                 .orderByAsc(DocumentRelationEntity::getId)
                 ).stream()
-                .map(this::toDomain)
+                .map(entityMapper::toDomain)
                 .toList();
     }
 
@@ -105,7 +107,7 @@ public class DocumentRelationRepository {
                                 .orderByDesc(DocumentRelationEntity::getUpdatedAt)
                                 .orderByDesc(DocumentRelationEntity::getId)
                 ).stream()
-                .map(this::toDomain)
+                .map(entityMapper::toDomain)
                 .toList();
     }
 
@@ -116,7 +118,7 @@ public class DocumentRelationRepository {
      */
     public void save(DocumentRelation relation) {
         // 将领域关系转换为 MyBatis-Plus 实体并保存候选关系
-        mapper.insert(toEntity(relation));
+        mapper.insert(entityMapper.toEntity(relation));
     }
 
     /**
@@ -147,59 +149,4 @@ public class DocumentRelationRepository {
         );
     }
 
-    /**
-     * 将持久化实体转换为文档关系领域模型。
-     *
-     * @param entity MyBatis-Plus 持久化实体
-     * @return 文档关系领域模型
-     */
-    private DocumentRelation toDomain(DocumentRelationEntity entity) {
-        return new DocumentRelation(
-                entity.getId(),
-                entity.getSpaceId(),
-                entity.getSourceDocumentId(),
-                entity.getTargetDocumentId(),
-                entity.getRelationType(),
-                entity.getDirection(),
-                entity.getStatus(),
-                entity.getGenerationMode(),
-                entity.getConfidence(),
-                entity.getReason(),
-                entity.getAssociationRunId(),
-                entity.getSourceContentHash(),
-                entity.getTargetContentHash(),
-                entity.getAssociationPolicyVersion(),
-                entity.getRelationKey(),
-                Instant.parse(entity.getCreatedAt()),
-                Instant.parse(entity.getUpdatedAt())
-        );
-    }
-
-    /**
-     * 将文档关系领域模型转换为 MyBatis-Plus 实体。
-     *
-     * @param relation 文档关系领域模型
-     * @return MyBatis-Plus 持久化实体
-     */
-    private DocumentRelationEntity toEntity(DocumentRelation relation) {
-        DocumentRelationEntity entity = new DocumentRelationEntity();
-        entity.setId(relation.id());
-        entity.setSpaceId(relation.spaceId());
-        entity.setSourceDocumentId(relation.sourceDocumentId());
-        entity.setTargetDocumentId(relation.targetDocumentId());
-        entity.setRelationType(relation.relationType());
-        entity.setDirection(relation.direction());
-        entity.setStatus(relation.status());
-        entity.setGenerationMode(relation.generationMode());
-        entity.setConfidence(relation.confidence());
-        entity.setReason(relation.reason());
-        entity.setAssociationRunId(relation.associationRunId());
-        entity.setSourceContentHash(relation.sourceContentHash());
-        entity.setTargetContentHash(relation.targetContentHash());
-        entity.setAssociationPolicyVersion(relation.associationPolicyVersion());
-        entity.setRelationKey(relation.relationKey());
-        entity.setCreatedAt(relation.createdAt().toString());
-        entity.setUpdatedAt(relation.updatedAt().toString());
-        return entity;
-    }
 }

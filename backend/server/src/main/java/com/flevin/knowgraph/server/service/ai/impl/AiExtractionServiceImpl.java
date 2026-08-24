@@ -21,6 +21,7 @@ import com.flevin.knowgraph.server.model.document.SourceDocument;
 import com.flevin.knowgraph.server.repository.ai.AiExtractionRunRepository;
 import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
 import com.flevin.knowgraph.server.repository.entity.AiExtractionRunEntity;
+import com.flevin.knowgraph.server.repository.mapping.AiExtractionRunEntityMapper;
 import com.flevin.knowgraph.server.service.ai.AiExtractionClient;
 import com.flevin.knowgraph.server.service.ai.AiExtractionEventPublisher;
 import com.flevin.knowgraph.server.service.ai.AiExtractionGraphMaterializer;
@@ -63,6 +64,7 @@ public class AiExtractionServiceImpl implements AiExtractionService {
     private final ObjectProvider<AiExtractionClient> extractionClientProvider;
     private final AiProperties aiProperties;
     private final AiExtractionRunRepository extractionRunRepository;
+    private final AiExtractionRunEntityMapper extractionRunEntityMapper;
     private final AiExtractionGraphMaterializer graphMaterializer;
     private final ObjectMapper objectMapper;
     @Qualifier("aiBatchExtractionExecutor")
@@ -421,7 +423,7 @@ public class AiExtractionServiceImpl implements AiExtractionService {
 
         // 查询历史运行并转换为不带完整 JSON 的摘要
         return extractionRunRepository.findAllByDocument(spaceId, documentId).stream()
-                .map(this::toSummary)
+                .map(extractionRunEntityMapper::toSummary)
                 .toList();
     }
 
@@ -454,7 +456,8 @@ public class AiExtractionServiceImpl implements AiExtractionService {
         AiDocumentExtractionResponse result = entity.getResultJson() == null
                 ? null
                 : readResultJson(entity.getResultJson());
-        return new AiExtractionRunDetail(toSummary(entity), result);
+        // 将抽取运行实体转换为不携带持久化细节的摘要
+        return new AiExtractionRunDetail(extractionRunEntityMapper.toSummary(entity), result);
     }
 
     /**
@@ -550,22 +553,6 @@ public class AiExtractionServiceImpl implements AiExtractionService {
     private SourceDocument requireDocument(String spaceId, String documentId) {
         return sourceDocumentRepository.findById(spaceId, documentId)
                 .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "来源资料不存在"));
-    }
-
-    private AiExtractionRunSummary toSummary(AiExtractionRunEntity entity) {
-        return new AiExtractionRunSummary(
-                entity.getId(),
-                entity.getStatus(),
-                entity.getProvider(),
-                entity.getModel(),
-                entity.getPromptVersion(),
-                entity.getSchemaVersion(),
-                entity.getSectionCount(),
-                entity.getChunkCount(),
-                entity.getErrorMessage(),
-                Instant.parse(entity.getCreatedAt()),
-                entity.getCompletedAt() == null ? null : Instant.parse(entity.getCompletedAt())
-        );
     }
 
     /**

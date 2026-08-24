@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.flevin.knowgraph.server.model.space.KnowledgeSpace;
 import com.flevin.knowgraph.server.repository.entity.KnowledgeSpaceEntity;
 import com.flevin.knowgraph.server.repository.mapper.KnowledgeSpaceMapper;
+import com.flevin.knowgraph.server.repository.mapping.KnowledgeSpaceEntityMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -20,6 +21,7 @@ import java.util.Optional;
 public class KnowledgeSpaceRepository {
 
     private final KnowledgeSpaceMapper knowledgeSpaceMapper;
+    private final KnowledgeSpaceEntityMapper entityMapper;
 
     /**
      * 查询全部有效知识空间。
@@ -36,7 +38,7 @@ public class KnowledgeSpaceRepository {
         );
 
         // 将持久化实体转换为领域 record，阻止 ORM 类型向 Service 层泄漏
-        return entities.stream().map(this::toDomain).toList();
+        return entities.stream().map(entityMapper::toDomain).toList();
     }
 
     /**
@@ -52,7 +54,8 @@ public class KnowledgeSpaceRepository {
                         .eq(KnowledgeSpaceEntity::getId, spaceId)
                         .eq(KnowledgeSpaceEntity::getStatus, "active")
         );
-        return Optional.ofNullable(entity).map(this::toDomain);
+        // 将查询实体转换为领域模型，避免 ORM 类型泄漏到 Service 层
+        return Optional.ofNullable(entity).map(entityMapper::toDomain);
     }
 
     /**
@@ -78,7 +81,7 @@ public class KnowledgeSpaceRepository {
      */
     public void save(KnowledgeSpace space) {
         // 将领域模型转换为 MyBatis-Plus 持久化实体
-        KnowledgeSpaceEntity entity = toEntity(space);
+        KnowledgeSpaceEntity entity = entityMapper.toEntity(space);
 
         // 使用 BaseMapper 插入新知识空间
         knowledgeSpaceMapper.insert(entity);
@@ -108,37 +111,4 @@ public class KnowledgeSpaceRepository {
         return knowledgeSpaceMapper.update(updateEntity, updateWrapper);
     }
 
-    /**
-     * 将 MyBatis-Plus 实体转换为领域模型。
-     *
-     * @param entity 持久化实体
-     * @return 知识空间领域模型
-     */
-    private KnowledgeSpace toDomain(KnowledgeSpaceEntity entity) {
-        return new KnowledgeSpace(
-                entity.getId(),
-                entity.getName(),
-                entity.getDescription(),
-                entity.getStatus(),
-                Instant.parse(entity.getCreatedAt()),
-                Instant.parse(entity.getUpdatedAt())
-        );
-    }
-
-    /**
-     * 将领域模型转换为 MyBatis-Plus 实体。
-     *
-     * @param space 知识空间领域模型
-     * @return 持久化实体
-     */
-    private KnowledgeSpaceEntity toEntity(KnowledgeSpace space) {
-        KnowledgeSpaceEntity entity = new KnowledgeSpaceEntity();
-        entity.setId(space.id());
-        entity.setName(space.name());
-        entity.setDescription(space.description());
-        entity.setStatus(space.status());
-        entity.setCreatedAt(space.createdAt().toString());
-        entity.setUpdatedAt(space.updatedAt().toString());
-        return entity;
-    }
 }

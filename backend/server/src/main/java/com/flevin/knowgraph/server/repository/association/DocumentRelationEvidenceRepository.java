@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.flevin.knowgraph.server.model.association.DocumentRelationEvidence;
 import com.flevin.knowgraph.server.repository.entity.DocumentRelationEvidenceEntity;
 import com.flevin.knowgraph.server.repository.mapper.DocumentRelationEvidenceMapper;
+import com.flevin.knowgraph.server.repository.mapping.DocumentRelationEvidenceEntityMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -17,6 +18,7 @@ import java.util.List;
 public class DocumentRelationEvidenceRepository {
 
     private final DocumentRelationEvidenceMapper mapper;
+    private final DocumentRelationEvidenceEntityMapper entityMapper;
 
     /**
      * 保存一条文档关系证据。
@@ -25,7 +27,7 @@ public class DocumentRelationEvidenceRepository {
      */
     public void save(DocumentRelationEvidence evidence) {
         // 将领域证据转换为 MyBatis-Plus 实体并保存定位信息
-        mapper.insert(toEntity(evidence));
+        mapper.insert(entityMapper.toEntity(evidence));
     }
 
     /**
@@ -47,7 +49,7 @@ public class DocumentRelationEvidenceRepository {
                                 .orderByAsc(DocumentRelationEvidenceEntity::getCreatedAt)
                                 .orderByAsc(DocumentRelationEvidenceEntity::getId)
                 ).stream()
-                .map(this::toDomain)
+                .map(entityMapper::toDomain)
                 .toList();
     }
 
@@ -75,51 +77,8 @@ public class DocumentRelationEvidenceRepository {
                                 .orderByAsc(DocumentRelationEvidenceEntity::getCreatedAt)
                                 .orderByAsc(DocumentRelationEvidenceEntity::getId)
                 ).stream()
-                .map(this::toDomain)
+                .map(entityMapper::toDomain)
                 .toList();
     }
 
-    /**
-     * 将持久化实体转换为文档关系证据领域模型。
-     *
-     * @param entity MyBatis-Plus 持久化实体
-     * @return 文档关系证据领域模型
-     */
-    private DocumentRelationEvidence toDomain(DocumentRelationEvidenceEntity entity) {
-        return new DocumentRelationEvidence(
-                entity.getId(),
-                entity.getSpaceId(),
-                entity.getDocumentRelationId(),
-                entity.getSourceDocumentId(),
-                entity.getChunkId(),
-                entity.getSectionPath(),
-                entity.getQuote(),
-                entity.getStartOffset(),
-                entity.getEndOffset(),
-                entity.getEvidenceRole(),
-                java.time.Instant.parse(entity.getCreatedAt())
-        );
-    }
-
-    /**
-     * 将文档关系证据领域模型转换为 MyBatis-Plus 实体。
-     *
-     * @param evidence 文档关系证据领域模型
-     * @return MyBatis-Plus 持久化实体
-     */
-    private DocumentRelationEvidenceEntity toEntity(DocumentRelationEvidence evidence) {
-        DocumentRelationEvidenceEntity entity = new DocumentRelationEvidenceEntity();
-        entity.setId(evidence.id());
-        entity.setSpaceId(evidence.spaceId());
-        entity.setDocumentRelationId(evidence.documentRelationId());
-        entity.setSourceDocumentId(evidence.sourceDocumentId());
-        entity.setChunkId(evidence.chunkId());
-        entity.setSectionPath(evidence.sectionPath());
-        entity.setQuote(evidence.quote());
-        entity.setStartOffset(evidence.startOffset());
-        entity.setEndOffset(evidence.endOffset());
-        entity.setEvidenceRole(evidence.evidenceRole());
-        entity.setCreatedAt(evidence.createdAt().toString());
-        return entity;
-    }
 }

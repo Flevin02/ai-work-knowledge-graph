@@ -8,6 +8,7 @@ import com.flevin.knowgraph.server.model.graph.GraphEvidenceResponse;
 import com.flevin.knowgraph.server.model.graph.GraphNodeResponse;
 import com.flevin.knowgraph.server.model.graph.GraphSummaryResponse;
 import com.flevin.knowgraph.server.repository.graph.GraphRepository;
+import com.flevin.knowgraph.server.service.graph.GraphResponseMapper;
 import com.flevin.knowgraph.server.service.graph.GraphService;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
 import org.springframework.stereotype.Service;
@@ -24,13 +25,16 @@ public class GraphServiceImpl implements GraphService {
 
     private final GraphRepository graphRepository;
     private final KnowledgeSpaceService knowledgeSpaceService;
+    private final GraphResponseMapper responseMapper;
 
     public GraphServiceImpl(
             GraphRepository graphRepository,
-            KnowledgeSpaceService knowledgeSpaceService
+            KnowledgeSpaceService knowledgeSpaceService,
+            GraphResponseMapper responseMapper
     ) {
         this.graphRepository = graphRepository;
         this.knowledgeSpaceService = knowledgeSpaceService;
+        this.responseMapper = responseMapper;
     }
 
     /**
@@ -76,16 +80,7 @@ public class GraphServiceImpl implements GraphService {
 
         // 批量查询当前空间图谱节点
         List<GraphNodeResponse> nodes = graphRepository.findNodes(spaceId).stream()
-                .map(node -> new GraphNodeResponse(
-                        node.id(),
-                        node.type(),
-                        node.label(),
-                        node.summary(),
-                        node.status(),
-                        node.sourceIds(),
-                        node.createdAt(),
-                        node.updatedAt()
-                ))
+                .map(responseMapper::toNodeResponse)
                 .toList();
 
         // 批量查询当前空间图谱关系
@@ -98,39 +93,16 @@ public class GraphServiceImpl implements GraphService {
                 ).stream()
                 .collect(Collectors.groupingBy(
                         GraphEvidence::edgeId,
-                        Collectors.mapping(this::toEvidenceResponse, Collectors.toList())
+                        Collectors.mapping(responseMapper::toEvidenceResponse, Collectors.toList())
                 ));
 
         // 将关系与其证据合并为前端可直接使用的响应结构
         List<GraphEdgeResponse> edgeResponses = edges.stream()
-                .map(edge -> new GraphEdgeResponse(
-                        edge.id(),
-                        edge.sourceNodeId(),
-                        edge.targetNodeId(),
-                        edge.type(),
-                        edge.status(),
-                        edge.confidence(),
-                        evidenceByEdgeId.getOrDefault(edge.id(), List.of()),
-                        edge.createdAt(),
-                        edge.updatedAt()
+                .map(edge -> responseMapper.toEdgeResponse(
+                        edge,
+                        evidenceByEdgeId.getOrDefault(edge.id(), List.of())
                 ))
                 .toList();
         return new GraphDataResponse(nodes, edgeResponses);
-    }
-
-    /**
-     * 将内部证据模型转换为图谱查询响应。
-     *
-     * @param evidence 内部证据模型
-     * @return 图谱证据响应
-     */
-    private GraphEvidenceResponse toEvidenceResponse(GraphEvidence evidence) {
-        return new GraphEvidenceResponse(
-                evidence.sourceDocumentId(),
-                evidence.sourceDocumentName(),
-                evidence.quote(),
-                evidence.locator(),
-                evidence.extractionMethod()
-        );
     }
 }

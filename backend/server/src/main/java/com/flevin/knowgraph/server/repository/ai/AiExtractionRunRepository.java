@@ -5,10 +5,10 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.flevin.knowgraph.server.model.ai.DocumentExtractionOverview;
 import com.flevin.knowgraph.server.repository.entity.AiExtractionRunEntity;
 import com.flevin.knowgraph.server.repository.mapper.AiExtractionRunMapper;
+import com.flevin.knowgraph.server.repository.mapping.AiExtractionRunEntityMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -20,6 +20,7 @@ import java.util.Optional;
 public class AiExtractionRunRepository {
 
     private final AiExtractionRunMapper aiExtractionRunMapper;
+    private final AiExtractionRunEntityMapper aiExtractionRunEntityMapper;
 
     /**
      * 保存刚创建的处理中抽取记录。
@@ -191,16 +192,7 @@ public class AiExtractionRunRepository {
 
         // 将持久化查询结果转换为不携带完整模型输出的领域概览
         return entities.stream()
-                .map(entity -> new DocumentExtractionOverview(
-                        entity.getSourceDocumentId(),
-                        entity.getId(),
-                        entity.getStatus(),
-                        Instant.parse(entity.getCreatedAt()),
-                        entity.getCompletedAt() == null ? null : Instant.parse(entity.getCompletedAt()),
-                        entity.getErrorMessage(),
-                        entity.getLatestCompletedExtractionId(),
-                        entity.getLatestCompletedSummary()
-                ))
+                .map(aiExtractionRunEntityMapper::toOverview)
                 .toList();
     }
 }

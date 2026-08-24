@@ -4,10 +4,10 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.flevin.knowgraph.server.model.association.DocumentRelationReview;
 import com.flevin.knowgraph.server.repository.entity.DocumentRelationReviewEntity;
 import com.flevin.knowgraph.server.repository.mapper.DocumentRelationReviewMapper;
+import com.flevin.knowgraph.server.repository.mapping.DocumentRelationReviewEntityMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
-import java.time.Instant;
 import java.util.List;
 
 /**
@@ -18,6 +18,7 @@ import java.util.List;
 public class DocumentRelationReviewRepository {
 
     private final DocumentRelationReviewMapper mapper;
+    private final DocumentRelationReviewEntityMapper entityMapper;
 
     /**
      * 保存一条不可变文档关系审核动作。
@@ -26,7 +27,7 @@ public class DocumentRelationReviewRepository {
      */
     public void save(DocumentRelationReview review) {
         // 使用插入而非更新保留完整审核历史
-        mapper.insert(toEntity(review));
+        mapper.insert(entityMapper.toEntity(review));
     }
 
     /**
@@ -48,43 +49,8 @@ public class DocumentRelationReviewRepository {
                                 .orderByDesc(DocumentRelationReviewEntity::getCreatedAt)
                                 .orderByDesc(DocumentRelationReviewEntity::getId)
                 ).stream()
-                .map(this::toDomain)
+                .map(entityMapper::toDomain)
                 .toList();
     }
 
-    /**
-     * 将持久化实体转换为审核历史领域模型。
-     *
-     * @param entity MyBatis-Plus 持久化实体
-     * @return 审核历史领域模型
-     */
-    private DocumentRelationReview toDomain(DocumentRelationReviewEntity entity) {
-        return new DocumentRelationReview(
-                entity.getId(),
-                entity.getSpaceId(),
-                entity.getDocumentRelationId(),
-                entity.getAction(),
-                entity.getReason(),
-                entity.getOperatorName(),
-                Instant.parse(entity.getCreatedAt())
-        );
-    }
-
-    /**
-     * 将审核历史领域模型转换为 MyBatis-Plus 实体。
-     *
-     * @param review 审核历史领域模型
-     * @return MyBatis-Plus 持久化实体
-     */
-    private DocumentRelationReviewEntity toEntity(DocumentRelationReview review) {
-        DocumentRelationReviewEntity entity = new DocumentRelationReviewEntity();
-        entity.setId(review.id());
-        entity.setSpaceId(review.spaceId());
-        entity.setDocumentRelationId(review.documentRelationId());
-        entity.setAction(review.action());
-        entity.setReason(review.reason());
-        entity.setOperatorName(review.operatorName());
-        entity.setCreatedAt(review.createdAt().toString());
-        return entity;
-    }
 }

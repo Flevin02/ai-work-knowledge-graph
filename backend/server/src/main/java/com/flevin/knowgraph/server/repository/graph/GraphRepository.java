@@ -1,19 +1,17 @@
 package com.flevin.knowgraph.server.repository.graph;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flevin.knowgraph.server.model.graph.GraphEdge;
 import com.flevin.knowgraph.server.model.graph.GraphEvidence;
 import com.flevin.knowgraph.server.model.graph.GraphNode;
 import com.flevin.knowgraph.server.repository.entity.GraphEdgeEntity;
 import com.flevin.knowgraph.server.repository.entity.GraphEvidenceEntity;
-import com.flevin.knowgraph.server.repository.entity.GraphEvidenceRow;
 import com.flevin.knowgraph.server.repository.entity.GraphNodeEntity;
 import com.flevin.knowgraph.server.repository.mapper.GraphEdgeMapper;
 import com.flevin.knowgraph.server.repository.mapper.GraphEvidenceMapper;
 import com.flevin.knowgraph.server.repository.mapper.GraphNodeMapper;
+import com.flevin.knowgraph.server.repository.mapping.GraphEntityMapper;
+import com.flevin.knowgraph.server.repository.mapping.PersistenceMappingSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -29,13 +27,11 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class GraphRepository {
 
-    private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {
-    };
-
     private final GraphNodeMapper graphNodeMapper;
     private final GraphEdgeMapper graphEdgeMapper;
     private final GraphEvidenceMapper graphEvidenceMapper;
-    private final ObjectMapper objectMapper;
+    private final GraphEntityMapper entityMapper;
+    private final PersistenceMappingSupport mappingSupport;
 
     /**
      * 查询指定知识空间的全部有效图谱节点。
@@ -46,7 +42,7 @@ public class GraphRepository {
     public List<GraphNode> findNodes(String spaceId) {
         // 通过专用 Mapper 查询未失效节点，复杂排序仍由 Mapper SQL 保持明确
         return graphNodeMapper.findActiveBySpaceId(spaceId).stream()
-                .map(this::toDomain)
+                .map(entityMapper::toDomain)
                 .toList();
     }
 
@@ -59,7 +55,7 @@ public class GraphRepository {
     public List<GraphEdge> findEdges(String spaceId) {
         // 通过专用 Mapper 查询未失效关系，保持原有创建顺序
         return graphEdgeMapper.findActiveBySpaceId(spaceId).stream()
-                .map(this::toDomain)
+                .map(entityMapper::toDomain)
                 .toList();
     }
 
@@ -80,7 +76,7 @@ public class GraphRepository {
 
         // 通过 Mapper 的动态 IN 查询批量读取证据和来源资料名称
         return graphEvidenceMapper.findRowsBySpaceIdAndEdgeIds(spaceId, edgeIds).stream()
-                .map(this::toDomain)
+                .map(entityMapper::toDomain)
                 .toList();
     }
 
@@ -139,7 +135,7 @@ public class GraphRepository {
      */
     public void saveNode(GraphNode node) {
         // 将节点来源资料标识序列化为 JSON 并转换为持久化实体
-        GraphNodeEntity entity = toEntity(node);
+        GraphNodeEntity entity = entityMapper.toEntity(node);
 
         // 使用 BaseMapper 保存图谱节点
         graphNodeMapper.insert(entity);
@@ -162,7 +158,7 @@ public class GraphRepository {
 
         // 批量查询候选实体对应节点，避免按实体逐条查询数据库
         return graphNodeMapper.findBySpaceIdAndNormalizedKeys(spaceId, normalizedKeys).stream()
-                .map(this::toDomain)
+                .map(entityMapper::toDomain)
                 .toList();
     }
 
@@ -173,7 +169,7 @@ public class GraphRepository {
      */
     public void updateNode(GraphNode node) {
         // 将节点来源和摘要更新回同一条图谱事实
-        graphNodeMapper.updateById(toEntity(node));
+        graphNodeMapper.updateById(entityMapper.toEntity(node));
     }
 
     /**
@@ -183,7 +179,7 @@ public class GraphRepository {
      */
     public void saveEdge(GraphEdge edge) {
         // 将领域关系转换为 MyBatis-Plus 持久化实体
-        GraphEdgeEntity entity = toEntity(edge);
+        GraphEdgeEntity entity = entityMapper.toEntity(edge);
 
         // 使用 BaseMapper 保存图谱关系
         graphEdgeMapper.insert(entity);
@@ -196,7 +192,7 @@ public class GraphRepository {
      * @return 关系；不存在时为空
      */
     public Optional<GraphEdge> findEdge(String edgeId) {
-        return graphEdgeMapper.findById(edgeId).map(this::toDomain);
+        return graphEdgeMapper.findById(edgeId).map(entityMapper::toDomain);
     }
 
     /**
@@ -222,7 +218,7 @@ public class GraphRepository {
                         .eq(GraphEdgeEntity::getRelationType, relationType)
                         .orderByDesc(GraphEdgeEntity::getUpdatedAt)
                         .last("LIMIT 1")
-        )).map(this::toDomain);
+        )).map(entityMapper::toDomain);
     }
 
     /**
@@ -255,7 +251,7 @@ public class GraphRepository {
      */
     public void saveEvidence(GraphEvidence evidence) {
         // 将领域证据转换为 MyBatis-Plus 持久化实体
-        GraphEvidenceEntity entity = toEntity(evidence);
+        GraphEvidenceEntity entity = entityMapper.toEntity(evidence);
 
         // 使用 BaseMapper 保存图谱关系证据
         graphEvidenceMapper.insert(entity);
@@ -320,7 +316,8 @@ public class GraphRepository {
             Instant updatedAt,
             List<String> staleNodeIds
     ) {
-        List<String> sourceIds = readSourceIds(node.getSourceIdsJson());
+        // 解析节点来源资料标识，复用持久化映射的统一 JSON 转换规则
+        List<String> sourceIds = mappingSupport.jsonToStringList(node.getSourceIdsJson());
         if (!sourceIds.contains(documentId)) {
             return;
         }
@@ -329,7 +326,8 @@ public class GraphRepository {
         List<String> remainingSourceIds = sourceIds.stream()
                 .filter(sourceId -> !documentId.equals(sourceId))
                 .toList();
-        node.setSourceIdsJson(writeSourceIds(remainingSourceIds));
+        // 将剩余来源资料标识按统一格式序列化回持久化字段
+        node.setSourceIdsJson(mappingSupport.stringListToJson(remainingSourceIds));
         node.setUpdatedAt(updatedAt.toString());
 
         if (remainingSourceIds.isEmpty()) {
@@ -341,160 +339,4 @@ public class GraphRepository {
         graphNodeMapper.updateById(node);
     }
 
-    /**
-     * 将节点来源资料标识转换为数据库 JSON 字符串。
-     *
-     * @param sourceIds 来源资料标识
-     * @return JSON 数组字符串
-     */
-    private String writeSourceIds(List<String> sourceIds) {
-        try {
-            // 使用项目统一 ObjectMapper 序列化来源资料标识
-            return objectMapper.writeValueAsString(sourceIds);
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("无法序列化图谱节点来源资料标识", exception);
-        }
-    }
-
-    /**
-     * 将数据库 JSON 字符串解析为节点来源资料标识。
-     *
-     * @param sourceIdsJson 来源资料标识 JSON
-     * @return 来源资料标识列表
-     */
-    private List<String> readSourceIds(String sourceIdsJson) {
-        try {
-            // 使用项目统一 ObjectMapper 解析来源资料标识
-            return objectMapper.readValue(sourceIdsJson, STRING_LIST_TYPE);
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("图谱节点来源资料标识不是有效 JSON", exception);
-        }
-    }
-
-    /**
-     * 将 MyBatis-Plus 节点实体转换为领域模型。
-     *
-     * @param entity 节点持久化实体
-     * @return 图谱节点领域模型
-     */
-    private GraphNode toDomain(GraphNodeEntity entity) {
-        try {
-            // 解析节点来源资料标识 JSON 数组
-            List<String> sourceIds = readSourceIds(entity.getSourceIdsJson());
-            return new GraphNode(
-                    entity.getId(),
-                    entity.getSpaceId(),
-                    entity.getNodeType(),
-                    entity.getLabel(),
-                    entity.getSummary(),
-                    entity.getStatus(),
-                    entity.getNormalizedKey(),
-                    sourceIds,
-                    Instant.parse(entity.getCreatedAt()),
-                    Instant.parse(entity.getUpdatedAt())
-            );
-        } catch (IllegalStateException exception) {
-            throw exception;
-        }
-    }
-
-    /**
-     * 将 MyBatis-Plus 关系实体转换为领域模型。
-     *
-     * @param entity 关系持久化实体
-     * @return 图谱关系领域模型
-     */
-    private GraphEdge toDomain(GraphEdgeEntity entity) {
-        return new GraphEdge(
-                entity.getId(),
-                entity.getSpaceId(),
-                entity.getSourceNodeId(),
-                entity.getTargetNodeId(),
-                entity.getRelationType(),
-                entity.getStatus(),
-                entity.getConfidence(),
-                Instant.parse(entity.getCreatedAt()),
-                Instant.parse(entity.getUpdatedAt())
-        );
-    }
-
-    /**
-     * 将联合查询证据行转换为领域模型。
-     *
-     * @param row 证据联合查询行
-     * @return 图谱证据领域模型
-     */
-    private GraphEvidence toDomain(GraphEvidenceRow row) {
-        return new GraphEvidence(
-                row.getId(),
-                row.getSpaceId(),
-                row.getEdgeId(),
-                row.getSourceDocumentId(),
-                row.getSourceDocumentName(),
-                row.getQuote(),
-                row.getLocator(),
-                row.getExtractionMethod(),
-                Instant.parse(row.getCreatedAt())
-        );
-    }
-
-    /**
-     * 将图谱节点领域模型转换为持久化实体。
-     *
-     * @param node 图谱节点
-     * @return 节点持久化实体
-     */
-    private GraphNodeEntity toEntity(GraphNode node) {
-        GraphNodeEntity entity = new GraphNodeEntity();
-        entity.setId(node.id());
-        entity.setSpaceId(node.spaceId());
-        entity.setNodeType(node.type());
-        entity.setLabel(node.label());
-        entity.setSummary(node.summary());
-        entity.setStatus(node.status());
-        entity.setNormalizedKey(node.normalizedKey());
-        entity.setSourceIdsJson(writeSourceIds(node.sourceIds()));
-        entity.setCreatedAt(node.createdAt().toString());
-        entity.setUpdatedAt(node.updatedAt().toString());
-        return entity;
-    }
-
-    /**
-     * 将图谱关系领域模型转换为持久化实体。
-     *
-     * @param edge 图谱关系
-     * @return 关系持久化实体
-     */
-    private GraphEdgeEntity toEntity(GraphEdge edge) {
-        GraphEdgeEntity entity = new GraphEdgeEntity();
-        entity.setId(edge.id());
-        entity.setSpaceId(edge.spaceId());
-        entity.setSourceNodeId(edge.sourceNodeId());
-        entity.setTargetNodeId(edge.targetNodeId());
-        entity.setRelationType(edge.type());
-        entity.setStatus(edge.status());
-        entity.setConfidence(edge.confidence());
-        entity.setCreatedAt(edge.createdAt().toString());
-        entity.setUpdatedAt(edge.updatedAt().toString());
-        return entity;
-    }
-
-    /**
-     * 将图谱证据领域模型转换为持久化实体。
-     *
-     * @param evidence 图谱证据
-     * @return 证据持久化实体
-     */
-    private GraphEvidenceEntity toEntity(GraphEvidence evidence) {
-        GraphEvidenceEntity entity = new GraphEvidenceEntity();
-        entity.setId(evidence.id());
-        entity.setSpaceId(evidence.spaceId());
-        entity.setEdgeId(evidence.edgeId());
-        entity.setSourceDocumentId(evidence.sourceDocumentId());
-        entity.setQuote(evidence.quote());
-        entity.setLocator(evidence.locator());
-        entity.setExtractionMethod(evidence.extractionMethod());
-        entity.setCreatedAt(evidence.createdAt().toString());
-        return entity;
-    }
 }

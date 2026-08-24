@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.flevin.knowgraph.server.model.document.ImportBatch;
 import com.flevin.knowgraph.server.repository.entity.ImportBatchEntity;
 import com.flevin.knowgraph.server.repository.mapper.ImportBatchMapper;
+import com.flevin.knowgraph.server.repository.mapping.ImportBatchEntityMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -18,6 +19,7 @@ import java.time.Instant;
 public class ImportBatchRepository {
 
     private final ImportBatchMapper importBatchMapper;
+    private final ImportBatchEntityMapper entityMapper;
 
     /**
      * 新增一条待处理的来源资料导入批次。
@@ -26,7 +28,7 @@ public class ImportBatchRepository {
      */
     public void save(ImportBatch batch) {
         // 将领域批次转换为 MyBatis-Plus 持久化实体
-        ImportBatchEntity entity = toEntity(batch);
+        ImportBatchEntity entity = entityMapper.toEntity(batch);
 
         // 使用 BaseMapper 插入批次初始状态
         importBatchMapper.insert(entity);
@@ -65,23 +67,4 @@ public class ImportBatchRepository {
         importBatchMapper.update(updateEntity, updateWrapper);
     }
 
-    /**
-     * 将领域批次转换为 MyBatis-Plus 实体。
-     *
-     * @param batch 导入批次领域模型
-     * @return 持久化实体
-     */
-    private ImportBatchEntity toEntity(ImportBatch batch) {
-        ImportBatchEntity entity = new ImportBatchEntity();
-        entity.setId(batch.id());
-        entity.setSpaceId(batch.spaceId());
-        entity.setStatus(batch.status());
-        entity.setTotalCount(batch.totalCount());
-        entity.setImportedCount(batch.importedCount());
-        entity.setDuplicateCount(batch.duplicateCount());
-        entity.setFailedCount(batch.failedCount());
-        entity.setCreatedAt(batch.createdAt().toString());
-        entity.setCompletedAt(batch.completedAt() == null ? null : batch.completedAt().toString());
-        return entity;
-    }
 }

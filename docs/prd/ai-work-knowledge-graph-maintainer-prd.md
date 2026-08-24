@@ -1,6 +1,6 @@
 ---
 title: AI 工作知识图谱维护助手 PRD
-version: v0.30
+version: v0.31
 status: 开发中
 created: 2026-08-17
 updated: 2026-08-24
@@ -676,6 +676,8 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 评估首次从关系两端运行时暴露有向关系重复建议率 0.3636；已按冻结幂等契约从关系键中移除“相对于本次运行”的 `direction`，保留最终主体/客体、关系类型、内容指纹和策略版本，并补充反向运行回归。Java 21 根 Reactor 67 项测试全部通过，评估报告位于 `docs/tests/document-association-evaluation-report-v1.md`。
 - 已完成专项阶段 2 第一小切片：新增 `tags`、`document_tags` 和 `document_tag_evidences` 三张 SQLite 表及索引，使用 MyBatis-Plus Entity/Mapper 和聚合 Repository 隔离 ORM；`DocumentTagPersistenceService` 负责空间/来源资料/内容指纹校验、标签轻量规范化、AI `suggested` 与用户 `confirmed` 初始状态、模型版本快照和逐字证据原子保存。
 - 标签字典按 `spaceId + normalizedKey` 复用；AI 文档标签按照第 17.1 节冻结的 `spaceId + sourceDocumentId + contentHash + normalizedTagKey + promptVersion + schemaVersion` 生成 SHA-256 稳定键，同版本重复运行复用旧候选，Prompt 版本变化保留新候选。标签专项 4 项和隔离后的 Java 21 根 Reactor 71 项测试通过；Fake 标签模型、标签运行、审核历史/API、前端标签导航和浏览器仍未实现。
+- 已引入 MapStruct 1.6.3 和 Lombok 绑定注解处理配置，将 AI 抽取运行、文档关联、来源资料、知识空间及图谱 Repository 中重复的 ORM Entity/领域模型转换集中为编译期映射器，并将知识空间、来源资料、文档关联和图谱的接口响应转换从 Service 实现中独立出来；查询、排序、事务、状态迁移和外部 API 字段保持不变。
+- 持久化映射统一复用 `PersistenceMappingSupport` 处理 ISO-8601 时间、文档类型兼容回退、可空数值和图谱来源标识 JSON，所有映射器使用 `unmappedTargetPolicy=ERROR` 在编译期拒绝遗漏目标字段；新增 4 项集中映射边界测试，Java 21 根 Reactor 全量 75 项测试通过。
 
 ## 18.2 当前验证边界
 
@@ -694,6 +696,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 浏览器回归使用临时安装且未写入项目依赖的 Playwright Core 驱动本机无头 Chrome，并使用隔离端口、临时 SQLite、虚构文件和 Fake 抽取运行记录；它证明了当前 hydration 后的交互状态，不等于可见浏览器人工验收、真实模型并发运行或生产网络验证。
 - 当前自动测试已断言抽取资源的 OpenAPI `200` 响应包含 `text/event-stream`；`SourceDocumentResponse.documentType` 的枚举值仍重复展示两组 `general/prd`，属于注解显式值和枚举推导叠加的文档问题，后续应去除重复声明并补充对应断言。
 - 数据库启动初始化和旧库兼容迁移仍使用 JDBC/DDL 执行器，这是数据库结构职责；业务数据的 CRUD、条件查询、统计和 Join 均通过 MyBatis-Plus/MyBatis Mapper 完成。
+- MapStruct 本轮只统一 Java 进程内的 ORM Entity、领域 record 和响应 DTO 转换，没有修改数据库表、SQL、REST 路径、JSON 字段或业务状态机；75 项自动测试证明当前映射编译、核心空值/时间/JSON 边界和既有后端回归通过，不等于真实模型、浏览器、生产数据库或部署联调。
 - 当前 SQLite 有界连接池、WAL、外键、`busy_timeout`、池耗尽和单写锁等待已通过本地自动测试；测试证明长耗时 Fake 模型调用不持有数据库连接，也证明第二写者会在忙等待后失败，不代表真实模型并发、生产负载或多实例共享 SQLite 已完成验证，更不代表 SQLite 获得多写并发能力。
 - 当前 AI 抽取已使用 SSE 返回真实运行事件和模型增量，但尚未对真实 `gpt-5.4-mini` 流式接口、首事件 5 秒目标、反向代理缓冲和真实网络断线完成联调；MockMvc 事件顺序和前端构建不能替代真实 HTTP 分块时序或生产代理验证。
 - 流式进度、结构化结果和历史结果已经合并到来源资料弹窗的 AI Tab，并有无运行空态、历史结果读取失败、最近失败回退历史成功和关闭后重新读取逻辑；桌面 Web 已完成隔离 Chrome 交互回归。根据当前产品优先级，移动端布局、触控和读屏验收顺延到 Web 主线稳定后的专项任务，不阻塞当前阶段。
@@ -755,6 +758,7 @@ v0.13 已完成分页接口、MyBatis-Plus SQLite 分页、最近运行与最近
 8. **已完成当前自动验证：以二阶段模型汇总生成自然全文摘要**：每份文档完成所有分片抽取后（包括只有一个分片时）新增一次全文汇总模型调用，输入文档名称、业务类型、按原文顺序排列的章节路径和已校验分片摘要，输出一段 1～160 字符的自然中文全文摘要。独立 `document-summary-v1` Prompt 禁止“本分片/当前分片”、YAML、候选标识、机械分号拼接和原文外事实；全文摘要仅用于展示，不作为关系证据。`ai_extraction_runs` 保存摘要 Prompt 版本、`not_started/completed/failed` 状态和失败原因；汇总失败时整次抽取仍为 `completed`，候选事实正常落库，`document_summary` 为空并回退导入原文 excerpt。SSE 新增 `document_summary_started` / `document_summary_completed` 阶段事件，结构化抽取和文本摘要分别使用独立 AI Service，避免 JSON Schema 误套到摘要请求。Java 21 根 Reactor 51 项测试和前端 typecheck/build 已通过；真实模型摘要质量、长度遵循度和跨章节自然度仍未验证。
 9. **已完成当前自动验证：无 Embedding 文档候选召回、Fake 关系闭环与固定资料评估**：`DocumentCandidateRecallService` 以 `document-candidate-recall-v1` 固定 TopK=8 执行有效空间过滤、主体排除、显式引用/文件名/标题/章节标题/摘要/正文关键词通道融合、稳定去重和硬负例抑制；`DocumentAssociationService` 再通过 `DocumentAssociationClient` 接入 Fake 判断、候选集合封闭校验、逐字分片证据验证、suggested 幂等物化、运行恢复和批量审核 API。固定 12 份资料的 7 条正例/5 组负例端到端评估达到 Recall@8、关系类型、方向、证据、非 none Precision 和去重门槛，Precision@8 微平均为 0.1707；Java 21 根 Reactor 67 项测试通过。真实资料、真实模型和浏览器前端仍待验证。
 10. **已完成当前自动验证：可选标签持久化基础**：新增标签字典、文档标签和标签证据三张表及 MyBatis-Plus 分层；AI 候选只能以 `suggested` 创建且必须保留置信度、抽取运行、Prompt/Schema 版本和逐字证据，用户手工标签只能以 `confirmed` 创建且不伪造模型字段。标签名称只折叠大小写和空格，不做语义同义词合并；同版本稳定键重复运行复用旧候选，Prompt 变化保留新候选。标签专项 4 项和隔离后的 Java 21 根 Reactor 71 项测试通过；真实模型、标签运行、审核 API、前端和浏览器未验证。
+11. **已完成当前自动验证：MapStruct 映射收敛**：引入 MapStruct 编译期映射和 Lombok 绑定，将 9 组持久化映射及 4 组接口响应映射从 Repository/ServiceImpl 手写代码中独立出来；统一时间、枚举、可空数值和 JSON 转换，目标字段遗漏在编译期失败。新增 4 项映射边界测试后，Java 21 根 Reactor 全量 75 项测试通过；该重构不改变数据库、接口契约或业务状态机，也不替代真实模型、浏览器和生产联调。
 
 ### 19.1.4 后续 RAG / Embedding 增强计划
 

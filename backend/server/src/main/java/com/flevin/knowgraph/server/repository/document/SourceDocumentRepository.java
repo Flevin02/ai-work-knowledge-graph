@@ -9,6 +9,7 @@ import com.flevin.knowgraph.server.model.document.SourceDocumentPage;
 import com.flevin.knowgraph.server.model.document.SourceDocumentType;
 import com.flevin.knowgraph.server.repository.entity.SourceDocumentEntity;
 import com.flevin.knowgraph.server.repository.mapper.SourceDocumentMapper;
+import com.flevin.knowgraph.server.repository.mapping.SourceDocumentEntityMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -24,6 +25,7 @@ import java.util.Optional;
 public class SourceDocumentRepository {
 
     private final SourceDocumentMapper sourceDocumentMapper;
+    private final SourceDocumentEntityMapper entityMapper;
 
     /**
      * 保存已完成解析和原始文件落盘的来源资料。
@@ -32,7 +34,7 @@ public class SourceDocumentRepository {
      */
     public void save(SourceDocument document) {
         // 将领域来源资料转换为 MyBatis-Plus 持久化实体
-        SourceDocumentEntity entity = toEntity(document);
+        SourceDocumentEntity entity = entityMapper.toEntity(document);
 
         // 使用 BaseMapper 插入来源资料结构化索引和原文
         sourceDocumentMapper.insert(entity);
@@ -55,7 +57,7 @@ public class SourceDocumentRepository {
                         .eq(SourceDocumentEntity::getSpaceId, spaceId)
                         .eq(SourceDocumentEntity::getContentHash, contentHash)
         );
-        return Optional.ofNullable(entity).map(this::toDomain);
+        return Optional.ofNullable(entity).map(entityMapper::toDomain);
     }
 
     /**
@@ -76,7 +78,7 @@ public class SourceDocumentRepository {
                         .eq(SourceDocumentEntity::getId, documentId)
                         .eq(SourceDocumentEntity::getStatus, "active")
         );
-        return Optional.ofNullable(entity).map(this::toDomain);
+        return Optional.ofNullable(entity).map(entityMapper::toDomain);
     }
 
     /**
@@ -96,7 +98,7 @@ public class SourceDocumentRepository {
         );
 
         // 将 ORM 实体转换为领域模型，避免 Service 感知 MyBatis-Plus
-        return entities.stream().map(this::toDomain).toList();
+        return entities.stream().map(entityMapper::toDomain).toList();
     }
 
     /**
@@ -141,7 +143,7 @@ public class SourceDocumentRepository {
 
         // 将 ORM 分页记录转换为领域模型，避免 Service 感知 MyBatis-Plus
         List<SourceDocument> documents = entityPage.getRecords().stream()
-                .map(this::toDomain)
+                .map(entityMapper::toDomain)
                 .toList();
 
         // 返回领域分页结果，并保留插件计算的总数和总页数
@@ -224,54 +226,4 @@ public class SourceDocumentRepository {
         return sourceDocumentMapper.update(updateEntity, updateWrapper);
     }
 
-    /**
-     * 将 MyBatis-Plus 实体转换为来源资料领域模型。
-     *
-     * @param entity 持久化实体
-     * @return 来源资料领域模型
-     */
-    private SourceDocument toDomain(SourceDocumentEntity entity) {
-        return new SourceDocument(
-                entity.getId(),
-                entity.getSpaceId(),
-                entity.getBatchId(),
-                entity.getName(),
-                entity.getKind(),
-                SourceDocumentType.fromValue(entity.getDocumentType())
-                        .orElse(SourceDocumentType.GENERAL),
-                entity.getContentHash(),
-                entity.getStoragePath(),
-                entity.getContentText(),
-                entity.getExcerpt(),
-                entity.getStatus(),
-                entity.getFileSize(),
-                Instant.parse(entity.getImportedAt()),
-                Instant.parse(entity.getUpdatedAt())
-        );
-    }
-
-    /**
-     * 将来源资料领域模型转换为 MyBatis-Plus 实体。
-     *
-     * @param document 来源资料领域模型
-     * @return 持久化实体
-     */
-    private SourceDocumentEntity toEntity(SourceDocument document) {
-        SourceDocumentEntity entity = new SourceDocumentEntity();
-        entity.setId(document.id());
-        entity.setSpaceId(document.spaceId());
-        entity.setBatchId(document.batchId());
-        entity.setName(document.name());
-        entity.setKind(document.kind());
-        entity.setDocumentType(document.documentType().getValue());
-        entity.setContentHash(document.contentHash());
-        entity.setStoragePath(document.storagePath());
-        entity.setContentText(document.contentText());
-        entity.setExcerpt(document.excerpt());
-        entity.setStatus(document.status());
-        entity.setFileSize(document.fileSize());
-        entity.setImportedAt(document.importedAt().toString());
-        entity.setUpdatedAt(document.updatedAt().toString());
-        return entity;
-    }
 }

@@ -7,6 +7,7 @@ import com.flevin.knowgraph.server.model.space.CreateKnowledgeSpaceRequest;
 import com.flevin.knowgraph.server.model.space.KnowledgeSpace;
 import com.flevin.knowgraph.server.model.space.KnowledgeSpaceResponse;
 import com.flevin.knowgraph.server.repository.space.KnowledgeSpaceRepository;
+import com.flevin.knowgraph.server.service.space.KnowledgeSpaceResponseMapper;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
 import com.flevin.knowgraph.server.storage.LocalFileStorage;
 import org.springframework.stereotype.Service;
@@ -26,13 +27,16 @@ public class KnowledgeSpaceServiceImpl implements KnowledgeSpaceService {
 
     private final KnowledgeSpaceRepository knowledgeSpaceRepository;
     private final LocalFileStorage localFileStorage;
+    private final KnowledgeSpaceResponseMapper responseMapper;
 
     public KnowledgeSpaceServiceImpl(
             KnowledgeSpaceRepository knowledgeSpaceRepository,
-            LocalFileStorage localFileStorage
+            LocalFileStorage localFileStorage,
+            KnowledgeSpaceResponseMapper responseMapper
     ) {
         this.knowledgeSpaceRepository = knowledgeSpaceRepository;
         this.localFileStorage = localFileStorage;
+        this.responseMapper = responseMapper;
     }
 
     /**
@@ -44,7 +48,7 @@ public class KnowledgeSpaceServiceImpl implements KnowledgeSpaceService {
     public List<KnowledgeSpaceResponse> listSpaces() {
         // 查询有效空间并转换为接口响应
         return knowledgeSpaceRepository.findAllActive().stream()
-                .map(this::toResponse)
+                .map(responseMapper::toResponse)
                 .toList();
     }
 
@@ -93,7 +97,8 @@ public class KnowledgeSpaceServiceImpl implements KnowledgeSpaceService {
 
         // 保存新知识空间
         knowledgeSpaceRepository.save(space);
-        return toResponse(space);
+        // 将新建领域模型转换为接口响应
+        return responseMapper.toResponse(space);
     }
 
     /**
@@ -145,20 +150,4 @@ public class KnowledgeSpaceServiceImpl implements KnowledgeSpaceService {
         return description.strip();
     }
 
-    /**
-     * 将知识空间持久化模型转换为接口响应。
-     *
-     * @param space 知识空间模型
-     * @return 知识空间响应
-     */
-    private KnowledgeSpaceResponse toResponse(KnowledgeSpace space) {
-        return new KnowledgeSpaceResponse(
-                space.id(),
-                space.name(),
-                space.description(),
-                space.status(),
-                space.createdAt(),
-                space.updatedAt()
-        );
-    }
 }

@@ -21,6 +21,7 @@ import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
 import com.flevin.knowgraph.server.repository.ai.AiExtractionRunRepository;
 import com.flevin.knowgraph.server.repository.graph.GraphRepository;
 import com.flevin.knowgraph.server.service.document.DocumentService;
+import com.flevin.knowgraph.server.service.document.SourceDocumentResponseMapper;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
 import com.flevin.knowgraph.server.storage.LocalFileStorage;
 import lombok.extern.slf4j.Slf4j;
@@ -70,6 +71,7 @@ public class DocumentServiceImpl implements DocumentService {
     private final LocalFileStorage localFileStorage;
     private final GraphRepository graphRepository;
     private final AiExtractionRunRepository aiExtractionRunRepository;
+    private final SourceDocumentResponseMapper responseMapper;
 
     /**
      * 导入一批 Markdown、TXT 或文本型 PDF 来源资料，逐文件返回成功、重复或失败结果。
@@ -724,29 +726,15 @@ public class DocumentServiceImpl implements DocumentService {
     ) {
         SourceDocumentExtractionSummary extractionSummary = extractionOverview == null
                 ? SourceDocumentExtractionSummary.notStarted()
-                : new SourceDocumentExtractionSummary(
-                        extractionOverview.extractionId(),
-                        extractionOverview.status(),
-                        extractionOverview.startedAt(),
-                        extractionOverview.completedAt(),
-                        extractionOverview.errorMessage()
-                );
+                : responseMapper.toExtractionSummary(extractionOverview);
         // 优先使用最近成功运行生成的摘要，旧版运行无摘要时回退导入原文预览
         String excerpt = extractionOverview == null || extractionOverview.latestCompletedSummary() == null
                 ? document.excerpt()
                 : extractionOverview.latestCompletedSummary();
-        return new SourceDocumentResponse(
-                document.id(),
-                document.spaceId(),
-                document.name(),
-                document.kind(),
-                document.documentType(),
-                document.contentHash(),
+        // 将来源资料和服务层确定的展示字段转换为安全接口响应
+        return responseMapper.toResponse(
+                document,
                 excerpt,
-                document.status(),
-                document.fileSize(),
-                document.importedAt(),
-                document.updatedAt(),
                 extractionSummary,
                 extractionOverview == null ? null : extractionOverview.latestCompletedExtractionId()
         );

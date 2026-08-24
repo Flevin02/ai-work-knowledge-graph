@@ -26,6 +26,7 @@ import com.flevin.knowgraph.server.service.ai.rag.PrdMarkdownSectionParser;
 import com.flevin.knowgraph.server.service.ai.rag.SectionAwareDocumentChunker;
 import com.flevin.knowgraph.server.service.association.DocumentAssociationClient;
 import com.flevin.knowgraph.server.service.association.DocumentAssociationPersistenceService;
+import com.flevin.knowgraph.server.service.association.DocumentAssociationResponseMapper;
 import com.flevin.knowgraph.server.service.association.DocumentAssociationService;
 import com.flevin.knowgraph.server.service.association.DocumentCandidateRecallService;
 import jakarta.validation.ConstraintViolation;
@@ -92,6 +93,7 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
 
     private final DocumentCandidateRecallService candidateRecallService;
     private final DocumentAssociationPersistenceService persistenceService;
+    private final DocumentAssociationResponseMapper responseMapper;
     private final SourceDocumentRepository sourceDocumentRepository;
     private final AiExtractionRunRepository extractionRunRepository;
     private final PrdMarkdownSectionParser sectionParser;
@@ -1051,22 +1053,10 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
     private DocumentAssociationRunResponse toRunResponse(DocumentAssociationRun run) {
         // 查询该运行实际新保存的关系；幂等复用历史关系不重复挂到新运行
         List<DocumentRelation> relations = persistenceService.listRelationsByRun(run.spaceId(), run.id());
-        return new DocumentAssociationRunResponse(
-                run.id(),
-                run.sourceDocumentId(),
-                run.status(),
-                run.failureStage(),
-                run.errorMessage(),
-                run.candidateCount(),
-                run.comparedCount(),
-                run.suggestionCount(),
-                run.promptVersion(),
-                run.schemaVersion(),
-                run.candidateRecallPolicyVersion(),
-                run.associationPolicyVersion(),
-                toRelationResponses(run.spaceId(), relations),
-                run.createdAt(),
-                run.completedAt()
+        // 将运行快照和批量组装后的关系转换为 API 响应
+        return responseMapper.toRunResponse(
+                run,
+                toRelationResponses(run.spaceId(), relations)
         );
     }
 
@@ -1113,32 +1103,10 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
             List<DocumentRelationEvidence> evidences
     ) {
         List<DocumentRelationResponse.Evidence> evidenceResponses = evidences.stream()
-                .map(evidence -> new DocumentRelationResponse.Evidence(
-                        evidence.id(),
-                        evidence.sourceDocumentId(),
-                        evidence.chunkId(),
-                        evidence.sectionPath(),
-                        evidence.quote(),
-                        evidence.startOffset(),
-                        evidence.endOffset(),
-                        evidence.evidenceRole()
-                ))
+                .map(responseMapper::toEvidenceResponse)
                 .toList();
-        return new DocumentRelationResponse(
-                relation.id(),
-                relation.sourceDocumentId(),
-                relation.targetDocumentId(),
-                relation.relationType(),
-                relation.direction(),
-                relation.status(),
-                relation.generationMode(),
-                relation.confidence(),
-                relation.reason(),
-                relation.associationRunId(),
-                evidenceResponses,
-                relation.createdAt(),
-                relation.updatedAt()
-        );
+        // 将关系领域模型和已校验证据转换为 API 响应
+        return responseMapper.toRelationResponse(relation, evidenceResponses);
     }
 
     /**
