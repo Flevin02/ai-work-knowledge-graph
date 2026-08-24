@@ -20,9 +20,10 @@ import com.flevin.knowgraph.server.support.TestKnowledgeSpaceFixtures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
@@ -39,7 +40,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest(classes = KnowledgeGraphApplication.class, properties = {
         "app.database-path=target/test-data/document-association-service.sqlite",
-        "app.upload-dir=target/test-data/document-association-service-uploads"
+        "app.upload-dir=target/test-data/document-association-service-uploads",
+        "test.document-association-client=service"
 })
 @Import(DocumentAssociationServiceIntegrationTests.FakeAssociationConfiguration.class)
 class DocumentAssociationServiceIntegrationTests {
@@ -178,7 +180,8 @@ class DocumentAssociationServiceIntegrationTests {
         ).orElseThrow();
     }
 
-    @Configuration
+    @TestConfiguration
+    @ConditionalOnProperty(name = "test.document-association-client", havingValue = "service")
     static class FakeAssociationConfiguration {
 
         @Bean

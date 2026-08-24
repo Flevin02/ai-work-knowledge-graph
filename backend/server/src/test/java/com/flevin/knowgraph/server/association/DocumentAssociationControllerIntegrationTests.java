@@ -30,7 +30,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest(properties = {
         "app.database-path=target/test-data/document-association-controller.sqlite",
-        "app.upload-dir=target/test-data/document-association-controller-uploads"
+        "app.upload-dir=target/test-data/document-association-controller-uploads",
+        "test.document-association-client=service"
 })
 @AutoConfigureMockMvc
 @Import(DocumentAssociationServiceIntegrationTests.FakeAssociationConfiguration.class)

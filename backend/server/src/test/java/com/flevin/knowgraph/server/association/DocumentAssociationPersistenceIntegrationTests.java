@@ -327,6 +327,74 @@ class DocumentAssociationPersistenceIntegrationTests {
     }
 
     @Test
+    void rejectsDuplicateDirectedRelationWhenReverseRunUsesRelativeDirection() {
+        SourceDocument sourceDocument = importDocument(
+                DEFAULT_SPACE_ID,
+                "引用主体.md",
+                "引用主体明确引用了目标资料。"
+        );
+        SourceDocument targetDocument = importDocument(
+                DEFAULT_SPACE_ID,
+                "引用目标.md",
+                "引用目标保存被引用的业务结论。"
+        );
+        DocumentAssociationRun sourceRun = newRun(sourceDocument);
+        DocumentAssociationRun targetRun = newRun(targetDocument);
+
+        // 保存关系两端各自发起的运行，模拟同一关系从正反方向被召回
+        persistenceService.saveRun(sourceRun);
+        persistenceService.saveRun(targetRun);
+
+        DocumentRelation firstSuggestion = new DocumentRelation(
+                "relation-directed-forward",
+                DEFAULT_SPACE_ID,
+                sourceDocument.id(),
+                targetDocument.id(),
+                "references",
+                "current_to_candidate",
+                "suggested",
+                "explicit_reference",
+                0.9,
+                "主体文档明确引用目标资料。",
+                sourceRun.id(),
+                sourceDocument.contentHash(),
+                targetDocument.contentHash(),
+                POLICY_VERSION,
+                null,
+                TEST_TIME,
+                TEST_TIME
+        );
+
+        // 首次从关系主体运行时保存唯一有向关系
+        persistenceService.saveRelation(firstSuggestion);
+
+        DocumentRelation reverseRunSuggestion = new DocumentRelation(
+                "relation-directed-reverse-run",
+                DEFAULT_SPACE_ID,
+                sourceDocument.id(),
+                targetDocument.id(),
+                "references",
+                "candidate_to_current",
+                "suggested",
+                "explicit_reference",
+                0.9,
+                "目标资料运行时仍识别到同一引用关系。",
+                targetRun.id(),
+                sourceDocument.contentHash(),
+                targetDocument.contentHash(),
+                POLICY_VERSION,
+                null,
+                TEST_TIME.plusSeconds(1),
+                TEST_TIME.plusSeconds(1)
+        );
+
+        // 相对运行方向不同不能改变同一业务关系的稳定幂等键
+        assertThatThrownBy(() -> persistenceService.saveRelation(reverseRunSuggestion))
+                .isInstanceOf(TipsException.class)
+                .hasMessage("相同版本的文档关系已经存在");
+    }
+
+    @Test
     void rejectsCrossSpaceSelfRelationInvalidDirectionAndUntraceableEvidence() {
         SourceDocument sourceDocument = importDocument(
                 DEFAULT_SPACE_ID,
@@ -656,7 +724,6 @@ class DocumentAssociationPersistenceIntegrationTests {
                 "|",
                 leftDocumentId,
                 relationType,
-                direction,
                 rightDocumentId,
                 leftHash,
                 rightHash,

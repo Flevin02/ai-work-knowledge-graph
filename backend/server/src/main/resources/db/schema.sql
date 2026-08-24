@@ -313,7 +313,7 @@ CREATE TABLE IF NOT EXISTS document_relations (
     target_content_hash TEXT NOT NULL,
     -- 关系策略版本快照。
     association_policy_version TEXT NOT NULL,
-    -- 按空间、方向、关系类型、文档和内容指纹计算的稳定幂等键。
+    -- 按空间、关系类型、规范化文档端点和内容指纹计算的稳定幂等键。
     relation_key TEXT NOT NULL,
     -- 关系创建时间，使用 ISO-8601 UTC 字符串。
     created_at TEXT NOT NULL,

@@ -880,7 +880,6 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
                 "|",
                 leftDocumentId,
                 relation.relationType(),
-                relation.direction(),
                 rightDocumentId,
                 leftHash,
                 rightHash,
