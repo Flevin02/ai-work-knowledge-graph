@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -57,6 +58,55 @@ public class DocumentRelationRepository {
                         .eq(DocumentRelationEntity::getId, relationId)
         );
         return Optional.ofNullable(entity).map(this::toDomain);
+    }
+
+    /**
+     * 查询一次关联运行新保存的全部文档关系。
+     *
+     * @param spaceId 知识空间标识
+     * @param runId 文档关联运行标识
+     * @return 按创建时间和关系标识稳定排序的关系列表
+     */
+    public List<DocumentRelation> findAllByRun(
+            String spaceId,
+            String runId
+    ) {
+        // 运行详情只读取当前空间内由该运行新保存的关系
+        return mapper.selectList(
+                        Wrappers.<DocumentRelationEntity>lambdaQuery()
+                                .eq(DocumentRelationEntity::getSpaceId, spaceId)
+                                .eq(DocumentRelationEntity::getAssociationRunId, runId)
+                                .orderByAsc(DocumentRelationEntity::getCreatedAt)
+                                .orderByAsc(DocumentRelationEntity::getId)
+                ).stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    /**
+     * 查询一份来源资料作为任一关系端点的全部文档关系。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 来源资料标识
+     * @return 当前资料相关的关系列表，最近更新优先
+     */
+    public List<DocumentRelation> findAllByDocument(
+            String spaceId,
+            String documentId
+    ) {
+        // 同时匹配有向关系和规范化后的对称关系两端
+        return mapper.selectList(
+                        Wrappers.<DocumentRelationEntity>lambdaQuery()
+                                .eq(DocumentRelationEntity::getSpaceId, spaceId)
+                                .and(wrapper -> wrapper
+                                        .eq(DocumentRelationEntity::getSourceDocumentId, documentId)
+                                        .or()
+                                        .eq(DocumentRelationEntity::getTargetDocumentId, documentId))
+                                .orderByDesc(DocumentRelationEntity::getUpdatedAt)
+                                .orderByDesc(DocumentRelationEntity::getId)
+                ).stream()
+                .map(this::toDomain)
+                .toList();
     }
 
     /**

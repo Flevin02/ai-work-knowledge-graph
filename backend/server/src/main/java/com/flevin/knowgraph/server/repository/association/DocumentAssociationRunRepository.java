@@ -30,6 +30,39 @@ public class DocumentAssociationRunRepository {
     }
 
     /**
+     * 将处理中的文档关联运行更新为完成或失败状态。
+     *
+     * @param run 带最终统计和完成时间的运行快照
+     * @return 实际更新记录数
+     */
+    public int update(DocumentAssociationRun run) {
+        DocumentAssociationRunEntity entity = new DocumentAssociationRunEntity();
+        entity.setStatus(run.status());
+        entity.setFailureStage(run.failureStage());
+        entity.setErrorMessage(run.errorMessage());
+        entity.setCandidateCount(run.candidateCount());
+        entity.setComparedCount(run.comparedCount());
+        entity.setSuggestionCount(run.suggestionCount());
+        entity.setTagCandidateCount(run.tagCandidateCount());
+        entity.setKeywordCandidateCount(run.keywordCandidateCount());
+        entity.setSemanticCandidateCount(run.semanticCandidateCount());
+        entity.setModelRequestCount(run.modelRequestCount());
+        entity.setRetryCount(run.retryCount());
+        entity.setDurationMs(run.durationMs());
+        entity.setCompletedAt(run.completedAt() == null ? null : run.completedAt().toString());
+
+        // 只允许按空间、主体文档和运行标识结束 processing 运行
+        return mapper.update(
+                entity,
+                Wrappers.<DocumentAssociationRunEntity>lambdaUpdate()
+                        .eq(DocumentAssociationRunEntity::getSpaceId, run.spaceId())
+                        .eq(DocumentAssociationRunEntity::getSourceDocumentId, run.sourceDocumentId())
+                        .eq(DocumentAssociationRunEntity::getId, run.id())
+                        .eq(DocumentAssociationRunEntity::getStatus, "processing")
+        );
+    }
+
+    /**
      * 按空间、主体文档和运行标识查询文档关联运行。
      *
      * @param spaceId 知识空间标识

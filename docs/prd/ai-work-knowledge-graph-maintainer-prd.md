@@ -667,9 +667,11 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 阶段 0 静态验收已通过：JSON 可解析，文档/关系/用例标识唯一，正负答案无冲突，五种关系均有正例，长文档超过当前 1500 字符分片基线，所有标签与关系证据均可在对应文件逐字反查；`git diff --check` 通过。本轮只新增 fixture、设计契约和评估文档，没有新增产品表、接口、Service 或前端功能。
 - 已完成专项阶段 1 第一小切片：新增 `document_association_runs`、`document_relations`、`document_relation_evidences` 和 `document_relation_reviews` 四张独立 SQLite 表及索引；新增 MyBatis-Plus Entity/Mapper/Repository、领域模型和 `DocumentAssociationPersistenceService`，保留现有实体图谱表不变。
 - 持久化 Service 已验证有效知识空间和来源资料归属、内容指纹快照、五种关系白名单、关系方向、对称关系规范化、稳定 SHA-256 幂等键、运行归属、证据两端归属、逐字原文反查、证据角色和 suggested→confirmed/rejected 审核状态迁移；审核历史使用不可变插入记录。
-- Java 21 根 Reactor 全量测试 57 项通过，其中新增文档关联持久化集成测试 4 项；覆盖新表启动、运行/关系/证据/审核落库、空间隔离、自关联、非法方向、对称关系重复、错误证据和审核状态边界。
+- Java 21 根 Reactor 全量测试 65 项通过，其中包含文档关联持久化、Fake/SQLite Pipeline、MockMvc 运行/关系/审核和 OpenAPI 测试；覆盖新表启动、运行/关系/证据/审核落库、空间隔离、自关联、非法方向、对称关系重复、错误证据、空召回、审核状态恢复和 API 契约。
 - 已完成专项阶段 1 第二小切片：新增 `DocumentCandidateRecallService`、候选领域模型和确定性无 Embedding 召回实现；严格限定同一知识空间的有效来源资料并排除主体文档，按显式引用、标题、章节标题、摘要和正文关键词融合去重，固定 `document-candidate-recall-v1` 与 TopK=8，返回命中通道、有限关键词、规则分数和稳定排名。
 - 固定 `document-association-eval-v1` 的 7 个召回用例已通过 Java 21 SQLite 集成测试：期望候选均进入前 8，孤立打印机资料返回空列表，冻结硬负例未进入对应前 8，TopK 超过 8 被明确拒绝；该测试只证明本地虚构资料上的确定性召回，不证明真实资料或语义召回质量。
+- 已完成专项阶段 1 第三/四小切片：新增供应商无关 `DocumentAssociationClient`、Fake 关系判断 Pipeline、创建/恢复关联运行 API、关系查询 API 和批量审核 API。服务端限定模型只能逐一判断最多 8 份候选；`none` 不持久化；非 `none` 必须通过关系白名单、方向、候选集合、`chunkId`/`sectionPath` 和 quote 逐字反查，随后以 `suggested` 幂等保存关系及证据；审核只接收服务端关系标识和 `accept/reject` 动作。
+- 新增 Fake/SQLite/MockMvc 集成测试，覆盖有效关系、无效证据不入审核、空召回不调用模型、重复运行幂等、审核状态恢复、HTTP 路径和 OpenAPI 具体响应模型；Java 21 根 Reactor 全量 65 项测试通过。该结果只证明最小固定 Pipeline 和本地边界，不等于固定资料 7 条正例的完整关系指标或真实模型质量。
 
 ## 18.2 当前验证边界
 
@@ -699,7 +701,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 批量提取接口仅验证了后端 Fake 模型下的 2 并发任务受理、独立运行持久化和队列拒绝响应结构；尚未验证真实模型并发限额、线程池满载、真实 SQLite 写锁等待、页面离开后状态恢复或生产部署中的任务观测。批量删除已验证事务内成功路径，尚未对中途异常的完整回滚做故障注入测试。
 - 当前 `document_summary` 已改为“分片摘要 Map → 一次模型 Reduce 汇总”的自然全文摘要；单分片和多分片均执行独立汇总阶段，失败时不影响已校验候选事实落库并回退导入原文 excerpt。Fake/SQLite/MockMvc 已验证状态、事件和失败原因，真实 `gpt-5.4-mini` 的摘要质量、长度遵循度和跨章节自然度仍未验证。
 - 已确认文档关联主线的产品边界：默认业务节点收敛为真实来源文档，默认先按文档内容关联；标签仅作为用户可选的筛选、补充候选和解释条件。独立图谱类型不再是后续用户流程或新增 AI 识别的必选维度。当前尚未实现标签表、文档-标签关系、文档关系表或文档关系图；左侧固定图谱类型前端区域已移除，真实标签导航仍待专项阶段 2。
-- 文档关联阶段 1 当前已完成运行、关系、证据、审核的本地持久化基础和无 Embedding 候选召回；关联判断模型、Controller/API、前端关联审核、文档关系图、正式 Recall@8/Precision@8 评估和真实模型质量仍未实现或验证。候选测试使用固定虚构资料、确定性规则和本地 SQLite，不能表述为完整内容关联链路已完成。
+- 文档关联阶段 1 当前已完成运行、关系、证据、审核的本地持久化基础、无 Embedding 候选召回、Fake 关系判断、逐字证据校验和后端审核 API。前端关联审核、文档关系图、固定资料正式 Recall@8/Precision@8 关系评估和真实模型质量仍未实现或验证；本地 Fake/SQLite/MockMvc 不能替代真实模型、浏览器或生产验证。
 - 2026-08-21 已完成目标态核验：当前浏览器中的真实页面仍是实体/关系混合图，节点点击只更新右侧详情，来源资料名称没有详情页跳转；标签区是空态；没有问答、引用或 Agent 运行入口；Cytoscape 没有悬浮/键盘邻居高亮。新目标已写入 [`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)，文档关系图、标签叠加、详情页、固定 RAG 有据问答和可选 Agent 均保持未实现状态。
 - 本轮 PDF 前端契约已经通过 TypeScript 检查和生产构建，但当前会话缺少浏览器控制运行工具，未执行 PDF 文件选择、卡片标签和预览弹窗的新增浏览器回归；既有 Markdown/TXT 浏览器证据不能替代该项验收。
 - 本地 HTTP 与浏览器验证只使用 `fixture/annual-party/` 和临时生成的纯虚构资料；已进行一次真实模型结构化抽取，但本轮浏览器回归使用 Fake 运行状态，未使用真实公司资料，也未进行生产部署或真实模型浏览器端到端验证。
@@ -711,7 +713,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 
 # 19. 下一步代办与新会话入口
 
-新会话开始时，先阅读本节、`docs/roadmap.md`、[`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)、[`docs/design/document-association-v1-contract.md`](../design/document-association-v1-contract.md) 和固定评估规程，然后进入专项阶段 1 的下一小切片：使用已完成的无 Embedding 候选召回接入 Fake AI 关系判断、候选集合校验、逐字证据校验和关联审核 API；本切片不同时实现真实模型调用、前端审核、标签、Embedding、文档关系图、问答或 Agent。二阶段自然全文摘要和 `prd-extraction-v3` 的真实模型质量边界仍需单独补充，但不阻塞文档关联阶段 1。
+新会话开始时，先阅读本节、`docs/roadmap.md`、[`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)、[`docs/design/document-association-v1-contract.md`](../design/document-association-v1-contract.md) 和固定评估规程，然后进入专项阶段 1 的下一小切片：用固定 `document-association-eval-v1` 的 7 条正例、5 组负例执行完整 Fake 关系判断指标和证据有效率报告，补齐候选排序/关系优先级的失败样例；本切片不同时实现真实模型调用、前端审核、标签、Embedding、文档关系图、问答或 Agent。二阶段自然全文摘要和 `prd-extraction-v3` 的真实模型质量边界仍需单独补充，但不阻塞后端关系闭环。
 
 ## 19.1 已完成验收：SQLite 有界连接池与流式抽取主线
 
@@ -734,7 +736,7 @@ v0.13 已完成分页接口、MyBatis-Plus SQLite 分页、最近运行与最近
 
 ### 19.1.3 已完成验收：连接池、流式抽取、来源资料交互与审核质量
 
-以下事项是 AI 抽取链路进入可用状态前的配套任务；第 1～8 项、候选审核持久化和无 Embedding 候选召回均已完成各自记录的代码和验证边界，专项阶段 0 已完成资料、标注和契约冻结，下一优先级进入 Fake AI 关系判断与证据校验：
+以下事项是 AI 抽取链路进入可用状态前的配套任务；第 1～8 项、候选审核持久化、无 Embedding 候选召回、Fake 关系判断、逐字证据校验和后端审核 API 均已完成各自记录的代码和验证边界，专项阶段 0 已完成资料、标注和契约冻结，下一优先级进入固定资料关系指标评估：
 
 1. **已完成验收：配置数据库连接池**：v0.15 已改用 Spring Boot 自动配置 HikariCP，默认最大连接数 4、最小空闲 1、池获取超时 3 秒；SQLite 每条连接启用 WAL、外键和 5 秒 `busy_timeout`。自动测试验证了池耗尽异常携带稳定池名、WAL 写期间可读取已提交快照、第二写者返回 `SQLITE_BUSY`，以及池上限为 1、Fake 模型阻塞时仍能并发导入和查看资料。该证据只覆盖本地单进程和 Fake 模型，不代表生产负载、多实例或 SQLite 多写能力。
 2. **已完成当前自动验证：将 AI 抽取改为流式输出**：v0.16 已在 Spring MVC + `fetch` 链路使用 `text/event-stream`，事件固定为 `run_started`、`chunk_started`、`delta`、`chunk_completed`、`document_summary_started`、`document_summary_completed`、`completed` 和 `error`。前端通过 `ReadableStream` 增量消费；主视图显示中文处理进度、全文摘要阶段和已校验结果，模型原始 JSON 默认折叠为技术详情。服务端只转发供应商真实增量，完整响应通过 Schema、业务引用和逐字证据校验并成功落库后才发送 `completed`；客户端断线不取消后台运行。Java 21 根 Reactor 51 项测试、前端类型检查和生产构建均通过，OpenAPI 已断言 SSE 媒体类型。真实 `gpt-5.4-mini` 流、全文摘要质量、5 秒首事件、网络代理、浏览器视觉和自动重试仍未验证。
@@ -747,7 +749,7 @@ v0.13 已完成分页接口、MyBatis-Plus SQLite 分页、最近运行与最近
 7. **已完成当前自动验证：关系类型白名单与跨分片实体合并评估**：现有实体图谱兼容链路只允许 Prompt 原有的 7 种固定关系及其主体/客体方向；服务端拒绝未知关系和类型方向不匹配关系，完整结果不会静默删减错误项。固定双分片 Fake 资料进一步验证带首尾空格差异的同一实体按 `spaceId + nodeType + normalizedKey` 合并、同一来源标识不重复、同一方向和类型的关系只物化一条，并分别保存两个分片的逐字证据。Java 21 根 Reactor 54 项测试通过；语义近似名称、别名、真实模型遵循度和更复杂跨文档实体消歧未验证，也不在兼容链路中投机实现。
 
 8. **已完成当前自动验证：以二阶段模型汇总生成自然全文摘要**：每份文档完成所有分片抽取后（包括只有一个分片时）新增一次全文汇总模型调用，输入文档名称、业务类型、按原文顺序排列的章节路径和已校验分片摘要，输出一段 1～160 字符的自然中文全文摘要。独立 `document-summary-v1` Prompt 禁止“本分片/当前分片”、YAML、候选标识、机械分号拼接和原文外事实；全文摘要仅用于展示，不作为关系证据。`ai_extraction_runs` 保存摘要 Prompt 版本、`not_started/completed/failed` 状态和失败原因；汇总失败时整次抽取仍为 `completed`，候选事实正常落库，`document_summary` 为空并回退导入原文 excerpt。SSE 新增 `document_summary_started` / `document_summary_completed` 阶段事件，结构化抽取和文本摘要分别使用独立 AI Service，避免 JSON Schema 误套到摘要请求。Java 21 根 Reactor 51 项测试和前端 typecheck/build 已通过；真实模型摘要质量、长度遵循度和跨章节自然度仍未验证。
-9. **已完成当前自动验证：无 Embedding 文档候选召回**：新增 `DocumentCandidateRecallService`，以 `document-candidate-recall-v1` 固定 TopK=8 执行有效空间过滤、主体排除、显式引用/文件名/标题/章节标题/摘要/正文关键词通道融合、稳定去重和硬负例抑制；返回候选文档元数据、命中通道、有限关键词、规则分数和排名。固定 12 份虚构资料的 7 个召回用例、孤立资料空召回、TopK 上限和硬负例均通过 Java 21 SQLite 集成测试；真实资料、真实模型关系判断、正式指标报告和 HTTP API 仍未验证。
+9. **已完成当前自动验证：无 Embedding 文档候选召回与 Fake 关系后端闭环**：`DocumentCandidateRecallService` 以 `document-candidate-recall-v1` 固定 TopK=8 执行有效空间过滤、主体排除、显式引用/文件名/标题/章节标题/摘要/正文关键词通道融合、稳定去重和硬负例抑制；`DocumentAssociationService` 再通过 `DocumentAssociationClient` 接入 Fake 判断、候选集合封闭校验、逐字分片证据验证、suggested 幂等物化、运行恢复和批量审核 API。固定 12 份资料的 7 个召回用例、空召回、Fake 有效/无效证据、重复运行和 MockMvc API 均通过 Java 21 测试；固定 7 条关系正例的完整 Recall/Precision、真实资料、真实模型和浏览器前端仍待验证。
 
 ### 19.1.4 后续 RAG / Embedding 增强计划
 
@@ -773,7 +775,7 @@ v0.13 已完成分页接口、MyBatis-Plus SQLite 分页、最近运行与最近
    - 已完成桌面 Web 真实 Chrome 下的来源资料无限滚动、卡片多选、批量操作、三 Tab、空态、历史恢复、错误/重试和上游连接中断验证；移动端、触控和读屏顺延到后续专项；
    - 已完成现有实体关系白名单、主体/客体方向和跨分片精确规范化键合并的 Fake/SQLite 验收；
    - 已完成专项阶段 0，冻结 12 份资料、7 条正例、5 组负例、7 个召回用例、Prompt/Schema/策略版本、方向和验收规程；
-   - 已完成阶段 1 的文档关联运行、关系、证据和审核持久化基础，以及无 Embedding 候选召回；下一步进入 Fake AI 关系判断、候选集合/逐字证据校验和关联审核 API，不在同一切片实现真实模型或前端；
+   - 已完成阶段 1 的文档关联运行、关系、证据和审核持久化基础、无 Embedding 候选召回、Fake 关系判断、候选集合/逐字证据校验和关联审核 API；下一步进入固定资料完整关系指标评估，不在同一切片实现真实模型或前端；
    - 在具备真实模型密钥和受控预算时，单独补充二阶段自然全文摘要与 `prd-extraction-v3` 关系约束的真实模型质量边界，不以 Fake 结果代替真实模型结论，也不阻塞候选召回；
    - 之后按“文档关系判断 → 证据校验 → 关联审核 → 可选标签生成/审核/关联 → 文档关系图 → RAG/Embedding 评估”的顺序实现。
 6. **禁止提前扩张**：阶段 1 只允许按冻结契约新增文档关联域能力；标签表、文档-标签关系、Embedding 索引、文档关系图切换、会话引用和 Agent 编排仍等待各自阶段。
@@ -783,8 +785,8 @@ v0.13 已完成分页接口、MyBatis-Plus SQLite 分页、最近运行与最近
 1. **已接入当前基础链路**：前端优先加载后端图谱查询结果；空知识空间展示真实空态，等待资料导入和 AI 抽取产生正式图谱事实。
 2. 实现孤立、失效来源、缺字段和冲突检查。
 3. 在文本型 PDF 首版完成后增加 DOCX 解析，并继续实现增量导入和 Markdown/JSON/PNG 导出；扫描 PDF OCR 仍不进入当前首版。
-4. **已进入阶段 1**：默认主线为文档内容关联，标签关联可选；不再保留独立图谱类型导航或把实体类型识别作为新增主线前置；现有实体图谱保留兼容和实验用途。专项 PRD、固定资料、标注答案、关系方向、五种关系优先级、版本契约、持久化基础和无 Embedding 候选召回已经完成。
-5. **专项方案实施顺序**：下一小切片使用现有候选召回实现 Fake AI 关系判断、候选集合/逐字证据校验和关联审核 API；随后实现可选标签生成、审核和标签候选补充；最后用独立实验评估是否引入向量召回和混合 RAG。未达到评估门槛前不把向量相似度当作正式关系依据。
+4. **已进入阶段 1**：默认主线为文档内容关联，标签关联可选；不再保留独立图谱类型导航或把实体类型识别作为新增主线前置；现有实体图谱保留兼容和实验用途。专项 PRD、固定资料、标注答案、关系方向、五种关系优先级、版本契约、持久化基础、无 Embedding 候选召回、Fake 判断、证据校验和后端审核 API 已完成。
+5. **专项方案实施顺序**：下一小切片使用固定资料完成 Fake 关系类型/方向/证据指标和失败样例报告；随后实现可选标签生成、审核和标签候选补充；再实现独立文档关系图前端，最后评估是否引入向量召回和混合 RAG。未达到评估门槛前不把向量相似度当作正式关系依据。
 6. **未来 Agent 扩展边界**：仅当出现动态工具选择、长流程暂停/恢复、复杂多步骤编排或可回放工作流需求时，才评估在专项 PRD 第 14 节定义的 `AgentOrchestrator`；当前标签与关联主线继续使用固定 Pipeline，不能为了引入 Agent 而绕过领域 Service、证据校验或审核状态机。
 
 ## 19.3 提交约定

@@ -52,6 +52,34 @@ public class DocumentRelationEvidenceRepository {
     }
 
     /**
+     * 批量查询多条文档关系的全部证据。
+     *
+     * @param spaceId 知识空间标识
+     * @param relationIds 文档关系标识集合
+     * @return 按关系、创建时间和证据标识稳定排序的证据列表
+     */
+    public List<DocumentRelationEvidence> findAllByRelations(
+            String spaceId,
+            List<String> relationIds
+    ) {
+        if (relationIds.isEmpty()) {
+            return List.of();
+        }
+
+        // 使用一次 IN 查询组装关系响应，避免逐关系读取证据形成 N+1
+        return mapper.selectList(
+                        Wrappers.<DocumentRelationEvidenceEntity>lambdaQuery()
+                                .eq(DocumentRelationEvidenceEntity::getSpaceId, spaceId)
+                                .in(DocumentRelationEvidenceEntity::getDocumentRelationId, relationIds)
+                                .orderByAsc(DocumentRelationEvidenceEntity::getDocumentRelationId)
+                                .orderByAsc(DocumentRelationEvidenceEntity::getCreatedAt)
+                                .orderByAsc(DocumentRelationEvidenceEntity::getId)
+                ).stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    /**
      * 将持久化实体转换为文档关系证据领域模型。
      *
      * @param entity MyBatis-Plus 持久化实体

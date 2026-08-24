@@ -6,6 +6,7 @@ import com.flevin.knowgraph.server.model.association.DocumentAssociationRun;
 import com.flevin.knowgraph.server.model.association.DocumentRelation;
 import com.flevin.knowgraph.server.model.association.DocumentRelationEvidence;
 import com.flevin.knowgraph.server.model.association.DocumentRelationReview;
+import com.flevin.knowgraph.server.model.ai.rag.DocumentChunk;
 import com.flevin.knowgraph.server.model.document.SourceDocument;
 import com.flevin.knowgraph.server.repository.association.DocumentAssociationRunRepository;
 import com.flevin.knowgraph.server.repository.association.DocumentRelationEvidenceRepository;
@@ -14,6 +15,8 @@ import com.flevin.knowgraph.server.repository.association.DocumentRelationReview
 import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
 import com.flevin.knowgraph.server.repository.space.KnowledgeSpaceRepository;
 import com.flevin.knowgraph.server.service.association.DocumentAssociationPersistenceService;
+import com.flevin.knowgraph.server.service.ai.rag.PrdMarkdownSectionParser;
+import com.flevin.knowgraph.server.service.ai.rag.SectionAwareDocumentChunker;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,6 +64,8 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
     private final DocumentRelationRepository relationRepository;
     private final DocumentRelationEvidenceRepository evidenceRepository;
     private final DocumentRelationReviewRepository reviewRepository;
+    private final PrdMarkdownSectionParser sectionParser;
+    private final SectionAwareDocumentChunker documentChunker;
 
     /**
      * 保存一条文档关联运行记录，并校验主体文档和知识空间归属。
@@ -89,6 +94,66 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
     }
 
     /**
+     * 将处理中的文档关联运行更新为完成或失败状态。
+     *
+     * @param run 带最终统计、失败阶段和完成时间的运行快照
+     * @return 已更新的文档关联运行
+     */
+    @Override
+    @Transactional
+    public DocumentAssociationRun updateRun(DocumentAssociationRun run) {
+        // 校验最终运行字段，避免负数统计或非法状态进入数据库
+        validateRun(run);
+        if ("processing".equals(run.status()) || run.completedAt() == null) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "文档关联运行尚未形成最终状态");
+        }
+
+        // 查询原始 processing 快照，防止覆盖其他文档或已结束运行
+        DocumentAssociationRun existingRun = runRepository.findById(
+                        run.spaceId(),
+                        run.sourceDocumentId(),
+                        run.id()
+                )
+                .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "文档关联运行不存在"));
+        if (!"processing".equals(existingRun.status())) {
+            throw new TipsException(ErrorCode.BUSINESS_ERROR, "文档关联运行已经结束，不能重复更新");
+        }
+
+        // 校验运行主体、内容指纹和四类版本快照保持不变
+        validateRunIdentity(existingRun, run);
+
+        // 只将 processing 状态更新为完成或失败，保留创建时的固定输入快照
+        int updatedRows = runRepository.update(run);
+        if (updatedRows != 1) {
+            throw new TipsException(ErrorCode.BUSINESS_ERROR, "文档关联运行状态更新失败");
+        }
+        return run;
+    }
+
+    /**
+     * 查询指定文档的一次关联运行。
+     *
+     * @param spaceId 知识空间标识
+     * @param sourceDocumentId 当前分析文档标识
+     * @param runId 文档关联运行标识
+     * @return 文档关联运行
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public DocumentAssociationRun getRun(
+            String spaceId,
+            String sourceDocumentId,
+            String runId
+    ) {
+        // 校验当前知识空间和主体文档仍可访问
+        requireActiveSpace(spaceId);
+
+        // 使用空间、文档和运行标识三重边界恢复运行
+        return runRepository.findById(spaceId, sourceDocumentId, runId)
+                .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "文档关联运行不存在"));
+    }
+
+    /**
      * 保存一条文档关系候选或手工关系，并校验关系方向、文档归属和幂等键。
      *
      * @param relation 文档关系领域模型
@@ -97,38 +162,8 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
     @Override
     @Transactional
     public DocumentRelation saveRelation(DocumentRelation relation) {
-        // 对称关系先按文档标识规范化主体、客体和内容指纹，保证存储形态稳定
-        DocumentRelation normalizedRelation = normalizeSymmetricRelation(relation);
-
-        // 校验关系字段、关系白名单、状态和方向组合
-        validateRelationShape(normalizedRelation);
-
-        // 校验关系所属知识空间仍然有效
-        requireActiveSpace(normalizedRelation.spaceId());
-
-        // 查询关系主体文档，防止跨空间引用或引用已删除来源
-        SourceDocument sourceDocument = requireDocument(
-                normalizedRelation.spaceId(),
-                normalizedRelation.sourceDocumentId()
-        );
-
-        // 查询关系客体文档，确保两端来源资料属于同一空间
-        SourceDocument targetDocument = requireDocument(
-                normalizedRelation.spaceId(),
-                normalizedRelation.targetDocumentId()
-        );
-
-        // 校验关系快照与当前文档内容一致，避免把旧版本误写成当前建议
-        validateContentHashes(normalizedRelation, sourceDocument, targetDocument);
-
-        // 校验关联运行归属，手工关系允许没有运行标识
-        validateAssociationRun(normalizedRelation);
-
-        // 计算关系规范化幂等键并校验调用方没有提交错误键
-        String expectedRelationKey = buildRelationKey(normalizedRelation);
-        if (!expectedRelationKey.equals(normalizedRelation.relationKey())) {
-            throw new TipsException(ErrorCode.PARAM_ERROR, "文档关系幂等键与关系内容不一致");
-        }
+        // 规范化关系两端并由服务端计算、校验稳定幂等键
+        DocumentRelation normalizedRelation = prepareRelation(relation);
 
         // 相同空间和关系键已有记录时拒绝重复写入，保留历史关系状态
         if (relationRepository.findByRelationKey(
@@ -152,42 +187,55 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
     @Override
     @Transactional
     public DocumentRelationEvidence saveEvidence(DocumentRelationEvidence evidence) {
-        // 校验证据字段、角色、偏移和非空原文
-        validateEvidenceShape(evidence);
-
         // 查询关系并校验证据所属空间
         DocumentRelation relation = relationRepository.findById(
                         evidence.spaceId(),
                         evidence.documentRelationId()
                 )
                 .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "文档关系不存在"));
-        if (!relation.spaceId().equals(evidence.spaceId())) {
-            throw new TipsException(ErrorCode.PARAM_ERROR, "文档关系证据与关系空间不一致");
-        }
-
-        // 证据来源必须是关系主体或客体，禁止跨关系引用任意文档
-        if (!relation.sourceDocumentId().equals(evidence.sourceDocumentId())
-                && !relation.targetDocumentId().equals(evidence.sourceDocumentId())) {
-            throw new TipsException(ErrorCode.PARAM_ERROR, "文档关系证据必须来自关系两端文档");
-        }
-        if ("source".equals(evidence.evidenceRole())
-                && !relation.sourceDocumentId().equals(evidence.sourceDocumentId())) {
-            throw new TipsException(ErrorCode.PARAM_ERROR, "source 证据必须来自关系主体文档");
-        }
-        if ("target".equals(evidence.evidenceRole())
-                && !relation.targetDocumentId().equals(evidence.sourceDocumentId())) {
-            throw new TipsException(ErrorCode.PARAM_ERROR, "target 证据必须来自关系客体文档");
-        }
-
-        // 查询证据来源文档，确保逐字反查使用当前有效原文
-        SourceDocument sourceDocument = requireDocument(evidence.spaceId(), evidence.sourceDocumentId());
-
-        // 校验证据引用在原文中真实存在，并检查可选偏移与引用文本一致
-        validateQuote(sourceDocument.contentText(), evidence.quote(), evidence.startOffset(), evidence.endOffset());
+        // 校验证据归属、真实分片、章节路径、逐字引用和绝对偏移
+        validateEvidenceAgainstRelation(relation, evidence);
 
         // 保存通过逐字反查的文档关系证据
         evidenceRepository.save(evidence);
         return evidence;
+    }
+
+    /**
+     * 在同一事务中幂等保存一条候选关系及其全部已校验证据。
+     *
+     * @param relation 待保存的候选关系；关系键可为空，由服务端计算
+     * @param evidences 与候选关系一起原子保存的证据
+     * @return 新保存或复用的文档关系
+     */
+    @Override
+    @Transactional
+    public DocumentRelation saveSuggestion(
+            DocumentRelation relation,
+            List<DocumentRelationEvidence> evidences
+    ) {
+        // 规范化关系并完成空间、指纹、运行归属和幂等键校验
+        DocumentRelation normalizedRelation = prepareRelation(relation);
+        if (evidences == null || evidences.isEmpty()) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "文档关系建议必须包含可追溯证据");
+        }
+
+        // 在写入前校验全部证据，任何一条失败都会回滚整条关系建议
+        evidences.forEach(evidence -> validateEvidenceAgainstRelation(normalizedRelation, evidence));
+
+        // 相同输入和版本的重复运行复用既有关系，避免重复建议和证据
+        DocumentRelation existingRelation = relationRepository.findByRelationKey(
+                normalizedRelation.spaceId(),
+                normalizedRelation.relationKey()
+        ).orElse(null);
+        if (existingRelation != null) {
+            return existingRelation;
+        }
+
+        // 原子保存通过校验的关系和全部证据
+        relationRepository.save(normalizedRelation);
+        evidences.forEach(evidenceRepository::save);
+        return normalizedRelation;
     }
 
     /**
@@ -286,6 +334,83 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
     }
 
     /**
+     * 查询指定空间和标识的文档关系。
+     *
+     * @param spaceId 知识空间标识
+     * @param relationId 文档关系标识
+     * @return 文档关系
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public DocumentRelation getRelation(
+            String spaceId,
+            String relationId
+    ) {
+        // 使用统一关系边界校验阻断跨空间读取
+        return requireRelation(spaceId, relationId);
+    }
+
+    /**
+     * 查询一次运行新保存的全部文档关系。
+     *
+     * @param spaceId 知识空间标识
+     * @param runId 文档关联运行标识
+     * @return 运行关系列表
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<DocumentRelation> listRelationsByRun(
+            String spaceId,
+            String runId
+    ) {
+        // 校验空间有效后按运行标识批量读取关系
+        requireActiveSpace(spaceId);
+
+        // 查询当前运行新落库的全部关系，不包含幂等复用的历史建议
+        return relationRepository.findAllByRun(spaceId, runId);
+    }
+
+    /**
+     * 查询一份来源资料作为任一端点的全部文档关系。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 来源资料标识
+     * @return 当前资料相关的关系列表
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<DocumentRelation> listRelationsByDocument(
+            String spaceId,
+            String documentId
+    ) {
+        // 校验来源资料属于当前有效空间，避免通过任意标识枚举关系
+        requireDocument(spaceId, documentId);
+
+        // 同时查询文档作为主体和客体的关系
+        return relationRepository.findAllByDocument(spaceId, documentId);
+    }
+
+    /**
+     * 批量查询多条文档关系的证据，供 API 避免逐关系查询。
+     *
+     * @param spaceId 知识空间标识
+     * @param relationIds 文档关系标识
+     * @return 所有匹配关系的证据
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<DocumentRelationEvidence> listEvidence(
+            String spaceId,
+            List<String> relationIds
+    ) {
+        // 校验知识空间有效，批量查询只返回当前空间证据
+        requireActiveSpace(spaceId);
+
+        // 使用一次查询恢复多条关系证据，避免 API 响应组装形成 N+1
+        return evidenceRepository.findAllByRelations(spaceId, relationIds);
+    }
+
+    /**
      * 校验运行字段和状态。
      *
      * @param run 文档关联运行
@@ -324,6 +449,29 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
     }
 
     /**
+     * 校验运行结束时不可变输入快照没有被调用方替换。
+     *
+     * @param existingRun 数据库中的 processing 运行
+     * @param finalRun 调用方提交的最终运行快照
+     */
+    private void validateRunIdentity(
+            DocumentAssociationRun existingRun,
+            DocumentAssociationRun finalRun
+    ) {
+        boolean changed = !existingRun.sourceContentHash().equals(finalRun.sourceContentHash())
+                || !existingRun.promptVersion().equals(finalRun.promptVersion())
+                || !existingRun.schemaVersion().equals(finalRun.schemaVersion())
+                || !existingRun.candidateRecallPolicyVersion()
+                .equals(finalRun.candidateRecallPolicyVersion())
+                || !existingRun.associationPolicyVersion().equals(finalRun.associationPolicyVersion())
+                || !existingRun.createdAt().equals(finalRun.createdAt())
+                || !java.util.Objects.equals(existingRun.topK(), finalRun.topK());
+        if (changed) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "文档关联运行的输入或版本快照不能修改");
+        }
+    }
+
+    /**
      * 校验关系枚举、状态、方向和基础字段。
      *
      * @param relation 文档关系
@@ -342,7 +490,6 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
                 || isBlank(relation.sourceContentHash())
                 || isBlank(relation.targetContentHash())
                 || isBlank(relation.associationPolicyVersion())
-                || isBlank(relation.relationKey())
                 || relation.createdAt() == null
                 || relation.updatedAt() == null) {
             throw new TipsException(ErrorCode.PARAM_ERROR, "文档关系字段不完整");
@@ -379,6 +526,81 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
     }
 
     /**
+     * 规范化并校验文档关系，由服务端补齐稳定幂等键。
+     *
+     * @param relation 原始文档关系
+     * @return 带规范化两端和稳定幂等键的关系
+     */
+    private DocumentRelation prepareRelation(DocumentRelation relation) {
+        // 对称关系先按文档标识规范化主体、客体和内容指纹
+        DocumentRelation normalizedRelation = normalizeSymmetricRelation(relation);
+
+        // 校验关系字段、关系白名单、状态和方向组合
+        validateRelationShape(normalizedRelation);
+
+        // 校验关系所属知识空间仍然有效
+        requireActiveSpace(normalizedRelation.spaceId());
+
+        // 查询关系主体文档，防止跨空间引用或引用已删除来源
+        SourceDocument sourceDocument = requireDocument(
+                normalizedRelation.spaceId(),
+                normalizedRelation.sourceDocumentId()
+        );
+
+        // 查询关系客体文档，确保两端来源资料属于同一空间
+        SourceDocument targetDocument = requireDocument(
+                normalizedRelation.spaceId(),
+                normalizedRelation.targetDocumentId()
+        );
+
+        // 校验关系快照与当前文档内容一致，避免把旧版本误写成当前建议
+        validateContentHashes(normalizedRelation, sourceDocument, targetDocument);
+
+        // 校验关联运行归属，手工关系允许没有运行标识
+        validateAssociationRun(normalizedRelation);
+
+        // 由服务端计算规范化幂等键，并拒绝调用方提供的错误键
+        String expectedRelationKey = buildRelationKey(normalizedRelation);
+        if (!isBlank(normalizedRelation.relationKey())
+                && !expectedRelationKey.equals(normalizedRelation.relationKey())) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "文档关系幂等键与关系内容不一致");
+        }
+        return withRelationKey(normalizedRelation, expectedRelationKey);
+    }
+
+    /**
+     * 复制文档关系并补充服务端计算的稳定幂等键。
+     *
+     * @param relation 已规范化关系
+     * @param relationKey 稳定关系键
+     * @return 带关系键的不可变领域模型
+     */
+    private DocumentRelation withRelationKey(
+            DocumentRelation relation,
+            String relationKey
+    ) {
+        return new DocumentRelation(
+                relation.id(),
+                relation.spaceId(),
+                relation.sourceDocumentId(),
+                relation.targetDocumentId(),
+                relation.relationType(),
+                relation.direction(),
+                relation.status(),
+                relation.generationMode(),
+                relation.confidence(),
+                relation.reason(),
+                relation.associationRunId(),
+                relation.sourceContentHash(),
+                relation.targetContentHash(),
+                relation.associationPolicyVersion(),
+                relationKey,
+                relation.createdAt(),
+                relation.updatedAt()
+        );
+    }
+
+    /**
      * 校验证据基础字段和偏移。
      *
      * @param evidence 文档关系证据
@@ -405,6 +627,62 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
                 && evidence.endOffset() != null
                 && evidence.endOffset() < evidence.startOffset())) {
             throw new TipsException(ErrorCode.PARAM_ERROR, "文档关系证据偏移不合法");
+        }
+    }
+
+    /**
+     * 校验证据属于关系两端的真实分片，并逐字反查章节、引用和偏移。
+     *
+     * @param relation 证据支撑的文档关系
+     * @param evidence 待校验文档关系证据
+     */
+    private void validateEvidenceAgainstRelation(
+            DocumentRelation relation,
+            DocumentRelationEvidence evidence
+    ) {
+        // 校验证据字段、角色、偏移和非空原文
+        validateEvidenceShape(evidence);
+        if (!relation.id().equals(evidence.documentRelationId())
+                || !relation.spaceId().equals(evidence.spaceId())) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "文档关系证据与关系归属不一致");
+        }
+
+        // 证据来源必须是关系主体或客体，禁止跨关系引用任意文档
+        if (!relation.sourceDocumentId().equals(evidence.sourceDocumentId())
+                && !relation.targetDocumentId().equals(evidence.sourceDocumentId())) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "文档关系证据必须来自关系两端文档");
+        }
+        if ("source".equals(evidence.evidenceRole())
+                && !relation.sourceDocumentId().equals(evidence.sourceDocumentId())) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "source 证据必须来自关系主体文档");
+        }
+        if ("target".equals(evidence.evidenceRole())
+                && !relation.targetDocumentId().equals(evidence.sourceDocumentId())) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "target 证据必须来自关系客体文档");
+        }
+
+        // 查询证据来源文档，确保逐字反查使用当前有效原文
+        SourceDocument sourceDocument = requireDocument(evidence.spaceId(), evidence.sourceDocumentId());
+
+        // 使用当前冻结的章节解析和分片规则恢复模型可引用分片
+        List<DocumentChunk> chunks = documentChunker.chunk(sectionParser.parse(sourceDocument.contentText()));
+        DocumentChunk chunk = chunks.stream()
+                .filter(item -> item.chunkId().equals(evidence.chunkId()))
+                .findFirst()
+                .orElseThrow(() -> new TipsException(ErrorCode.PARAM_ERROR, "文档关系证据分片不存在"));
+        if (!chunk.sectionPath().equals(evidence.sectionPath())) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "文档关系证据章节与真实分片不一致");
+        }
+        if (!chunk.contentText().contains(evidence.quote())) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "文档关系证据无法在指定分片中逐字反查");
+        }
+
+        // 校验证据绝对偏移与来源全文、指定分片的双重边界一致
+        validateQuote(sourceDocument.contentText(), evidence.quote(), evidence.startOffset(), evidence.endOffset());
+        if (evidence.startOffset() != null
+                && (evidence.startOffset() < chunk.startOffset()
+                || evidence.endOffset() > chunk.endOffset())) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "文档关系证据偏移超出指定分片边界");
         }
     }
 

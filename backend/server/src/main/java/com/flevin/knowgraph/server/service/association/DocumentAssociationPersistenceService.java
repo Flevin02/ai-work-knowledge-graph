@@ -24,6 +24,28 @@ public interface DocumentAssociationPersistenceService {
     DocumentAssociationRun saveRun(DocumentAssociationRun run);
 
     /**
+     * 将处理中的文档关联运行更新为完成或失败状态。
+     *
+     * @param run 带最终统计、失败阶段和完成时间的运行快照
+     * @return 已更新的文档关联运行
+     */
+    DocumentAssociationRun updateRun(DocumentAssociationRun run);
+
+    /**
+     * 查询指定文档的一次关联运行。
+     *
+     * @param spaceId 知识空间标识
+     * @param sourceDocumentId 当前分析文档标识
+     * @param runId 文档关联运行标识
+     * @return 文档关联运行
+     */
+    DocumentAssociationRun getRun(
+            String spaceId,
+            String sourceDocumentId,
+            String runId
+    );
+
+    /**
      * 保存一条文档关系候选或手工关系，并校验关系方向、文档归属和幂等键。
      *
      * @param relation 文档关系领域模型
@@ -38,6 +60,20 @@ public interface DocumentAssociationPersistenceService {
      * @return 已保存的文档关系证据
      */
     DocumentRelationEvidence saveEvidence(DocumentRelationEvidence evidence);
+
+    /**
+     * 在同一事务中幂等保存一条候选关系及其全部已校验证据。
+     *
+     * <p>相同关系键已存在时复用原关系，不重复增加建议或证据。</p>
+     *
+     * @param relation 待保存的候选关系；关系键可为空，由服务端计算
+     * @param evidences 与候选关系一起原子保存的证据
+     * @return 新保存或复用的文档关系
+     */
+    DocumentRelation saveSuggestion(
+            DocumentRelation relation,
+            List<DocumentRelationEvidence> evidences
+    );
 
     /**
      * 记录一条文档关系审核动作，并按状态机更新关系状态。
@@ -79,5 +115,53 @@ public interface DocumentAssociationPersistenceService {
     List<DocumentRelationReview> listReviews(
             String spaceId,
             String relationId
+    );
+
+    /**
+     * 查询指定空间和标识的文档关系。
+     *
+     * @param spaceId 知识空间标识
+     * @param relationId 文档关系标识
+     * @return 文档关系
+     */
+    DocumentRelation getRelation(
+            String spaceId,
+            String relationId
+    );
+
+    /**
+     * 查询一次运行新保存的全部文档关系。
+     *
+     * @param spaceId 知识空间标识
+     * @param runId 文档关联运行标识
+     * @return 运行关系列表
+     */
+    List<DocumentRelation> listRelationsByRun(
+            String spaceId,
+            String runId
+    );
+
+    /**
+     * 查询一份来源资料作为任一端点的全部文档关系。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 来源资料标识
+     * @return 当前资料相关的关系列表
+     */
+    List<DocumentRelation> listRelationsByDocument(
+            String spaceId,
+            String documentId
+    );
+
+    /**
+     * 批量查询多条文档关系的证据，供 API 避免逐关系查询。
+     *
+     * @param spaceId 知识空间标识
+     * @param relationIds 文档关系标识
+     * @return 所有匹配关系的证据
+     */
+    List<DocumentRelationEvidence> listEvidence(
+            String spaceId,
+            List<String> relationIds
     );
 }

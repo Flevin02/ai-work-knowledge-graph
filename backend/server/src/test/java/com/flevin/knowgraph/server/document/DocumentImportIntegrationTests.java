@@ -521,6 +521,18 @@ class DocumentImportIntegrationTests {
                 .andExpect(jsonPath("$.components.schemas.DocumentBatchDeleteResponse").exists())
                 .andExpect(jsonPath("$.components.schemas.AiExtractionBatchResponse").exists())
                 .andExpect(jsonPath(
+                        "$.paths['/v1/spaces/{spaceId}/documents/{documentId}/association-runs'].post"
+                ).exists())
+                .andExpect(jsonPath(
+                        "$.paths['/v1/spaces/{spaceId}/documents/{documentId}/relations'].get"
+                ).exists())
+                .andExpect(jsonPath(
+                        "$.paths['/v1/spaces/{spaceId}/documents/{documentId}/relation-review-batches'].post"
+                ).exists())
+                .andExpect(jsonPath("$.components.schemas.DocumentAssociationRunResponse").exists())
+                .andExpect(jsonPath("$.components.schemas.DocumentRelationReviewBatchRequest").exists())
+                .andExpect(jsonPath("$.components.schemas.DocumentRelationResponse").exists())
+                .andExpect(jsonPath(
                         "$.components.schemas.SourceDocumentResponse.properties.kind.enum",
                         org.hamcrest.Matchers.hasItem("pdf")
                 ));

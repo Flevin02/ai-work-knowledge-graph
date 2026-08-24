@@ -157,8 +157,8 @@ class DocumentAssociationPersistenceIntegrationTests {
                 DEFAULT_SPACE_ID,
                 savedRelation.id(),
                 sourceDocument.id(),
-                "chunk-1",
-                "会议依据",
+                "section-1-chunk-1",
+                "文档前言",
                 sourceQuote,
                 sourceDocument.contentText().indexOf(sourceQuote),
                 sourceDocument.contentText().indexOf(sourceQuote) + sourceQuote.length(),
@@ -172,8 +172,8 @@ class DocumentAssociationPersistenceIntegrationTests {
                 DEFAULT_SPACE_ID,
                 savedRelation.id(),
                 targetDocument.id(),
-                "chunk-1",
-                "根章节",
+                "section-1-chunk-1",
+                "文档前言",
                 targetQuote,
                 targetDocument.contentText().indexOf(targetQuote),
                 targetDocument.contentText().indexOf(targetQuote) + targetQuote.length(),
@@ -489,8 +489,8 @@ class DocumentAssociationPersistenceIntegrationTests {
                 DEFAULT_SPACE_ID,
                 validRelation.id(),
                 sourceDocument.id(),
-                "chunk-1",
-                "根章节",
+                "section-1-chunk-1",
+                "文档前言",
                 "这段文字不存在于主体文档。",
                 null,
                 null,
@@ -498,7 +498,7 @@ class DocumentAssociationPersistenceIntegrationTests {
                 TEST_TIME
         )))
                 .isInstanceOf(TipsException.class)
-                .hasMessage("文档关系证据无法在来源原文中反查");
+                .hasMessage("文档关系证据无法在指定分片中逐字反查");
     }
 
     @Test
@@ -551,8 +551,8 @@ class DocumentAssociationPersistenceIntegrationTests {
                 DEFAULT_SPACE_ID,
                 relation.id(),
                 sourceDocument.id(),
-                "chunk-1",
-                "根章节",
+                "section-1-chunk-1",
+                "文档前言",
                 "主体文档明确引用客体文档。",
                 0,
                 "主体文档明确引用客体文档。".length(),
@@ -569,8 +569,8 @@ class DocumentAssociationPersistenceIntegrationTests {
                         DEFAULT_SPACE_ID,
                         relation.id(),
                         targetDocument.id(),
-                        "chunk-1",
-                        "根章节",
+                        "section-1-chunk-1",
+                        "文档前言",
                         targetQuote,
                         0,
                         targetQuote.length(),

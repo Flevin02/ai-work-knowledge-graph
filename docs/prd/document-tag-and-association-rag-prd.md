@@ -1,7 +1,7 @@
 ---
 title: 文档关系图、标签关联与有据问答 PRD
-version: v1.6
-status: 阶段 1 无 Embedding 候选召回已完成，关系判断待实施
+version: v1.7
+status: 阶段 1 Fake 关系判断、证据校验与审核 API 已完成，固定资料质量评估待补
 created: 2026-08-19
 updated: 2026-08-24
 owner: 知脉产品与研发
@@ -14,7 +14,7 @@ related_prd: ai-work-knowledge-graph-maintainer-prd.md
 
 当前文档只形成产品和技术设计，不代表相关数据库、接口、AI Prompt、RAG 检索、问答或 Agent 编排已经实现。2026-08-21 已完成当前实现核验并确认本 PRD 的目标态；2026-08-24 已完成阶段 0 的固定资料、正负样本、Prompt/Schema/策略版本和验收规程冻结，下一步进入阶段 1 的无标签、无 Embedding 文档内容关联后端基础链路。
 
-2026-08-24 已完成阶段 1 第一小切片：四张文档关联持久化表、MyBatis-Plus 分层和领域边界校验已落地并通过 Java 21 SQLite 集成测试；同日完成无 Embedding 候选召回服务和固定资料 Recall@8/硬负例自动验证。关联模型、HTTP API、前端审核和文档关系图仍未实现。
+2026-08-24 已完成阶段 1 第一小切片：四张文档关联持久化表、MyBatis-Plus 分层和领域边界校验已落地并通过 Java 21 SQLite 集成测试；同日完成无 Embedding 候选召回服务和固定资料 Recall@8/硬负例自动验证。随后完成供应商无关的 Fake 关系判断入口、候选集合与逐字证据校验、suggested 关系幂等物化、运行恢复、文档关系查询和批量审核 API，并通过 Java 21 Fake/SQLite/MockMvc 测试。真实模型、固定 7 条正例的完整关系指标、前端审核和文档关系图仍未实现。
 
 ## 1.1 当前实现核验结论
 
@@ -860,7 +860,7 @@ Agent 只有在以下场景可重复验证后才能进入产品主线：
 - Embedding 模型、Prompt、Schema 和检索参数。
 - 模型请求次数、耗时、重试次数和建议数量。
 
-阶段 1 当前已落地 `document_association_runs` 表及 Entity/Mapper/Repository；运行保存 Service 已校验空间、主体文档和内容指纹。无 Embedding 候选召回已由 `DocumentCandidateRecallService` 接入，仍未接入关系判断模型或运行 HTTP API。
+阶段 1 当前已落地 `document_association_runs` 表及 Entity/Mapper/Repository；运行保存 Service 已校验空间、主体文档和内容指纹。无 Embedding 候选召回已由 `DocumentCandidateRecallService` 接入；`DocumentAssociationClient` 负责供应商隔离，当前使用测试 Fake 完成关系判断，真实模型实现仍未接入。
 
 ### 阶段 1 当前已落地的文档关联持久化边界
 
@@ -868,7 +868,9 @@ Agent 只有在以下场景可重复验证后才能进入产品主线：
 - 关系类型固定为五种白名单；对称关系保存前按文档标识规范化，有向关系保留方向字段；稳定关系键包含空间内文档、关系类型、方向、内容指纹和策略版本。
 - 证据只能来自关系两端的有效来源资料，`quote` 必须逐字反查；`source`、`target` 和 `cross_reference` 角色分别受服务端校验。
 - AI/规则关系默认可保存为 `suggested`，审核动作只允许 `suggested → confirmed/rejected`；审核历史采用不可变插入，不覆盖旧动作。
-- 当前没有新增 Controller/API、关联模型、标签表、Embedding、文档关系图或前端审核；候选召回已完成，下一小切片是 Fake AI 关系判断、候选集合/证据校验和关联审核 API。
+- 已新增独立文档关联 Controller/API、关联请求/结果 DTO 和固定 Pipeline Service：创建/恢复 `association-runs`、查询 `relations`、批量 `relation-review-batches`；只接受服务端关系标识和 `accept/reject` 动作，审核状态仍按 `suggested → confirmed/rejected` 状态机更新。
+- Fake 关系判断只在服务端提供的最多 8 份候选内逐一选择五种白名单关系或 `none`；服务端校验候选集合一一对应、方向组合、标签空集、`chunkId`/`sectionPath` 归属、quote 逐字反查和分片偏移，失败候选不进入审核列表。
+- 已通过 65 项 Java 21 根 Reactor 测试，其中新增 Fake/SQLite/MockMvc 覆盖关系建议、证据失败、空召回、重复运行幂等、审核状态恢复和 OpenAPI；当前仍未完成固定资料 7 条正例的完整关系指标、真实模型、前端审核、文档关系图、标签表或 Embedding。
 
 ### `conversations` 与 `conversation_messages`
 
@@ -1146,8 +1148,9 @@ spaceId
 - 固定 `document-association-eval-v1` 的 7 个召回用例已通过 Java 21 SQLite 集成测试：期望候选进入前 8、孤立打印机资料返回空列表、冻结硬负例未进入对应前 8，且 TopK 超过 8 会被拒绝。
 - 新增文档关系、关系证据、审核和运行记录所需的数据表、Repository、Service、API 和测试。
 - 实现显式引用、文件名、标题、摘要、章节标题和关键词的内容候选召回。
-- 使用 Fake AI 判断五种白名单关系或 `none`，通过服务端验证候选文档标识和逐字证据（下一小切片）。
-- 验收：无标签、无 Embedding 环境下，固定资料完成候选召回后，再进入关系判断、审核、拒绝和状态恢复（关系判断与审核仍未完成）。
+- **已完成第三小切片**：通过 `DocumentAssociationClient` 接入可替换 Fake AI，固定 Pipeline 完成候选集合封闭、关系白名单/方向、`none` 不持久化、逐字分片证据校验、suggested 关系幂等保存和失败阶段记录。
+- **已完成第四小切片**：新增创建/恢复关联运行、查询文档关系和批量采纳/拒绝 API；服务端只信任关系 ID 与审核动作，审核状态和不可变历史可刷新恢复，OpenAPI 已暴露具体响应模型。
+- 验收：无标签、无 Embedding 环境下，Fake/SQLite/MockMvc 已完成“候选召回 → 关系判断 → 证据校验 → suggested → 审核确认/拒绝 → 状态恢复”最小闭环；固定资料 7 条正例的完整关系指标和真实模型仍待单独评估。
 
 ## 阶段 2：可选标签增强
 
