@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "document-association-v1",
+  "title": "DocumentAssociationOutputV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evidences",
+    "decisions"
+  ],
+  "properties": {
+    "evidences": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidenceId",
+          "sourceDocumentId",
+          "chunkId",
+          "sectionPath",
+          "quote"
+        ],
+        "properties": {
+          "evidenceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sourceDocumentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "chunkId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sectionPath": {
+            "type": "string"
+          },
+          "quote": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "candidateDocumentId",
+          "relationType",
+          "direction",
+          "confidence",
+          "reason",
+          "matchedTagIds",
+          "evidenceIds"
+        ],
+        "properties": {
+          "candidateDocumentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "relationType": {
+            "type": "string",
+            "enum": [
+              "related_to",
+              "references",
+              "supports",
+              "updates",
+              "conflicts_with",
+              "none"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "current_to_candidate",
+              "candidate_to_current",
+              "symmetric",
+              "none"
+            ]
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "matchedTagIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "evidenceIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "relationType": {
+                  "const": "none"
+                }
+              },
+              "required": [
+                "relationType"
+              ]
+            },
+            "then": {
+              "properties": {
+                "direction": {
+                  "const": "none"
+                },
+                "evidenceIds": {
+                  "maxItems": 0
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "evidenceIds": {
+                  "minItems": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "relationType": {
+                  "enum": [
+                    "related_to",
+                    "conflicts_with"
+                  ]
+                }
+              },
+              "required": [
+                "relationType"
+              ]
+            },
+            "then": {
+              "properties": {
+                "direction": {
+                  "const": "symmetric"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "relationType": {
+                  "enum": [
+                    "references",
+                    "supports",
+                    "updates"
+                  ]
+                }
+              },
+              "required": [
+                "relationType"
+              ]
+            },
+            "then": {
+              "properties": {
+                "direction": {
+                  "enum": [
+                    "current_to_candidate",
+                    "candidate_to_current"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

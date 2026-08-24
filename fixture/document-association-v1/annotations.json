@@ -1,0 +1,634 @@
+{
+  "datasetVersion": "document-association-eval-v1",
+  "status": "frozen",
+  "frozenAt": "2026-08-24",
+  "language": "zh-CN",
+  "versionRegistry": {
+    "associationPromptVersion": "document-association-v1",
+    "associationSchemaVersion": "document-association-v1",
+    "candidateRecallPolicyVersion": "document-candidate-recall-v1",
+    "associationPolicyVersion": "document-association-policy-v1",
+    "tagPromptVersion": "document-tag-v1",
+    "tagSchemaVersion": "document-tag-v1"
+  },
+  "scoringPolicy": {
+    "positiveScope": "Only expectedRelations entries are scored as positive relation gold answers.",
+    "negativeScope": "Only negativePairs entries are scored as explicit none answers.",
+    "unlistedPairs": "ignored",
+    "relationPrecedence": [
+      "updates",
+      "conflicts_with",
+      "supports",
+      "references",
+      "related_to"
+    ],
+    "evidenceRule": "Every evidence quote must be an exact substring of the referenced fixture document."
+  },
+  "documents": [
+    {
+      "documentId": "doc-annual-plan-v1",
+      "path": "documents/01-星桥年会活动方案-v1.md",
+      "title": "2026 星桥科技年会活动方案（v1）",
+      "kind": "markdown",
+      "documentType": "general",
+      "logicalDocumentKey": "annual-plan",
+      "contentVersion": "v1",
+      "expectedTags": [
+        {
+          "name": "星桥年会",
+          "evidenceQuote": "星桥科技计划在 2026 年 10 月 18 日举办年度年会，预计 180 人参加。"
+        },
+        {
+          "name": "活动方案",
+          "evidenceQuote": "2026 星桥科技年会活动方案（v1）"
+        },
+        {
+          "name": "场地",
+          "evidenceQuote": "候选场地、最终预算和现场执行供应商尚未确认。"
+        },
+        {
+          "name": "预算",
+          "evidenceQuote": "总预算暂按 100,000 元控制，场地费用上限暂按 32,000 元测算。"
+        }
+      ]
+    },
+    {
+      "documentId": "doc-kickoff-meeting",
+      "path": "documents/02-第一次筹备会议纪要.md",
+      "title": "第一次筹备会议纪要",
+      "kind": "markdown",
+      "documentType": "general",
+      "logicalDocumentKey": "kickoff-meeting",
+      "contentVersion": "v1",
+      "expectedTags": [
+        {
+          "name": "星桥年会",
+          "evidenceQuote": "会议主题：2026 星桥科技年会筹备"
+        },
+        {
+          "name": "会议纪要",
+          "evidenceQuote": "第一次筹备会议纪要"
+        },
+        {
+          "name": "场地",
+          "evidenceQuote": "暂定星河会议中心为首选场地，待档期和完整报价确认后再签约。"
+        },
+        {
+          "name": "预算",
+          "evidenceQuote": "总预算继续按不超过 100,000 元控制，场地费用上限为 32,000 元。"
+        }
+      ]
+    },
+    {
+      "documentId": "doc-venue-comparison",
+      "path": "documents/03-年会场地比选报告.md",
+      "title": "年会场地比选报告",
+      "kind": "markdown",
+      "documentType": "general",
+      "logicalDocumentKey": "venue-comparison",
+      "contentVersion": "v1",
+      "expectedTags": [
+        {
+          "name": "星桥年会",
+          "evidenceQuote": "容量满足 180 人需求"
+        },
+        {
+          "name": "场地比选",
+          "evidenceQuote": "年会场地比选报告"
+        },
+        {
+          "name": "供应商报价",
+          "evidenceQuote": "行政部对星河会议中心和湖畔酒店宴会厅进行了档期、容量和完整费用比较"
+        }
+      ]
+    },
+    {
+      "documentId": "doc-second-meeting",
+      "path": "documents/04-第二次筹备会议纪要.md",
+      "title": "第二次筹备会议纪要",
+      "kind": "markdown",
+      "documentType": "general",
+      "logicalDocumentKey": "second-meeting",
+      "contentVersion": "v1",
+      "expectedTags": [
+        {
+          "name": "星桥年会",
+          "evidenceQuote": "确认年会场地和预算调整方向"
+        },
+        {
+          "name": "会议纪要",
+          "evidenceQuote": "第二次筹备会议纪要"
+        },
+        {
+          "name": "场地决策",
+          "evidenceQuote": "本次会议决定将湖畔酒店宴会厅调整为首选场地"
+        }
+      ]
+    },
+    {
+      "documentId": "doc-annual-budget-draft",
+      "path": "documents/05-年会预算草案.md",
+      "title": "年会预算草案",
+      "kind": "markdown",
+      "documentType": "general",
+      "logicalDocumentKey": "annual-budget",
+      "contentVersion": "draft-v1",
+      "expectedTags": [
+        {
+          "name": "星桥年会",
+          "evidenceQuote": "本草案适用于 2026 星桥科技年会。"
+        },
+        {
+          "name": "预算草案",
+          "evidenceQuote": "年会预算草案"
+        },
+        {
+          "name": "场地预算",
+          "evidenceQuote": "筹备组建议总预算上限为 100,000 元，其中场地费用上限为 32,000 元。"
+        }
+      ]
+    },
+    {
+      "documentId": "doc-annual-finance-review",
+      "path": "documents/06-年会财务审核意见.md",
+      "title": "年会财务审核意见",
+      "kind": "markdown",
+      "documentType": "general",
+      "logicalDocumentKey": "annual-finance-review",
+      "contentVersion": "v1",
+      "expectedTags": [
+        {
+          "name": "星桥年会",
+          "evidenceQuote": "财务部审核对象为 2026 星桥科技年会预算。"
+        },
+        {
+          "name": "财务审核",
+          "evidenceQuote": "年会财务审核意见"
+        },
+        {
+          "name": "预算",
+          "evidenceQuote": "财务部仅同意总预算上限 90,000 元，场地费用不得超过 28,000 元。"
+        }
+      ]
+    },
+    {
+      "documentId": "doc-publicity-plan",
+      "path": "documents/07-年会宣传物料计划.md",
+      "title": "年会宣传物料计划",
+      "kind": "markdown",
+      "documentType": "general",
+      "logicalDocumentKey": "publicity-plan",
+      "contentVersion": "v1",
+      "expectedTags": [
+        {
+          "name": "星桥年会",
+          "evidenceQuote": "本计划用于 2026 星桥科技年会"
+        },
+        {
+          "name": "宣传物料",
+          "evidenceQuote": "年会宣传物料计划"
+        },
+        {
+          "name": "活动执行",
+          "evidenceQuote": "品牌组将在场地和最终预算确认后完成印刷数量与交付时间"
+        }
+      ]
+    },
+    {
+      "documentId": "doc-training-budget",
+      "path": "documents/08-晨星新人训练营预算草案.md",
+      "title": "晨星新人训练营预算草案",
+      "kind": "markdown",
+      "documentType": "general",
+      "logicalDocumentKey": "training-budget",
+      "contentVersion": "v1",
+      "expectedTags": [
+        {
+          "name": "新人训练营",
+          "evidenceQuote": "本草案适用于 2026 年 11 月举办的晨星新人训练营"
+        },
+        {
+          "name": "预算草案",
+          "evidenceQuote": "晨星新人训练营预算草案"
+        },
+        {
+          "name": "培训场地",
+          "evidenceQuote": "培训场地：32,000 元"
+        }
+      ]
+    },
+    {
+      "documentId": "doc-retrospective-template",
+      "path": "documents/09-活动复盘模板.md",
+      "title": "活动复盘模板",
+      "kind": "markdown",
+      "documentType": "general",
+      "logicalDocumentKey": "retrospective-template",
+      "contentVersion": "v1",
+      "expectedTags": [
+        {
+          "name": "活动复盘",
+          "evidenceQuote": "活动复盘模板"
+        },
+        {
+          "name": "模板",
+          "evidenceQuote": "本文件是通用空白模板，不对应任何已举办或筹备中的具体项目。"
+        }
+      ]
+    },
+    {
+      "documentId": "doc-printer-maintenance",
+      "path": "documents/10-三楼打印机维保通知.txt",
+      "title": "三楼打印机维保通知",
+      "kind": "txt",
+      "documentType": "general",
+      "logicalDocumentKey": "printer-maintenance",
+      "contentVersion": "v1",
+      "expectedTags": [
+        {
+          "name": "打印机维保",
+          "evidenceQuote": "三楼打印机维保通知"
+        },
+        {
+          "name": "行政通知",
+          "evidenceQuote": "行政部将在 2026 年 8 月 28 日 18:30 至 19:30 对三楼东侧黑白打印机进行例行维护。"
+        }
+      ]
+    },
+    {
+      "documentId": "doc-annual-plan-v2",
+      "path": "documents/11-星桥年会活动方案-v2.md",
+      "title": "2026 星桥科技年会活动方案（v2）",
+      "kind": "markdown",
+      "documentType": "general",
+      "logicalDocumentKey": "annual-plan",
+      "contentVersion": "v2",
+      "expectedTags": [
+        {
+          "name": "星桥年会",
+          "evidenceQuote": "2026 星桥科技年会活动方案（v2）"
+        },
+        {
+          "name": "活动方案",
+          "evidenceQuote": "本版本替代《2026 星桥科技年会活动方案（v1）》"
+        },
+        {
+          "name": "场地",
+          "evidenceQuote": "首选场地调整为湖畔酒店宴会厅"
+        },
+        {
+          "name": "预算",
+          "evidenceQuote": "总预算上限调整为 90,000 元。"
+        }
+      ]
+    },
+    {
+      "documentId": "doc-execution-handbook",
+      "path": "documents/12-星桥年会现场执行手册.md",
+      "title": "星桥年会现场执行手册",
+      "kind": "markdown",
+      "documentType": "general",
+      "logicalDocumentKey": "execution-handbook",
+      "contentVersion": "v1",
+      "expectedTags": [
+        {
+          "name": "星桥年会",
+          "evidenceQuote": "本手册用于 2026 星桥科技年会的现场执行"
+        },
+        {
+          "name": "执行手册",
+          "evidenceQuote": "星桥年会现场执行手册"
+        },
+        {
+          "name": "现场运营",
+          "evidenceQuote": "帮助行政部、人力资源部、品牌组和供应商在同一时间表下协作"
+        }
+      ]
+    }
+  ],
+  "expectedRelations": [
+    {
+      "relationId": "relation-references-plan",
+      "sourceDocumentId": "doc-kickoff-meeting",
+      "targetDocumentId": "doc-annual-plan-v1",
+      "relationType": "references",
+      "reason": "第一次筹备会议明确以 v1 活动方案为讨论依据。",
+      "generationReasons": [
+        "explicit_reference",
+        "keyword_match"
+      ],
+      "evidences": [
+        {
+          "documentId": "doc-kickoff-meeting",
+          "quote": "本次会议依据《2026 星桥科技年会活动方案（v1）》讨论场地、预算和人员分工。"
+        },
+        {
+          "documentId": "doc-annual-plan-v1",
+          "quote": "2026 星桥科技年会活动方案（v1）"
+        }
+      ]
+    },
+    {
+      "relationId": "relation-comparison-supports-decision",
+      "sourceDocumentId": "doc-venue-comparison",
+      "targetDocumentId": "doc-second-meeting",
+      "relationType": "supports",
+      "reason": "场地比选报告的档期和费用事实为第二次会议的场地决定提供依据。",
+      "generationReasons": [
+        "explicit_reference",
+        "keyword_match"
+      ],
+      "evidences": [
+        {
+          "documentId": "doc-venue-comparison",
+          "quote": "行政部建议选择湖畔酒店宴会厅，并将本报告提交第二次筹备会议作为场地决策依据。"
+        },
+        {
+          "documentId": "doc-second-meeting",
+          "quote": "报告显示湖畔酒店宴会厅档期已书面确认，完整费用为 30,000 元，比星河会议中心低 6,000 元。"
+        }
+      ]
+    },
+    {
+      "relationId": "relation-second-meeting-updates-first",
+      "sourceDocumentId": "doc-second-meeting",
+      "targetDocumentId": "doc-kickoff-meeting",
+      "relationType": "updates",
+      "reason": "第二次会议明确替换第一次会议暂定的首选场地。",
+      "generationReasons": [
+        "explicit_reference",
+        "keyword_match"
+      ],
+      "evidences": [
+        {
+          "documentId": "doc-second-meeting",
+          "quote": "第一次筹备会议中“暂定星河会议中心为首选场地”的结论不再执行。"
+        },
+        {
+          "documentId": "doc-kickoff-meeting",
+          "quote": "暂定星河会议中心为首选场地，待档期和完整报价确认后再签约。"
+        }
+      ]
+    },
+    {
+      "relationId": "relation-budget-conflict",
+      "sourceDocumentId": "doc-annual-budget-draft",
+      "targetDocumentId": "doc-annual-finance-review",
+      "relationType": "conflicts_with",
+      "reason": "同一场年会的总预算和场地费用上限存在明确且尚未通过新版本消解的冲突。",
+      "generationReasons": [
+        "keyword_match"
+      ],
+      "evidences": [
+        {
+          "documentId": "doc-annual-budget-draft",
+          "quote": "筹备组建议总预算上限为 100,000 元，其中场地费用上限为 32,000 元。"
+        },
+        {
+          "documentId": "doc-annual-finance-review",
+          "quote": "财务部仅同意总预算上限 90,000 元，场地费用不得超过 28,000 元。"
+        }
+      ]
+    },
+    {
+      "relationId": "relation-plan-publicity",
+      "sourceDocumentId": "doc-annual-plan-v1",
+      "targetDocumentId": "doc-publicity-plan",
+      "relationType": "related_to",
+      "reason": "两份文档都围绕同一场年会的主题、日期、人数和执行工作，但没有更具体的更新、支撑或引用关系。",
+      "generationReasons": [
+        "keyword_match"
+      ],
+      "evidences": [
+        {
+          "documentId": "doc-annual-plan-v1",
+          "quote": "星桥科技计划在 2026 年 10 月 18 日举办年度年会，预计 180 人参加。"
+        },
+        {
+          "documentId": "doc-publicity-plan",
+          "quote": "本计划用于 2026 星桥科技年会，活动主题为“同心越山海”，预计 180 人参加，活动日期为 2026 年 10 月 18 日。"
+        }
+      ]
+    },
+    {
+      "relationId": "relation-plan-v2-updates-v1",
+      "sourceDocumentId": "doc-annual-plan-v2",
+      "targetDocumentId": "doc-annual-plan-v1",
+      "relationType": "updates",
+      "reason": "v2 明确替代 v1，并更新场地和预算上限。",
+      "generationReasons": [
+        "explicit_reference",
+        "keyword_match"
+      ],
+      "evidences": [
+        {
+          "documentId": "doc-annual-plan-v2",
+          "quote": "本版本替代《2026 星桥科技年会活动方案（v1）》，并纳入已经确认的场地与预算调整结果。"
+        },
+        {
+          "documentId": "doc-annual-plan-v1",
+          "quote": "总预算暂按 100,000 元控制，场地费用上限暂按 32,000 元测算。"
+        }
+      ]
+    },
+    {
+      "relationId": "relation-plan-handbook",
+      "sourceDocumentId": "doc-annual-plan-v2",
+      "targetDocumentId": "doc-execution-handbook",
+      "relationType": "related_to",
+      "reason": "执行手册与 v2 方案围绕同一场年会的日期、人数、场地和执行职责展开，但手册没有声明替代或支撑方案。",
+      "generationReasons": [
+        "keyword_match"
+      ],
+      "evidences": [
+        {
+          "documentId": "doc-annual-plan-v2",
+          "quote": "活动日期仍为 2026 年 10 月 18 日，预计 180 人参加。"
+        },
+        {
+          "documentId": "doc-execution-handbook",
+          "quote": "本手册用于 2026 星桥科技年会的现场执行，帮助行政部、人力资源部、品牌组和供应商在同一时间表下协作。"
+        }
+      ]
+    }
+  ],
+  "negativePairs": [
+    {
+      "caseId": "negative-same-tags-different-project",
+      "leftDocumentId": "doc-annual-budget-draft",
+      "rightDocumentId": "doc-training-budget",
+      "expectedRelationType": "none",
+      "misleadingSignals": [
+        "预算草案",
+        "场地",
+        "32,000 元"
+      ],
+      "reason": "两份文档属于不同项目，时间、参与对象和业务目标均不同。",
+      "evidences": [
+        {
+          "documentId": "doc-annual-budget-draft",
+          "quote": "本草案适用于 2026 星桥科技年会。"
+        },
+        {
+          "documentId": "doc-training-budget",
+          "quote": "本草案适用于 2026 年 11 月举办的晨星新人训练营，预计 40 名新员工参加，与星桥科技年会无关。"
+        }
+      ]
+    },
+    {
+      "caseId": "negative-template-keyword-overlap",
+      "leftDocumentId": "doc-annual-plan-v1",
+      "rightDocumentId": "doc-retrospective-template",
+      "expectedRelationType": "none",
+      "misleadingSignals": [
+        "活动目标",
+        "场地",
+        "预算"
+      ],
+      "reason": "模板只有通用字段，没有对应星桥年会的事实或跨文档引用。",
+      "evidences": [
+        {
+          "documentId": "doc-retrospective-template",
+          "quote": "本文件是通用空白模板，不对应任何已举办或筹备中的具体项目。"
+        }
+      ]
+    },
+    {
+      "caseId": "negative-isolated-maintenance",
+      "leftDocumentId": "doc-printer-maintenance",
+      "rightDocumentId": "doc-annual-plan-v1",
+      "expectedRelationType": "none",
+      "misleadingSignals": [
+        "行政部"
+      ],
+      "reason": "打印机维护与年会活动没有共同业务对象或事实依据。",
+      "evidences": [
+        {
+          "documentId": "doc-printer-maintenance",
+          "quote": "此次维护只涉及办公设备，不涉及活动、预算、场地、培训或供应商事项。"
+        }
+      ]
+    },
+    {
+      "caseId": "negative-venue-different-project",
+      "leftDocumentId": "doc-venue-comparison",
+      "rightDocumentId": "doc-training-budget",
+      "expectedRelationType": "none",
+      "misleadingSignals": [
+        "场地",
+        "32,000 元"
+      ],
+      "reason": "场地和金额词汇重合，但文档分别属于年会和新人训练营。",
+      "evidences": [
+        {
+          "documentId": "doc-training-budget",
+          "quote": "与星桥科技年会无关。"
+        }
+      ]
+    },
+    {
+      "caseId": "negative-publicity-template",
+      "leftDocumentId": "doc-publicity-plan",
+      "rightDocumentId": "doc-retrospective-template",
+      "expectedRelationType": "none",
+      "misleadingSignals": [
+        "活动",
+        "物料"
+      ],
+      "reason": "一份是具体年会物料计划，另一份是不对应任何项目的空白复盘模板。",
+      "evidences": [
+        {
+          "documentId": "doc-retrospective-template",
+          "quote": "本文件是通用空白模板，不对应任何已举办或筹备中的具体项目。"
+        }
+      ]
+    }
+  ],
+  "retrievalCases": [
+    {
+      "caseId": "retrieve-plan-from-explicit-reference",
+      "sourceDocumentId": "doc-kickoff-meeting",
+      "expectedCandidateDocumentIds": [
+        "doc-annual-plan-v1"
+      ],
+      "hardNegativeDocumentIds": [
+        "doc-training-budget",
+        "doc-retrospective-template"
+      ]
+    },
+    {
+      "caseId": "retrieve-meeting-history-and-support",
+      "sourceDocumentId": "doc-second-meeting",
+      "expectedCandidateDocumentIds": [
+        "doc-kickoff-meeting",
+        "doc-venue-comparison"
+      ],
+      "hardNegativeDocumentIds": [
+        "doc-training-budget"
+      ]
+    },
+    {
+      "caseId": "retrieve-budget-conflict",
+      "sourceDocumentId": "doc-annual-budget-draft",
+      "expectedCandidateDocumentIds": [
+        "doc-annual-finance-review"
+      ],
+      "hardNegativeDocumentIds": [
+        "doc-training-budget"
+      ]
+    },
+    {
+      "caseId": "retrieve-content-related-publicity",
+      "sourceDocumentId": "doc-publicity-plan",
+      "expectedCandidateDocumentIds": [
+        "doc-annual-plan-v1"
+      ],
+      "hardNegativeDocumentIds": [
+        "doc-retrospective-template"
+      ]
+    },
+    {
+      "caseId": "retrieve-version-predecessor",
+      "sourceDocumentId": "doc-annual-plan-v2",
+      "expectedCandidateDocumentIds": [
+        "doc-annual-plan-v1"
+      ],
+      "hardNegativeDocumentIds": [
+        "doc-training-budget"
+      ]
+    },
+    {
+      "caseId": "retrieve-long-document-neighbor",
+      "sourceDocumentId": "doc-execution-handbook",
+      "expectedCandidateDocumentIds": [
+        "doc-annual-plan-v2"
+      ],
+      "hardNegativeDocumentIds": [
+        "doc-retrospective-template",
+        "doc-printer-maintenance"
+      ]
+    },
+    {
+      "caseId": "retrieve-empty-isolated-document",
+      "sourceDocumentId": "doc-printer-maintenance",
+      "expectedCandidateDocumentIds": [],
+      "hardNegativeDocumentIds": [
+        "doc-annual-plan-v1",
+        "doc-training-budget"
+      ]
+    }
+  ],
+  "specialCases": {
+    "tableDocumentId": "doc-venue-comparison",
+    "longDocumentId": "doc-execution-handbook",
+    "duplicateImportDocumentId": "doc-publicity-plan",
+    "duplicateImportExpectedUniqueDocuments": 1,
+    "versionChange": {
+      "logicalDocumentKey": "annual-plan",
+      "oldDocumentId": "doc-annual-plan-v1",
+      "newDocumentId": "doc-annual-plan-v2",
+      "expectedRelationType": "updates"
+    },
+    "isolatedDocumentId": "doc-printer-maintenance"
+  }
+}

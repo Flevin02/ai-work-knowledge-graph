@@ -1,9 +1,9 @@
 ---
 title: 文档关系图、标签关联与有据问答 PRD
-version: v1.3
-status: 目标态已确认，阶段 0 待执行
+version: v1.4
+status: 阶段 0 已完成，阶段 1 待实施
 created: 2026-08-19
-updated: 2026-08-21
+updated: 2026-08-24
 owner: 知脉产品与研发
 related_prd: ai-work-knowledge-graph-maintainer-prd.md
 ---
@@ -12,7 +12,7 @@ related_prd: ai-work-knowledge-graph-maintainer-prd.md
 
 本文档定义“知脉”从“文档内实体关系抽取”转向“默认文档内容关联、可选标签增强、文档关系图和有据问答”的产品目标、业务规则、交互流程、AI/RAG 链路、未来 Agent 扩展边界、验证指标、实施顺序和回滚边界。
 
-当前文档只形成产品和技术设计，不代表相关数据库、接口、AI Prompt、RAG 检索、问答或 Agent 编排已经实现。2026-08-21 已完成当前实现核验并确认本 PRD 的目标态；进入编码前仍需完成阶段 0 的固定资料、正负样本和 Prompt/Schema 版本冻结。
+当前文档只形成产品和技术设计，不代表相关数据库、接口、AI Prompt、RAG 检索、问答或 Agent 编排已经实现。2026-08-21 已完成当前实现核验并确认本 PRD 的目标态；2026-08-24 已完成阶段 0 的固定资料、正负样本、Prompt/Schema/策略版本和验收规程冻结，下一步进入阶段 1 的无标签、无 Embedding 文档内容关联后端基础链路。
 
 ## 1.1 当前实现核验结论
 
@@ -455,10 +455,27 @@ AI 把“活动筹备”误识别为“活动策划”。用户可以修改或�
 
 ```json
 {
+  "evidences": [
+    {
+      "evidenceId": "source-evidence",
+      "sourceDocumentId": "current-document-id",
+      "chunkId": "current-chunk-id",
+      "sectionPath": "会议结论",
+      "quote": "第二次会议决定将湖畔酒店调整为首选场地。"
+    },
+    {
+      "evidenceId": "target-evidence",
+      "sourceDocumentId": "candidate-document-id",
+      "chunkId": "candidate-chunk-id",
+      "sectionPath": "暂定结论",
+      "quote": "暂定星河会议中心为首选场地。"
+    }
+  ],
   "decisions": [
     {
       "candidateDocumentId": "candidate-document-id",
       "relationType": "updates",
+      "direction": "current_to_candidate",
       "confidence": 0.86,
       "reason": "第二次会议纪要更新了此前暂定的场地结论。",
       "matchedTagIds": ["tag-id"],
@@ -467,6 +484,7 @@ AI 把“活动筹备”误识别为“活动策划”。用户可以修改或�
     {
       "candidateDocumentId": "another-document-id",
       "relationType": "none",
+      "direction": "none",
       "confidence": 0.74,
       "reason": "只有宽泛的预算主题相同，缺少同一项目证据。",
       "matchedTagIds": [],
@@ -476,7 +494,7 @@ AI 把“活动筹备”误识别为“活动策划”。用户可以修改或�
 }
 ```
 
-`none` 只用于运行内部判断，不保存为文档关系，也不在默认用户界面展示。
+`direction` 固定为 `current_to_candidate`、`candidate_to_current`、`symmetric` 或 `none`；服务端根据当前文档、候选文档和方向计算最终主体/客体。`none` 只用于运行内部判断，不保存为文档关系，也不在默认用户界面展示。完整冻结语义和 JSON Schema 见 [`document-association-v1-contract.md`](../design/document-association-v1-contract.md) 与 [`document-association-output-schema-v1.json`](../design/document-association-output-schema-v1.json)。
 
 ## 12.3 服务端校验
 
@@ -1011,6 +1029,8 @@ spaceId
 
 每份资料标注预期标签、相关文档、关系类型和原文证据。
 
+阶段 0 已在 `fixture/document-association-v1/` 冻结 `document-association-eval-v1`：包含 12 份自包含虚构 Markdown/TXT、7 条五种关系正例、5 组明确负例、7 个候选召回用例，以及表格、长文档、重复导入、版本变化和孤立资料场景。机器可读答案位于 `annotations.json`，实验规程见 [`document-association-evaluation-v1.md`](../tests/document-association-evaluation-v1.md)。静态验收已确认 JSON 合法、标识唯一、正负答案无冲突、五种关系均有正例，所有标签和关系证据均可在对应文件逐字反查。
+
 ## 19.2 核心指标
 
 - 标签 Precision、Recall 和 F1。
@@ -1098,13 +1118,17 @@ spaceId
 
 ## 阶段 0：方案确认和评估资料
 
-- 确认默认文档内容关联、可选标签关联、关系类型和主视图决策。
-- 建立文档关联正负样本及标注答案。
-- 冻结第一版 Prompt、Schema 和策略版本命名。
-- 验收：不写产品代码也能明确每个样本的内容关联、可选标签和预期关系。
+状态：已于 2026-08-24 完成静态验收，未写产品表、接口、Service 或前端功能。
+
+- 已确认默认文档内容关联、可选标签关联、五种关系、文档关系图和有据问答优先于 Agent 的决策。
+- 已建立 `document-association-eval-v1` 正负样本、候选召回用例和机器可读标注答案。
+- 已冻结 `document-association-v1` Prompt/Schema、`document-candidate-recall-v1` 候选召回策略、`document-association-policy-v1` 关联策略及阶段 2 的 `document-tag-v1` Prompt/Schema 边界。
+- 已冻结关系方向字段和“`updates` → `conflicts_with` → `supports` → `references` → `related_to`”最具体关系优先级。
+- 验收结果：12 份资料、7 条正例、5 组负例和 7 个召回用例通过 JSON、标识、关系覆盖、正负冲突、文件路径和逐字证据静态校验。
 
 ## 阶段 1：默认文档内容关联
 
+- 第一小切片先建立文档关联运行、关系、证据和审核的 SQLite/MyBatis 持久化基础及自动测试，不同时实现标签、Embedding、文档关系图或前端审核。
 - 新增文档关系、关系证据、审核和运行记录所需的数据表、Repository、Service、API 和测试。
 - 实现显式引用、文件名、标题、摘要、章节标题和关键词的内容候选召回。
 - 使用 Fake AI 判断五种白名单关系或 `none`，通过服务端验证候选文档标识和逐字证据。
@@ -1178,7 +1202,7 @@ spaceId
 
 # 24. 已确认产品决策与实施前置
 
-以下方向已于 2026-08-20 确认；其中“已确认”不等于相关代码已经实现。进入实现前仍必须完成第 21 节阶段 0 的固定资料、正负样本、Prompt、Schema 和验收指标冻结：
+以下方向已于 2026-08-20 确认；其中“已确认”不等于相关代码已经实现。第 21 节阶段 0 已于 2026-08-24 完成固定资料、正负样本、Prompt、Schema、策略版本和验收指标冻结，阶段 1 必须直接复用该 v1 基线：
 
 1. **AI 标签必须审核**：AI 标签初始为 `suggested`；用户手工标签直接为 `confirmed`。
 2. **文档关系图作为后续默认主图**：实体图谱保留为兼容/次级实验视图，不与文档关系图混合；切换默认主图前必须完成阶段 2 的固定资料验收。
@@ -1191,7 +1215,7 @@ spaceId
 8. **文档详情和图谱交互**：文档关系图节点必须直接来自 `source_documents`；点击统一进入文档详情页，悬浮/键盘聚焦突出一跳邻居和关联标签，不能通过颜色以外的不可访问方式隐藏非相关节点。
 9. **有据问答优先于 Agent**：先实现固定 RAG 问答、可点击引用和无答案状态；Agent 仅作为后续受控编排层，不能替代引用校验、审核状态机、知识空间隔离或固定 Pipeline。
 
-阶段 0 完成前禁止新增标签表、文档-标签关系表、文档关系表、会话/引用持久化、Embedding 索引或 Agent 编排。前端左侧信息架构可以先移除图谱类型区域并改为待处理/标签空态，但不得伪造尚未存在的标签统计、关联数量或问答来源。
+阶段 0 已完成，阶段 1 现在只允许按冻结基线新增文档关联所需的运行、关系、证据和审核能力；标签表、文档-标签关系、会话/引用持久化、Embedding 索引、文档关系图切换和 Agent 编排仍必须等待各自阶段。前端左侧信息架构可以保持待处理/标签空态，但不得伪造尚未存在的标签统计、关联数量或问答来源。
 
 # 25. 回滚方案
 
