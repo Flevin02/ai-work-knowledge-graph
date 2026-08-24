@@ -1,7 +1,7 @@
 ---
 title: 文档关系图、标签关联与有据问答 PRD
-version: v1.5
-status: 阶段 1 持久化基础已完成，候选召回待实施
+version: v1.6
+status: 阶段 1 无 Embedding 候选召回已完成，关系判断待实施
 created: 2026-08-19
 updated: 2026-08-24
 owner: 知脉产品与研发
@@ -14,7 +14,7 @@ related_prd: ai-work-knowledge-graph-maintainer-prd.md
 
 当前文档只形成产品和技术设计，不代表相关数据库、接口、AI Prompt、RAG 检索、问答或 Agent 编排已经实现。2026-08-21 已完成当前实现核验并确认本 PRD 的目标态；2026-08-24 已完成阶段 0 的固定资料、正负样本、Prompt/Schema/策略版本和验收规程冻结，下一步进入阶段 1 的无标签、无 Embedding 文档内容关联后端基础链路。
 
-2026-08-24 已完成阶段 1 第一小切片：四张文档关联持久化表、MyBatis-Plus 分层和领域边界校验已落地并通过 Java 21 SQLite 集成测试；候选召回、关联模型、HTTP API、前端审核和文档关系图仍未实现。
+2026-08-24 已完成阶段 1 第一小切片：四张文档关联持久化表、MyBatis-Plus 分层和领域边界校验已落地并通过 Java 21 SQLite 集成测试；同日完成无 Embedding 候选召回服务和固定资料 Recall@8/硬负例自动验证。关联模型、HTTP API、前端审核和文档关系图仍未实现。
 
 ## 1.1 当前实现核验结论
 
@@ -860,7 +860,7 @@ Agent 只有在以下场景可重复验证后才能进入产品主线：
 - Embedding 模型、Prompt、Schema 和检索参数。
 - 模型请求次数、耗时、重试次数和建议数量。
 
-阶段 1 当前已落地 `document_association_runs` 表及 Entity/Mapper/Repository；运行保存 Service 已校验空间、主体文档和内容指纹，尚未接入候选召回或模型调用。
+阶段 1 当前已落地 `document_association_runs` 表及 Entity/Mapper/Repository；运行保存 Service 已校验空间、主体文档和内容指纹。无 Embedding 候选召回已由 `DocumentCandidateRecallService` 接入，仍未接入关系判断模型或运行 HTTP API。
 
 ### 阶段 1 当前已落地的文档关联持久化边界
 
@@ -868,7 +868,7 @@ Agent 只有在以下场景可重复验证后才能进入产品主线：
 - 关系类型固定为五种白名单；对称关系保存前按文档标识规范化，有向关系保留方向字段；稳定关系键包含空间内文档、关系类型、方向、内容指纹和策略版本。
 - 证据只能来自关系两端的有效来源资料，`quote` 必须逐字反查；`source`、`target` 和 `cross_reference` 角色分别受服务端校验。
 - AI/规则关系默认可保存为 `suggested`，审核动作只允许 `suggested → confirmed/rejected`；审核历史采用不可变插入，不覆盖旧动作。
-- 当前没有新增 Controller/API、候选召回、关联模型、标签表、Embedding、文档关系图或前端审核；下一小切片是无 Embedding 候选召回。
+- 当前没有新增 Controller/API、关联模型、标签表、Embedding、文档关系图或前端审核；候选召回已完成，下一小切片是 Fake AI 关系判断、候选集合/证据校验和关联审核 API。
 
 ### `conversations` 与 `conversation_messages`
 
@@ -1141,11 +1141,13 @@ spaceId
 ## 阶段 1：默认文档内容关联
 
 - 第一小切片已完成：建立文档关联运行、关系、证据和审核的 SQLite/MyBatis 持久化基础及自动测试，没有同时实现标签、Embedding、文档关系图或前端审核。
-- 下一小切片实现无 Embedding 的显式引用、文件名、标题、摘要、章节标题和关键词候选召回，直接复用已落地持久化基础。
+- 第二小切片已完成：实现无 Embedding 的显式引用、文件名、标题、摘要、章节标题和关键词候选召回，直接复用来源资料、章节解析和已落地文档关联持久化边界。
+- 候选召回固定使用 `document-candidate-recall-v1`、TopK=8、当前空间有效资料过滤和主体文档排除；结果保留命中通道、关键词、规则排序分数和稳定排名，不把规则分数当作关系置信度。
+- 固定 `document-association-eval-v1` 的 7 个召回用例已通过 Java 21 SQLite 集成测试：期望候选进入前 8、孤立打印机资料返回空列表、冻结硬负例未进入对应前 8，且 TopK 超过 8 会被拒绝。
 - 新增文档关系、关系证据、审核和运行记录所需的数据表、Repository、Service、API 和测试。
 - 实现显式引用、文件名、标题、摘要、章节标题和关键词的内容候选召回。
-- 使用 Fake AI 判断五种白名单关系或 `none`，通过服务端验证候选文档标识和逐字证据。
-- 验收：无标签、无 Embedding 环境下，固定资料仍能完成文档内容关联、审核、拒绝和状态恢复。
+- 使用 Fake AI 判断五种白名单关系或 `none`，通过服务端验证候选文档标识和逐字证据（下一小切片）。
+- 验收：无标签、无 Embedding 环境下，固定资料完成候选召回后，再进入关系判断、审核、拒绝和状态恢复（关系判断与审核仍未完成）。
 
 ## 阶段 2：可选标签增强
 
