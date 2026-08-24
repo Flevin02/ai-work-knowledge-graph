@@ -370,6 +370,36 @@ CREATE TABLE IF NOT EXISTS document_tag_evidences (
 CREATE INDEX IF NOT EXISTS idx_document_tag_evidences_document_tag_created_at
     ON document_tag_evidences(space_id, document_tag_id, created_at, id);
 
+-- 文档标签审核历史：保存不可变的采纳或拒绝动作。
+CREATE TABLE IF NOT EXISTS document_tag_reviews (
+    -- 文档标签审核记录唯一标识。
+    id TEXT PRIMARY KEY,
+    -- 审核记录所属知识空间。
+    space_id TEXT NOT NULL,
+    -- 被审核的文档标签关系。
+    document_tag_id TEXT NOT NULL,
+    -- 审核动作：accept 或 reject。
+    action TEXT NOT NULL CHECK (action IN ('accept', 'reject')),
+    -- 可选的采纳说明或拒绝原因。
+    reason TEXT,
+    -- 操作者展示名称；本地单用户阶段固定为 local-user。
+    operator_name TEXT NOT NULL,
+    -- 审核时间，使用 ISO-8601 UTC 字符串。
+    created_at TEXT NOT NULL,
+    -- 保证审核记录所属知识空间真实存在。
+    FOREIGN KEY (space_id) REFERENCES knowledge_spaces(id),
+    -- 保证审核目标文档标签真实存在。
+    FOREIGN KEY (document_tag_id) REFERENCES document_tags(id)
+);
+
+-- 每条 AI 标签候选只允许从 suggested 完成一次人工审核。
+CREATE UNIQUE INDEX IF NOT EXISTS uk_document_tag_reviews_space_document_tag
+    ON document_tag_reviews(space_id, document_tag_id);
+
+-- 支持按文档标签关系批量恢复不可变审核历史。
+CREATE INDEX IF NOT EXISTS idx_document_tag_reviews_document_tag_created_at
+    ON document_tag_reviews(document_tag_id, created_at DESC, id DESC);
+
 -- 文档关联运行：保存一次文档候选关联分析的版本、状态、召回统计和失败上下文。
 CREATE TABLE IF NOT EXISTS document_association_runs (
     -- 关联运行唯一标识。

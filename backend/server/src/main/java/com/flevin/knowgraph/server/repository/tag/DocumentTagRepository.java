@@ -1,6 +1,7 @@
 package com.flevin.knowgraph.server.repository.tag;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.flevin.knowgraph.server.model.tag.DocumentTag;
 import com.flevin.knowgraph.server.model.tag.DocumentTagEvidence;
 import com.flevin.knowgraph.server.model.tag.KnowledgeTag;
@@ -10,6 +11,7 @@ import com.flevin.knowgraph.server.repository.entity.KnowledgeTagEntity;
 import com.flevin.knowgraph.server.repository.mapper.DocumentTagEvidenceMapper;
 import com.flevin.knowgraph.server.repository.mapper.DocumentTagMapper;
 import com.flevin.knowgraph.server.repository.mapper.KnowledgeTagMapper;
+import com.flevin.knowgraph.server.repository.projection.KnowledgeTagSummaryProjection;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -199,6 +201,17 @@ public class DocumentTagRepository {
     }
 
     /**
+     * 查询当前空间参与用户筛选的已确认标签和有效文档数量。
+     *
+     * @param spaceId 知识空间标识
+     * @return 已确认标签统计投影
+     */
+    public List<KnowledgeTagSummaryProjection> findConfirmedSummaries(String spaceId) {
+        // 使用自定义 Join 聚合一次计算标签下的有效确认文档数
+        return knowledgeTagMapper.findConfirmedSummaries(spaceId);
+    }
+
+    /**
      * 保存文档标签关系。
      *
      * @param documentTag 已通过领域校验的文档标签关系
@@ -206,6 +219,35 @@ public class DocumentTagRepository {
     public void saveDocumentTag(DocumentTag documentTag) {
         // 将领域关系转换为 MyBatis-Plus 实体并保存
         documentTagMapper.insert(toEntity(documentTag));
+    }
+
+    /**
+     * 仅将 suggested 文档标签迁移为审核后的最终状态。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentTagId 文档标签关系标识
+     * @param nextStatus 目标状态：confirmed 或 rejected
+     * @param updatedAt 审核更新时间
+     * @return 实际更新行数；并发或重复审核时为 0
+     */
+    public int updateSuggestedStatus(
+            String spaceId,
+            String documentTagId,
+            String nextStatus,
+            Instant updatedAt
+    ) {
+        DocumentTagEntity updateEntity = new DocumentTagEntity();
+        updateEntity.setStatus(nextStatus);
+        updateEntity.setUpdatedAt(updatedAt.toString());
+
+        // 同时限定空间、标识和 suggested 当前态，防止并发或重复审核覆盖历史结果
+        LambdaUpdateWrapper<DocumentTagEntity> updateWrapper = Wrappers.lambdaUpdate();
+        updateWrapper.eq(DocumentTagEntity::getSpaceId, spaceId)
+                .eq(DocumentTagEntity::getId, documentTagId)
+                .eq(DocumentTagEntity::getStatus, "suggested");
+
+        // 使用 MyBatis-Plus 条件更新执行原子状态迁移
+        return documentTagMapper.update(updateEntity, updateWrapper);
     }
 
     /**

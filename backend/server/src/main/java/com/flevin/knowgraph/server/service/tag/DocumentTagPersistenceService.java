@@ -2,6 +2,7 @@ package com.flevin.knowgraph.server.service.tag;
 
 import com.flevin.knowgraph.server.model.tag.DocumentTag;
 import com.flevin.knowgraph.server.model.tag.DocumentTagEvidence;
+import com.flevin.knowgraph.server.model.tag.DocumentTagReview;
 import com.flevin.knowgraph.server.model.tag.DocumentTagSuggestion;
 import com.flevin.knowgraph.server.model.tag.KnowledgeTag;
 
@@ -10,8 +11,8 @@ import java.util.List;
 /**
  * 可选标签阶段的持久化领域服务。
  *
- * <p>该服务只维护标签定义、文档标签关系、来源状态、幂等和证据边界，
- * 不调用模型、不执行审核状态迁移，也不暴露 HTTP 接口。</p>
+ * <p>该服务只维护标签定义、文档标签关系、来源状态、幂等、证据和不可变审核历史边界，
+ * 不调用模型，也不暴露 HTTP 接口。</p>
  */
 public interface DocumentTagPersistenceService {
 
@@ -47,6 +48,24 @@ public interface DocumentTagPersistenceService {
     DocumentTag saveUserTag(
             KnowledgeTag tag,
             DocumentTag documentTag
+    );
+
+    /**
+     * 将一条 suggested 文档标签迁移为 confirmed 或 rejected，并追加不可变审核历史。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentTagId 文档标签关系标识
+     * @param action 审核动作：accept 或 reject
+     * @param reason 可选审核说明
+     * @param operatorName 操作者展示名称
+     * @return 已保存的不可变审核历史
+     */
+    DocumentTagReview reviewDocumentTag(
+            String spaceId,
+            String documentTagId,
+            String action,
+            String reason,
+            String operatorName
     );
 
     /**

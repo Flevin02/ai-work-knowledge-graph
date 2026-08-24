@@ -5,11 +5,13 @@ import com.flevin.knowgraph.common.exception.TipsException;
 import com.flevin.knowgraph.server.model.document.SourceDocument;
 import com.flevin.knowgraph.server.model.tag.DocumentTag;
 import com.flevin.knowgraph.server.model.tag.DocumentTagEvidence;
+import com.flevin.knowgraph.server.model.tag.DocumentTagReview;
 import com.flevin.knowgraph.server.model.tag.DocumentTagSuggestion;
 import com.flevin.knowgraph.server.model.tag.KnowledgeTag;
 import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
 import com.flevin.knowgraph.server.repository.space.KnowledgeSpaceRepository;
 import com.flevin.knowgraph.server.repository.tag.DocumentTagRepository;
+import com.flevin.knowgraph.server.repository.tag.DocumentTagReviewRepository;
 import com.flevin.knowgraph.server.service.tag.DocumentTagPersistenceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -24,6 +26,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
@@ -38,6 +41,11 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
     private static final String USER_SOURCE_TYPE = "user";
     private static final String SUGGESTED_STATUS = "suggested";
     private static final String CONFIRMED_STATUS = "confirmed";
+    private static final String REJECTED_STATUS = "rejected";
+    private static final String ACCEPT_ACTION = "accept";
+    private static final String REJECT_ACTION = "reject";
+    private static final int MAX_REVIEW_REASON_LENGTH = 500;
+    private static final int MAX_OPERATOR_NAME_LENGTH = 100;
     private static final int MIN_TAG_LENGTH = 2;
     private static final int MAX_TAG_LENGTH = 24;
     private static final Pattern WHITESPACE_PATTERN = Pattern.compile(
@@ -49,6 +57,7 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
     private final KnowledgeSpaceRepository knowledgeSpaceRepository;
     private final SourceDocumentRepository sourceDocumentRepository;
     private final DocumentTagRepository documentTagRepository;
+    private final DocumentTagReviewRepository documentTagReviewRepository;
 
     /**
      * 在同一事务中幂等保存一条 AI 候选标签及其全部逐字证据。
@@ -181,6 +190,68 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
     }
 
     /**
+     * 将一条 suggested 文档标签迁移为 confirmed 或 rejected，并追加不可变审核历史。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentTagId 文档标签关系标识
+     * @param action 审核动作：accept 或 reject
+     * @param reason 可选审核说明
+     * @param operatorName 操作者展示名称
+     * @return 已保存的不可变审核历史
+     */
+    @Override
+    @Transactional
+    public DocumentTagReview reviewDocumentTag(
+            String spaceId,
+            String documentTagId,
+            String action,
+            String reason,
+            String operatorName
+    ) {
+        // 校验审核动作、说明和操作者，避免写入不可解释的历史
+        validateReview(action, reason, operatorName);
+
+        // 校验审核所属知识空间仍然有效
+        knowledgeSpaceRepository.findActiveById(spaceId)
+                .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "知识空间不存在"));
+
+        // 按空间和服务端关系标识读取文档标签，阻断跨空间审核
+        DocumentTag documentTag = documentTagRepository.findDocumentTagById(spaceId, documentTagId)
+                .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "文档标签不存在"));
+        if (!SUGGESTED_STATUS.equals(documentTag.status())) {
+            throw new TipsException(ErrorCode.DATA_ALREADY_EXISTS, "文档标签已完成审核，不能重复操作");
+        }
+
+        String nextStatus = ACCEPT_ACTION.equals(action) ? CONFIRMED_STATUS : REJECTED_STATUS;
+        Instant reviewedAt = Instant.now();
+
+        // 使用 suggested 条件执行原子状态迁移，防止并发审核覆盖先到结果
+        int updatedRows = documentTagRepository.updateSuggestedStatus(
+                spaceId,
+                documentTagId,
+                nextStatus,
+                reviewedAt
+        );
+        if (updatedRows != 1) {
+            throw new TipsException(ErrorCode.DATA_ALREADY_EXISTS, "文档标签已完成审核，不能重复操作");
+        }
+
+        DocumentTagReview review = new DocumentTagReview(
+                UUID.randomUUID().toString(),
+                spaceId,
+                documentTagId,
+                action,
+                normalizeReviewReason(reason),
+                operatorName.strip(),
+                reviewedAt
+        );
+
+        // 插入不可变审核历史，失败时由事务回滚前面的状态迁移
+        documentTagReviewRepository.save(review);
+        return review;
+    }
+
+    /**
      * 查询指定来源资料的全部文档标签状态，用于后续审核和页面恢复。
      *
      * @param spaceId 知识空间标识
@@ -219,6 +290,39 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
 
         // 批量查询文档标签下的全部已校验证据
         return documentTagRepository.findEvidenceByDocumentTag(spaceId, documentTagId);
+    }
+
+    /**
+     * 校验文档标签审核输入形状。
+     *
+     * @param action 审核动作
+     * @param reason 可选审核说明
+     * @param operatorName 操作者展示名称
+     */
+    private void validateReview(
+            String action,
+            String reason,
+            String operatorName
+    ) {
+        if (!ACCEPT_ACTION.equals(action) && !REJECT_ACTION.equals(action)) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "文档标签审核动作只允许 accept 或 reject");
+        }
+        if (reason != null && reason.strip().length() > MAX_REVIEW_REASON_LENGTH) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "文档标签审核说明不能超过 500 个字符");
+        }
+        if (isBlank(operatorName) || operatorName.strip().length() > MAX_OPERATOR_NAME_LENGTH) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "文档标签审核操作者不能为空且不能超过 100 个字符");
+        }
+    }
+
+    /**
+     * 规范化可选审核说明。
+     *
+     * @param reason 原始审核说明
+     * @return 去除首尾空格后的说明；空白时返回 null
+     */
+    private String normalizeReviewReason(String reason) {
+        return reason == null || reason.isBlank() ? null : reason.strip();
     }
 
     /**

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.flevin.knowgraph.server.repository.mapper.KnowledgeTagMapper">
+
+    <!-- 只统计已确认标签和有效来源资料，suggested/rejected/stale 不进入用户筛选器。 -->
+    <select id="findConfirmedSummaries"
+            resultType="com.flevin.knowgraph.server.repository.projection.KnowledgeTagSummaryProjection">
+        SELECT tags.id AS tag_id,
+               tags.name,
+               tags.normalized_key,
+               COUNT(DISTINCT document_tags.source_document_id) AS document_count,
+               MAX(document_tags.updated_at) AS updated_at
+        FROM tags
+        INNER JOIN document_tags
+                ON document_tags.space_id = tags.space_id
+               AND document_tags.tag_id = tags.id
+               AND document_tags.status = 'confirmed'
+        INNER JOIN source_documents
+                ON source_documents.space_id = document_tags.space_id
+               AND source_documents.id = document_tags.source_document_id
+               AND source_documents.status = 'active'
+        WHERE tags.space_id = #{spaceId}
+          AND tags.status = 'active'
+        GROUP BY tags.id, tags.name, tags.normalized_key
+        ORDER BY document_count DESC, tags.name ASC, tags.id ASC
+    </select>
+
+</mapper>
