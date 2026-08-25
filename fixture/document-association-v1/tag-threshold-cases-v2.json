@@ -1,0 +1,84 @@
+{
+  "datasetVersion": "document-association-tag-threshold-eval-v2",
+  "baseDatasetVersion": "document-association-eval-v1",
+  "status": "frozen",
+  "frozenAt": "2026-08-25",
+  "minimumConfirmedTagMatches": 2,
+  "additionalConfirmedTags": [
+    {
+      "documentId": "doc-venue-comparison",
+      "tags": [
+        {
+          "name": "活动筹备",
+          "evidenceQuote": "行政部建议选择湖畔酒店宴会厅，并将本报告提交第二次筹备会议作为场地决策依据。"
+        }
+      ]
+    },
+    {
+      "documentId": "doc-publicity-plan",
+      "tags": [
+        {
+          "name": "活动筹备",
+          "evidenceQuote": "品牌组将在场地和最终预算确认后完成印刷数量与交付时间，不提前使用未确认的场地名称。"
+        }
+      ]
+    },
+    {
+      "documentId": "doc-training-budget",
+      "tags": [
+        {
+          "name": "场地预算",
+          "evidenceQuote": "培训场地：32,000 元"
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "tag-threshold-positive-same-project",
+      "kind": "positive",
+      "retrievalCaseId": "retrieve-content-related-publicity",
+      "sourceDocumentId": "doc-publicity-plan",
+      "targetDocumentId": "doc-venue-comparison",
+      "sharedConfirmedTags": [
+        "星桥年会",
+        "活动筹备"
+      ],
+      "expectedRelationType": "related_to",
+      "reason": "两份资料属于同一场星桥年会，场地确认结果会影响宣传物料中的场地名称和交付安排。",
+      "evidences": [
+        {
+          "documentId": "doc-publicity-plan",
+          "quote": "品牌组将在场地和最终预算确认后完成印刷数量与交付时间，不提前使用未确认的场地名称。"
+        },
+        {
+          "documentId": "doc-venue-comparison",
+          "quote": "湖畔酒店宴会厅的档期已经书面确认，容量满足 180 人需求，完整费用比星河会议中心低 6,000 元。"
+        }
+      ]
+    },
+    {
+      "caseId": "tag-threshold-negative-different-project",
+      "kind": "negative",
+      "retrievalCaseId": "retrieve-budget-conflict",
+      "sourceDocumentId": "doc-annual-budget-draft",
+      "targetDocumentId": "doc-training-budget",
+      "sharedConfirmedTags": [
+        "预算草案",
+        "场地预算"
+      ],
+      "expectedRelationType": "none",
+      "reason": "两份资料虽然都是活动预算草案并包含场地费用，但分别属于星桥年会和晨星新人训练营。",
+      "evidences": [
+        {
+          "documentId": "doc-annual-budget-draft",
+          "quote": "本草案适用于 2026 星桥科技年会。"
+        },
+        {
+          "documentId": "doc-training-budget",
+          "quote": "本草案适用于 2026 年 11 月举办的晨星新人训练营，预计 40 名新员工参加，与星桥科技年会无关。"
+        }
+      ]
+    }
+  ]
+}

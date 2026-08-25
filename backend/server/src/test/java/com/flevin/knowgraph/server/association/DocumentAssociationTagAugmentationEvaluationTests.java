@@ -35,11 +35,11 @@ import java.util.stream.Collectors;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 固定资料上的 confirmed 标签共同数量分层阈值实验。
+ * 固定资料上的 confirmed 标签共同数量分层阈值正负例实验。
  *
- * <p>测试使用 annotations.json 中冻结的 expectedTags 作为人工 confirmed 标签输入，
- * 不把标签生成模型的质量混入本实验；在内容通道未命中的前提下，
- * 只有达到最小共同标签数量的候选才进入补充通道。</p>
+ * <p>测试使用 annotations.json 中冻结的 expectedTags 和独立 v2 补充标注作为
+ * 人工 confirmed 标签输入，不把标签生成模型的质量混入本实验；在内容通道未命中的前提下，
+ * 同时验证达到最小共同标签数量的相关文档和不同项目负例。</p>
  */
 @SpringBootTest(classes = KnowledgeGraphApplication.class, properties = {
         "app.database-path=target/test-data/document-association-tag-augmentation-evaluation.sqlite",
@@ -48,8 +48,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DocumentAssociationTagAugmentationEvaluationTests {
 
     private static final String SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
+    private static final String BASE_DATASET_VERSION = "document-association-eval-v1";
+    private static final String TAG_THRESHOLD_DATASET_VERSION = "document-association-tag-threshold-eval-v2";
     private static final String REPORT_FILE =
-            "../../docs/tests/document-association-tag-threshold-evaluation-v1.md";
+            "../../docs/tests/document-association-tag-threshold-evaluation-v2.md";
 
     @Autowired
     private DocumentCandidateRecallService candidateRecallService;
@@ -92,24 +94,49 @@ class DocumentAssociationTagAugmentationEvaluationTests {
         ComparisonResult result = compare(fixture, documents);
         writeReport(result);
 
-        // 默认关闭必须保持候选基线；固定资料开启阈值后应过滤上一轮单标签噪声
+        // 默认路径应漏掉新增标签正例，开启阈值后应同时暴露正例增益和跨项目负例边界
         assertThat(result.defaultCandidateCount()).isGreaterThan(0);
-        assertThat(result.augmentedTagCandidateCount()).isZero();
+        assertThat(result.augmentedTagCandidateCount()).isEqualTo(2);
         assertThat(result.defaultCandidateRecallPolicyVersions())
                 .containsOnly(DocumentCandidateRecallService.CONTENT_POLICY_VERSION);
         assertThat(result.augmentedCandidateRecallPolicyVersions())
                 .containsOnly(DocumentCandidateRecallService.CONFIRMED_TAG_THRESHOLD_POLICY_VERSION);
-        assertThat(result.defaultRecallAt8()).isGreaterThanOrEqualTo(0.90);
-        assertThat(result.augmentedRecallAt8()).isEqualTo(result.defaultRecallAt8());
-        assertThat(result.augmentedCandidateCount()).isEqualTo(result.defaultCandidateCount());
+        assertThat(result.augmentedRecallAt8()).isGreaterThan(result.defaultRecallAt8());
+        assertThat(result.augmentedRecallAt8()).isEqualTo(1.0);
+        assertThat(result.augmentedCandidateCount() - result.defaultCandidateCount())
+                .isEqualTo(result.augmentedTagCandidateCount());
         assertThat(result.cases()).allSatisfy(item -> assertThat(new ArrayList<>(item.augmentedCandidates()))
                 .startsWith(item.defaultCandidates().toArray(String[]::new)));
         assertThat(result.defaultHardNegativeCount()).isZero();
-        assertThat(result.augmentedHardNegativeCount()).isZero();
+        assertThat(result.augmentedHardNegativeCount()).isEqualTo(1);
         assertThat(result.defaultSelfCandidateCount()).isZero();
         assertThat(result.augmentedSelfCandidateCount()).isZero();
         assertThat(result.defaultCrossSpaceCandidateCount()).isZero();
         assertThat(result.augmentedCrossSpaceCandidateCount()).isZero();
+
+        // 读取补充标注的正例用例，验证目标只由双共同标签通道补入
+        ThresholdCase positiveCase = fixture.thresholdCases().stream()
+                .filter(item -> "positive".equals(item.kind()))
+                .findFirst()
+                .orElseThrow();
+        CaseResult positiveResult = result.cases().stream()
+                .filter(item -> item.caseId().equals(positiveCase.retrievalCaseId()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(positiveResult.defaultCandidates()).doesNotContain(positiveCase.targetDocumentId());
+        assertThat(positiveResult.augmentedCandidates()).contains(positiveCase.targetDocumentId());
+
+        // 读取补充标注的负例用例，记录数量阈值无法识别跨项目通用标签的边界
+        ThresholdCase negativeCase = fixture.thresholdCases().stream()
+                .filter(item -> "negative".equals(item.kind()))
+                .findFirst()
+                .orElseThrow();
+        CaseResult negativeResult = result.cases().stream()
+                .filter(item -> item.caseId().equals(negativeCase.retrievalCaseId()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(negativeResult.defaultCandidates()).doesNotContain(negativeCase.targetDocumentId());
+        assertThat(negativeResult.augmentedCandidates()).contains(negativeCase.targetDocumentId());
     }
 
     /** @return 固定资料实验输入 @throws IOException 标注文件无法读取时抛出 */
@@ -120,6 +147,14 @@ class DocumentAssociationTagAugmentationEvaluationTests {
                 Path.of("..", "..", "fixture", "document-association-v1")
         );
         JsonNode annotations = objectMapper.readTree(Files.readString(root.resolve("annotations.json")));
+        JsonNode thresholdAnnotations = objectMapper.readTree(
+                Files.readString(root.resolve("tag-threshold-cases-v2.json"))
+        );
+        assertThat(annotations.path("datasetVersion").asText()).isEqualTo(BASE_DATASET_VERSION);
+        assertThat(thresholdAnnotations.path("datasetVersion").asText()).isEqualTo(TAG_THRESHOLD_DATASET_VERSION);
+        assertThat(thresholdAnnotations.path("baseDatasetVersion").asText()).isEqualTo(BASE_DATASET_VERSION);
+        assertThat(thresholdAnnotations.path("minimumConfirmedTagMatches").asInt())
+                .isEqualTo(DocumentCandidateRecallService.MIN_CONFIRMED_TAG_MATCHES);
         Map<String, FixtureDocument> documents = new LinkedHashMap<>();
         for (JsonNode node : annotations.path("documents")) {
             List<String> expectedTags = new ArrayList<>();
@@ -128,16 +163,46 @@ class DocumentAssociationTagAugmentationEvaluationTests {
             }
             documents.put(node.path("documentId").asText(), new FixtureDocument(node.path("path").asText(), expectedTags));
         }
+
+        for (JsonNode node : thresholdAnnotations.path("additionalConfirmedTags")) {
+            String documentId = node.path("documentId").asText();
+            FixtureDocument document = documents.get(documentId);
+            List<String> confirmedTags = new ArrayList<>(document.expectedTags());
+            for (JsonNode tag : node.path("tags")) {
+                confirmedTags.add(tag.path("name").asText());
+            }
+            documents.put(documentId, new FixtureDocument(document.path(), List.copyOf(confirmedTags)));
+        }
+
+        List<ThresholdCase> thresholdCases = new ArrayList<>();
+        for (JsonNode node : thresholdAnnotations.path("cases")) {
+            thresholdCases.add(new ThresholdCase(
+                    node.path("kind").asText(),
+                    node.path("retrievalCaseId").asText(),
+                    node.path("targetDocumentId").asText()
+            ));
+        }
         List<RetrievalCase> retrievalCases = new ArrayList<>();
         for (JsonNode node : annotations.path("retrievalCases")) {
+            Set<String> expectedCandidateIds = textSet(node.path("expectedCandidateDocumentIds"));
+            Set<String> hardNegativeIds = textSet(node.path("hardNegativeDocumentIds"));
+            thresholdCases.stream()
+                    .filter(item -> item.retrievalCaseId().equals(node.path("caseId").asText()))
+                    .forEach(item -> {
+                        if ("positive".equals(item.kind())) {
+                            expectedCandidateIds.add(item.targetDocumentId());
+                        } else {
+                            hardNegativeIds.add(item.targetDocumentId());
+                        }
+                    });
             retrievalCases.add(new RetrievalCase(
                     node.path("caseId").asText(),
                     node.path("sourceDocumentId").asText(),
-                    textSet(node.path("expectedCandidateDocumentIds")),
-                    textSet(node.path("hardNegativeDocumentIds"))
+                    expectedCandidateIds,
+                    hardNegativeIds
             ));
         }
-        return new FixtureData(root, documents, retrievalCases);
+        return new FixtureData(root, documents, retrievalCases, thresholdCases);
     }
 
     /** @param fixture 固定资料输入 @return fixture ID 到真实来源资料的映射 @throws IOException 固定资料无法读取时抛出 */
@@ -250,9 +315,10 @@ class DocumentAssociationTagAugmentationEvaluationTests {
     private void writeReport(ComparisonResult result) throws IOException {
         Path report = Path.of(REPORT_FILE);
         StringBuilder content = new StringBuilder();
-        content.append("# 文档关联 confirmed 标签共同数量分层阈值评估 v1\n\n")
-                .append("- 资料集：document-association-eval-v1\n")
-                .append("- 运行方式：Java 21 + SQLite + 冻结 expectedTags 作为 confirmed user 标签\n")
+        content.append("# 文档关联 confirmed 标签共同数量分层阈值评估 v2\n\n")
+                .append("- 基础资料集：").append(BASE_DATASET_VERSION).append("\n")
+                .append("- 标签阈值补充资料：").append(TAG_THRESHOLD_DATASET_VERSION).append("\n")
+                .append("- 运行方式：Java 21 + SQLite + 冻结 expectedTags/补充标签作为 confirmed user 标签\n")
                 .append("- 候选策略：关闭标签使用 ").append(String.join(", ", result.defaultCandidateRecallPolicyVersions()))
                 .append("；开启标签使用 ").append(String.join(", ", result.augmentedCandidateRecallPolicyVersions())).append("\n")
                 .append("- 单变量策略：内容通道未命中且共同 confirmed 标签数量至少为 ")
@@ -276,9 +342,15 @@ class DocumentAssociationTagAugmentationEvaluationTests {
                 .append(item.augmentedHitCount()).append("/").append(item.augmentedHardNegativeCount()).append(" | ")
                 .append(item.tagCandidateCount()).append(" |\n"));
         content.append("\n## 结论与边界\n\n")
-                .append("共同标签数量阈值过滤掉了上一轮固定资料中的 7 个单标签补充候选，使开启标签后的候选总数回到 41、Precision@8 回到 0.1707；Recall@8 保持 1.0000，说明本固定资料未证明单标签候选能补充冻结正例。该结果是保守降噪回到无标签基线，不能称为标签质量提升；后续若要恢复标签召回，必须新增至少两个共同标签且带正例的标注资料。\n\n")
+                .append("补充资料同时加入了双共同标签正例和跨项目明确负例。开启标签后 Recall@8 从 ")
+                .append(format(result.defaultRecallAt8())).append(" 提升到 ")
+                .append(format(result.augmentedRecallAt8())).append("，Precision@8 从 ")
+                .append(format(result.defaultPrecisionAt8())).append(" 变化为 ")
+                .append(format(result.augmentedPrecisionAt8())).append("；标签通道补入 ")
+                .append(result.augmentedTagCandidateCount()).append(" 个候选，其中命中 ")
+                .append(result.augmentedHardNegativeCount()).append(" 个跨项目硬负例。该结果证明双共同标签可以补充内容漏召回正例，因此保留 v3 的数量阈值作为最低门槛；同时也证明数量阈值不能识别标签是否属于同一项目，不能把它当作关系判断或独立质量保障。\n\n")
                 .append("开启 confirmed 标签后，标签仍只作为候选召回信号；关系判断、逐字证据校验和人工审核由原有 Pipeline 执行，共同标签不能直接确认为关系。\n\n")
-                .append("本实验将冻结 expectedTags 作为人工 confirmed 输入，未测试真实标签模型的抽取质量；浏览器入口、真实模型、生产代理和移动端另行验证。\n");
+                .append("本实验将冻结 expectedTags 和补充标签作为人工 confirmed 输入，未测试真实标签模型的抽取质量，也未在本实验中执行关系模型、证据校验或人工审核；浏览器入口、真实模型、生产代理和移动端另行验证。\n");
         Files.createDirectories(report.getParent());
         Files.writeString(report, content.toString(), StandardCharsets.UTF_8);
     }
@@ -320,8 +392,21 @@ class DocumentAssociationTagAugmentationEvaluationTests {
                 .orElseThrow(() -> new IllegalStateException("找不到固定文档关联资料"));
     }
 
-    private record FixtureData(Path root, Map<String, FixtureDocument> documents, List<RetrievalCase> retrievalCases) { }
+    private record FixtureData(
+            Path root,
+            Map<String, FixtureDocument> documents,
+            List<RetrievalCase> retrievalCases,
+            List<ThresholdCase> thresholdCases
+    ) { }
+
     private record FixtureDocument(String path, List<String> expectedTags) { }
+
+    private record ThresholdCase(
+            String kind,
+            String retrievalCaseId,
+            String targetDocumentId
+    ) { }
+
     private record RetrievalCase(String caseId, String sourceDocumentId, Set<String> expectedCandidateIds, Set<String> hardNegativeIds) { }
     private record CaseResult(String caseId, Set<String> defaultCandidates, Set<String> augmentedCandidates, int defaultHitCount, int augmentedHitCount, int defaultHardNegativeCount, int augmentedHardNegativeCount, int tagCandidateCount) { }
 

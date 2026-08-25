@@ -6,4 +6,4 @@
 
 ## 固定资料校验
 
-执行 `node scripts/validate-document-association-fixture.mjs` 可校验文档关联 v1 资料集的 JSON、唯一标识、文件路径、五种关系覆盖、正负答案冲突、召回用例和逐字证据。脚本只读本仓库中的虚构 fixture 与设计 Schema，不连接数据库或模型。
+执行 `node scripts/validate-document-association-fixture.mjs` 可校验文档关联 v1 基线及双共同标签 v2 补充标注的 JSON、唯一标识、文件路径、五种关系覆盖、正负答案冲突、召回用例、共同标签数量和逐字证据。脚本只读本仓库中的虚构 fixture 与设计 Schema，不连接数据库或模型。

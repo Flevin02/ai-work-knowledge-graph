@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url';
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fixtureRoot = path.join(repositoryRoot, 'fixture/document-association-v1');
 const annotationPath = path.join(fixtureRoot, 'annotations.json');
+const tagThresholdAnnotationPath = path.join(fixtureRoot, 'tag-threshold-cases-v2.json');
 const annotations = JSON.parse(fs.readFileSync(annotationPath, 'utf8'));
+const tagThresholdAnnotations = JSON.parse(fs.readFileSync(tagThresholdAnnotationPath, 'utf8'));
 const failures = [];
 
 function check(condition, message) {
@@ -27,6 +29,16 @@ check(annotations.status === 'frozen', '资料集状态必须为 frozen');
 check(annotations.documents.length === 12, `文档数量应为 12，实际为 ${annotations.documents.length}`);
 check(annotations.expectedRelations.length === 7, `正例关系数量应为 7，实际为 ${annotations.expectedRelations.length}`);
 check(annotations.negativePairs.length === 5, `负例数量应为 5，实际为 ${annotations.negativePairs.length}`);
+check(
+    tagThresholdAnnotations.datasetVersion === 'document-association-tag-threshold-eval-v2',
+    '标签阈值补充资料版本必须为 document-association-tag-threshold-eval-v2'
+);
+check(
+    tagThresholdAnnotations.baseDatasetVersion === annotations.datasetVersion,
+    '标签阈值补充资料必须引用当前冻结基础资料版本'
+);
+check(tagThresholdAnnotations.status === 'frozen', '标签阈值补充资料状态必须为 frozen');
+check(tagThresholdAnnotations.minimumConfirmedTagMatches === 2, '标签阈值补充资料必须固定至少两个共同标签');
 checkUnique(annotations.documents.map((item) => item.documentId), 'documentId');
 checkUnique(annotations.expectedRelations.map((item) => item.relationId), 'relationId');
 checkUnique(annotations.negativePairs.map((item) => item.caseId), '负例 caseId');
@@ -127,6 +139,78 @@ for (const retrievalCase of annotations.retrievalCases) {
     }
 }
 
+const confirmedTagsByDocument = new Map(annotations.documents.map((document) => [
+    document.documentId,
+    new Set(document.expectedTags.map((tag) => tag.name))
+]));
+for (const additionalTags of tagThresholdAnnotations.additionalConfirmedTags) {
+    const document = documentsById.get(additionalTags.documentId);
+    check(Boolean(document), `标签阈值补充标签引用了不存在的文档：${additionalTags.documentId}`);
+    checkUnique(additionalTags.tags.map((tag) => tag.name), `${additionalTags.documentId} 的补充标签`);
+    for (const tag of additionalTags.tags) {
+        if (document) {
+            check(document.content.includes(tag.evidenceQuote), `${additionalTags.documentId} 缺少补充标签证据：${tag.evidenceQuote}`);
+            confirmedTagsByDocument.get(additionalTags.documentId).add(tag.name);
+        }
+    }
+}
+
+checkUnique(tagThresholdAnnotations.cases.map((item) => item.caseId), '标签阈值 caseId');
+for (const thresholdCase of tagThresholdAnnotations.cases) {
+    const retrievalCase = annotations.retrievalCases.find((item) => item.caseId === thresholdCase.retrievalCaseId);
+    check(['positive', 'negative'].includes(thresholdCase.kind), `${thresholdCase.caseId} 使用了非法 kind`);
+    check(Boolean(retrievalCase), `${thresholdCase.caseId} 引用了不存在的召回用例`);
+    check(documentsById.has(thresholdCase.sourceDocumentId), `${thresholdCase.caseId} 的主体文档不存在`);
+    check(documentsById.has(thresholdCase.targetDocumentId), `${thresholdCase.caseId} 的目标文档不存在`);
+    check(thresholdCase.sourceDocumentId !== thresholdCase.targetDocumentId, `${thresholdCase.caseId} 不能自关联`);
+    check(
+        retrievalCase?.sourceDocumentId === thresholdCase.sourceDocumentId,
+        `${thresholdCase.caseId} 的主体文档与召回用例不一致`
+    );
+    checkUnique(thresholdCase.sharedConfirmedTags, `${thresholdCase.caseId} 的共同标签`);
+    check(
+        thresholdCase.sharedConfirmedTags.length >= tagThresholdAnnotations.minimumConfirmedTagMatches,
+        `${thresholdCase.caseId} 的共同标签数量不足`
+    );
+
+    const sourceTags = confirmedTagsByDocument.get(thresholdCase.sourceDocumentId) ?? new Set();
+    const targetTags = confirmedTagsByDocument.get(thresholdCase.targetDocumentId) ?? new Set();
+    for (const tagName of thresholdCase.sharedConfirmedTags) {
+        check(sourceTags.has(tagName), `${thresholdCase.caseId} 的主体文档缺少共同标签：${tagName}`);
+        check(targetTags.has(tagName), `${thresholdCase.caseId} 的目标文档缺少共同标签：${tagName}`);
+    }
+
+    if (thresholdCase.kind === 'positive') {
+        check(
+            relationTypeWhitelist.has(thresholdCase.expectedRelationType),
+            `${thresholdCase.caseId} 的正例关系类型不在白名单内`
+        );
+        check(
+            !normalizedNegativePairs.has(normalizePair(thresholdCase.sourceDocumentId, thresholdCase.targetDocumentId)),
+            `${thresholdCase.caseId} 与基础资料负例冲突`
+        );
+    } else {
+        check(thresholdCase.expectedRelationType === 'none', `${thresholdCase.caseId} 的负例预期必须为 none`);
+        check(
+            normalizedNegativePairs.has(normalizePair(thresholdCase.sourceDocumentId, thresholdCase.targetDocumentId)),
+            `${thresholdCase.caseId} 未引用基础资料中的明确负例`
+        );
+    }
+
+    const allowedEvidenceDocumentIds = new Set([
+        thresholdCase.sourceDocumentId,
+        thresholdCase.targetDocumentId
+    ]);
+    for (const evidence of thresholdCase.evidences) {
+        const evidenceDocument = documentsById.get(evidence.documentId);
+        check(allowedEvidenceDocumentIds.has(evidence.documentId), `${thresholdCase.caseId} 的证据超出用例两端`);
+        check(Boolean(evidenceDocument), `${thresholdCase.caseId} 的证据文档不存在`);
+        if (evidenceDocument) {
+            check(evidenceDocument.content.includes(evidence.quote), `${thresholdCase.caseId} 缺少逐字证据：${evidence.quote}`);
+        }
+    }
+}
+
 const specialCases = annotations.specialCases;
 check(documentsById.get(specialCases.tableDocumentId)?.content.includes('| 场地 |'), '表格场景缺少预期 Markdown 表头');
 check(documentsById.get(specialCases.longDocumentId)?.content.length > 1500, '长文档必须超过默认 1500 字符分片基线');
@@ -183,10 +267,12 @@ if (failures.length > 0) {
 console.log('文档关联固定资料校验通过');
 console.log(JSON.stringify({
     datasetVersion: annotations.datasetVersion,
+    tagThresholdDatasetVersion: tagThresholdAnnotations.datasetVersion,
     documents: annotations.documents.length,
     expectedRelations: annotations.expectedRelations.length,
     negativePairs: annotations.negativePairs.length,
     retrievalCases: annotations.retrievalCases.length,
+    tagThresholdCases: tagThresholdAnnotations.cases.length,
     relationTypes: [...coveredRelationTypes].sort(),
     longDocumentChars: documentsById.get(specialCases.longDocumentId).content.length
 }, null, 2));

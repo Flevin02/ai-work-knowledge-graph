@@ -1,6 +1,6 @@
 ---
 title: AI 工作知识图谱维护助手 PRD
-version: v0.38
+version: v0.39
 status: 开发中
 created: 2026-08-17
 updated: 2026-08-25
@@ -683,6 +683,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 已完成专项阶段 2 第三小切片：新增 `document_tag_reviews` 不可变审核历史表及 MyBatis-Plus/MapStruct 分层；`GET /documents/{documentId}/tags` 批量恢复标签定义、逐字证据、状态和审核历史，`POST /documents/{documentId}/tag-review-batches` 只按服务端文档标签关系标识执行 `suggested → confirmed/rejected`，`GET /spaces/{spaceId}/tags` 只聚合已确认标签及有效来源资料数量。
 - 标签批量审核在一个事务中先验证同批重复、空间/文档归属和当前状态，再原子更新状态并插入历史；跨文档标识或重复审核分别返回 404/409，不留下半批结果。新增 3 项 SQLite/MockMvc/OpenAPI 集成测试后，Java 21 根 Reactor 全量 83 项测试通过；该结果不代表前端、浏览器、真实模型、固定资料标签质量或生产联调。
 - 已完成专项阶段 2 第四小切片：新增 `GET /documents/{documentId}/tagging-runs/latest`，桌面 Web 不依赖浏览器本地业务数据即可恢复最近标签运行；标签概览消费运行、标签明细、审核和空间统计 API。隔离 Chrome 使用临时 SQLite 和纯虚构资料验证了真实空态、默认客户端未启用失败态、处理中刷新恢复与自动收敛、完成态、逐字证据、单条/批量审核、重复审核冲突、左侧仅 confirmed 统计及整页刷新恢复。成功/处理中运行由隔离 SQLite 测试数据构造，不代表真实标签模型调用。
+- 已完成专项阶段 2 confirmed 标签候选补充及三轮质量实验：默认关闭时继续使用 `document-candidate-recall-v1`；显式开启时，`document-candidate-recall-v3` 只补充内容通道未命中且至少共享两个 confirmed 标签的候选。独立 `document-association-tag-threshold-eval-v2` 正负例对照将 Recall@8 从 0.8750 提升至 1.0000、Precision@8 从 0.1707 提升至 0.1860，同时记录 1 个跨项目硬负例；因此保留数量阈值作为最低候选门槛，不直接建立关系或跳过后续审核。固定资料静态校验和 Java 21 根 Reactor 全量 85 项测试通过。
 - 已引入 MapStruct 1.6.3 和 Lombok 绑定注解处理配置，将 AI 抽取运行、文档关联、来源资料、知识空间及图谱 Repository 中重复的 ORM Entity/领域模型转换集中为编译期映射器，并将知识空间、来源资料、文档关联和图谱的接口响应转换从 Service 实现中独立出来；查询、排序、事务、状态迁移和外部 API 字段保持不变。
 - 持久化映射统一复用 `PersistenceMappingSupport` 处理 ISO-8601 时间、文档类型兼容回退、可空数值和图谱来源标识 JSON，所有映射器使用 `unmappedTargetPolicy=ERROR` 在编译期拒绝遗漏目标字段；新增 4 项集中映射边界测试，Java 21 根 Reactor 全量 75 项测试通过。
 
@@ -715,13 +716,14 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 来源资料卡片的桌面三列布局、整卡片鼠标/键盘多选、批量按钮、右上角 icon-only 删除入口和渲染预览 Tab 指纹完整值已通过桌面 Chrome 回归；浏览器内的批量删除本轮只验证确认弹窗并取消，没有删除隔离数据。移动端和读屏回归已明确顺延。
 - 批量提取接口仅验证了后端 Fake 模型下的 2 并发任务受理、独立运行持久化和队列拒绝响应结构；尚未验证真实模型并发限额、线程池满载、真实 SQLite 写锁等待、页面离开后状态恢复或生产部署中的任务观测。批量删除已验证事务内成功路径，尚未对中途异常的完整回滚做故障注入测试。
 - 当前 `document_summary` 已改为“分片摘要 Map → 一次模型 Reduce 汇总”的自然全文摘要；单分片和多分片均执行独立汇总阶段，失败时不影响已校验候选事实落库并回退导入原文 excerpt。Fake/SQLite/MockMvc 已验证状态、事件和失败原因，真实 `gpt-5.4-mini` 的摘要质量、长度遵循度和跨章节自然度仍未验证。
-- 已确认文档关联主线的产品边界：默认业务节点收敛为真实来源文档，默认先按文档内容关联；标签仅作为用户可选的筛选、补充候选和解释条件。独立图谱类型不再是后续用户流程或新增 AI 识别的必选维度。文档关系持久化和后端 API 已落地；标签字典、文档标签、标签证据、独立 Fake 标签运行、标签查询、不可变审核历史、批量审核 API及桌面 Web 标签运行/导航统计/审核联调已完成，但真实标签模型、标签候选补充、手工标签编辑、文档关系图和移动端仍待专项后续阶段。
+- 已确认文档关联主线的产品边界：默认业务节点收敛为真实来源文档，默认先按文档内容关联；标签仅作为用户可选的筛选、补充候选和解释条件。独立图谱类型不再是后续用户流程或新增 AI 识别的必选维度。文档关系持久化和后端 API、标签字典、文档标签、标签证据、独立 Fake 标签运行、标签查询、不可变审核历史、批量审核 API、桌面 Web 标签运行/导航统计/审核联调及 confirmed 标签候选补充均已完成；真实标签模型、手工标签编辑、文档关系图和移动端仍待专项后续阶段。
 - 当前标签运行只使用测试注入的 Fake `DocumentTaggingClient`；默认生产上下文没有真实实现时会以 `tag_extraction_failed` 结束并可恢复。当前上下文上限为 32 分片、24,000 字符，超限明确记录 `chunk_failed`，不会静默只分析部分原文；该参数尚未通过真实模型 Token、延迟或长文质量评估。
 - 文档关联阶段 1 已完成运行、关系、证据、审核的本地持久化基础、无 Embedding 候选召回、Fake 关系判断、逐字证据校验、后端审核 API 和固定资料完整指标评估。当前结果仅证明固定虚构资料上的 Fake/SQLite Pipeline；真实模型关系质量、前端关联审核、文档关系图、浏览器和生产验证仍未完成，Precision@8 0.1707 也表明候选上下文噪声仍需后续对照优化。
 - 已完成固定资料开关对照：使用 document-association-eval-v1 的 12 份资料和冻结 expectedTags 作为人工 confirmed 输入，只改变 includeConfirmedTags=false/true，TopK 固定为 8。两条路径 Recall@8 均为 1.0000；开启标签后候选总数由 41 增至 48，Precision@8 由 0.1707 降至 0.1458，固定硬负例未新增。结论是当前标签通道能补候选但会引入未标注候选噪声，不能称为质量提升；详细结果见 docs/tests/document-association-tag-augmentation-evaluation-v1.md。
 - 已完成阶段 2 的 confirmed 标签补充候选最小切片：`POST /documents/{documentId}/association-runs?includeConfirmedTags=false` 默认保持无标签内容召回；用户显式传 `true` 后，服务端一次读取当前空间有效文档的 `confirmed` 标签，以共享标签补充候选并记录 `tagCandidateCount`、`keywordCandidateCount` 和 `confirmed_tag_match` 生成方式。共同标签只影响候选召回，不直接形成关系或跳过证据校验/人工审核；Java 21 根 Reactor 全量 84 项、前端 typecheck/build 通过。
 - 已完成阶段 2 标签候选降噪单变量实验：新增 `document-candidate-recall-v2` 版本，confirmed 标签只补充所有内容通道均未命中的候选，并排在内容候选之后；固定资料回归证明默认内容候选顺序恢复，开启标签后的候选总数仍为 48、Precision@8 仍为 0.1458，Recall@8 仍为 1.0000，固定硬负例仍为 0。该策略未带来质量提升，下一实验改评估共同标签数量分层阈值；报告见 docs/tests/document-association-tag-augmentation-evaluation-v1.md。
 - 已完成阶段 2 共同标签数量分层阈值实验：新增 `document-candidate-recall-v3`，标签-only 候选需共享至少 2 个 confirmed 标签。固定资料的 7 个新增候选均只共享 1 个标签，因此全部被过滤；开启标签后候选总数与 Precision@8 均回到无标签基线（41、0.1707），Recall@8 保持 1.0000。该结果只证明单标签噪声得到抑制，未证明标签能补充正例召回；报告见 docs/tests/document-association-tag-threshold-evaluation-v1.md。
+- 已完成阶段 2 双共同标签正负例对照：保留冻结的 `document-association-eval-v1`，新增独立 `document-association-tag-threshold-eval-v2` confirmed 标签补充标注、同项目正例和跨项目明确负例。开启 `document-candidate-recall-v3` 后 Recall@8 由 0.8750 提升至 1.0000、Precision@8 由 0.1707 提升至 0.1860、候选总数 41→43；2 个标签候选中包含 1 个跨项目硬负例。结论是保留双共同标签作为最低候选门槛，但不能据此确认关系，仍需关系判断、逐字证据校验和人工审核；报告见 docs/tests/document-association-tag-threshold-evaluation-v2.md。
 - 2026-08-21 已完成目标态核验：当前浏览器中的真实页面仍是实体/关系混合图，节点点击只更新右侧详情，来源资料名称没有详情页跳转；标签区是空态；没有问答、引用或 Agent 运行入口；Cytoscape 没有悬浮/键盘邻居高亮。新目标已写入 [`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)，文档关系图、标签叠加、详情页、固定 RAG 有据问答和可选 Agent 均保持未实现状态。
 - 本轮 PDF 前端契约已经通过 TypeScript 检查和生产构建，但当前会话缺少浏览器控制运行工具，未执行 PDF 文件选择、卡片标签和预览弹窗的新增浏览器回归；既有 Markdown/TXT 浏览器证据不能替代该项验收。
 - 本地 HTTP 与浏览器验证只使用 `fixture/annual-party/` 和临时生成的纯虚构资料；已进行一次真实模型结构化抽取，但本轮浏览器回归使用 Fake 运行状态，未使用真实公司资料，也未进行生产部署或真实模型浏览器端到端验证。
@@ -733,7 +735,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 
 # 19. 下一步代办与新会话入口
 
-新会话开始时，先阅读本节、`docs/roadmap.md`、[`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)、[`docs/tests/document-association-evaluation-report-v1.md`](../tests/document-association-evaluation-report-v1.md)、[`docs/tests/document-association-tag-augmentation-evaluation-v1.md`](../tests/document-association-tag-augmentation-evaluation-v1.md)、[`docs/tests/document-association-tag-threshold-evaluation-v1.md`](../tests/document-association-tag-threshold-evaluation-v1.md) 和 `document-tag-v1` 契约，然后只补充固定资料中“至少两个共同 confirmed 标签”的正例与明确负例，重跑 `document-candidate-recall-v3` 对照以判断该阈值是否保留；浏览器控制工具可用时补做入口回归。当前不同时实现真实标签模型、Embedding、问答或 Agent；移动端、触控和读屏仍顺延。
+新会话开始时，先阅读本节、`docs/roadmap.md`、[`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)、[`docs/tests/document-association-evaluation-report-v1.md`](../tests/document-association-evaluation-report-v1.md)、[`docs/tests/document-association-tag-augmentation-evaluation-v1.md`](../tests/document-association-tag-augmentation-evaluation-v1.md)、[`docs/tests/document-association-tag-threshold-evaluation-v1.md`](../tests/document-association-tag-threshold-evaluation-v1.md)、[`docs/tests/document-association-tag-threshold-evaluation-v2.md`](../tests/document-association-tag-threshold-evaluation-v2.md) 和 `document-tag-v1` 契约。第一优先级是在浏览器控制运行时可用后，只补桌面 Web“按已确认标签补充候选”入口点击、`includeConfirmedTags=true` 请求和完成/失败恢复回归；完成后进入文档关系图最小切片。当前不同时实现真实标签模型、Embedding、问答或 Agent；移动端、触控和读屏仍顺延。
 
 ## 19.1 已完成验收：SQLite 有界连接池与流式抽取主线
 
