@@ -1,11 +1,13 @@
 package com.flevin.knowgraph.server.service.documentgraph.impl;
 
 import com.flevin.knowgraph.server.model.association.DocumentRelation;
+import com.flevin.knowgraph.server.model.association.DocumentRelationEvidence;
 import com.flevin.knowgraph.server.model.document.SourceDocument;
 import com.flevin.knowgraph.server.model.documentgraph.DocumentGraphEdgeResponse;
 import com.flevin.knowgraph.server.model.documentgraph.DocumentGraphNodeResponse;
 import com.flevin.knowgraph.server.model.documentgraph.DocumentGraphResponse;
 import com.flevin.knowgraph.server.repository.association.DocumentRelationRepository;
+import com.flevin.knowgraph.server.repository.association.DocumentRelationEvidenceRepository;
 import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
 import com.flevin.knowgraph.server.service.documentgraph.DocumentGraphService;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
@@ -29,6 +31,7 @@ public class DocumentGraphServiceImpl implements DocumentGraphService {
     private final KnowledgeSpaceService knowledgeSpaceService;
     private final SourceDocumentRepository sourceDocumentRepository;
     private final DocumentRelationRepository documentRelationRepository;
+    private final DocumentRelationEvidenceRepository documentRelationEvidenceRepository;
 
     /**
      * 查询真实来源文档和已确认关系，过滤已经软删除的关系端点。
@@ -53,6 +56,13 @@ public class DocumentGraphServiceImpl implements DocumentGraphService {
                 .filter(relation -> documentById.containsKey(relation.sourceDocumentId()))
                 .filter(relation -> documentById.containsKey(relation.targetDocumentId()))
                 .toList();
+        Map<String, List<DocumentRelationEvidence>> evidenceByRelationId = documentRelationEvidenceRepository
+                .findAllByRelations(spaceId, relations.stream().map(DocumentRelation::id).toList())
+                .stream()
+                .collect(Collectors.groupingBy(
+                        DocumentRelationEvidence::documentRelationId,
+                        Collectors.toList()
+                ));
 
         // 将真实来源文档映射为前端节点，摘要缺失时回退导入 excerpt
         List<DocumentGraphNodeResponse> nodes = documents.stream()
@@ -78,6 +88,18 @@ public class DocumentGraphServiceImpl implements DocumentGraphService {
                         relation.status(),
                         relation.confidence(),
                         relation.reason(),
+                        evidenceByRelationId.getOrDefault(relation.id(), List.of()).stream()
+                                .map(evidence -> new DocumentGraphEdgeResponse.Evidence(
+                                        evidence.id(),
+                                        evidence.sourceDocumentId(),
+                                        evidence.chunkId(),
+                                        evidence.sectionPath(),
+                                        evidence.quote(),
+                                        evidence.startOffset(),
+                                        evidence.endOffset(),
+                                        evidence.evidenceRole()
+                                ))
+                                .toList(),
                         relation.updatedAt()
                 ))
                 .toList();

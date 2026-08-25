@@ -72,6 +72,7 @@ class DocumentGraphControllerIntegrationTests {
 
         // 写入一条已确认关系和一条待审核关系，验证文档关系图默认只展示 confirmed
         insertRelation("confirmed-relation", source, target, "confirmed", now);
+        insertEvidence("confirmed-evidence", source, "confirmed-relation", "会议依据年会方案讨论场地。", now);
         insertRelation("suggested-relation", target, source, "suggested", now.plusSeconds(1));
 
         mockMvc.perform(get("/v1/spaces/{spaceId}/document-graph", SPACE_ID))
@@ -84,7 +85,10 @@ class DocumentGraphControllerIntegrationTests {
                 .andExpect(jsonPath("$.data.edges[0].id").value("confirmed-relation"))
                 .andExpect(jsonPath("$.data.edges[0].status").value("confirmed"))
                 .andExpect(jsonPath("$.data.edges[0].sourceDocumentId").value(source.id()))
-                .andExpect(jsonPath("$.data.edges[0].targetDocumentId").value(target.id()));
+                .andExpect(jsonPath("$.data.edges[0].targetDocumentId").value(target.id()))
+                .andExpect(jsonPath("$.data.edges[0].evidences.length()").value(1))
+                .andExpect(jsonPath("$.data.edges[0].evidences[0].quote")
+                        .value("会议依据年会方案讨论场地。"));
     }
 
     @Test
@@ -139,6 +143,32 @@ class DocumentGraphControllerIntegrationTests {
                 id + "-key",
                 updatedAt.toString(),
                 updatedAt.toString()
+        );
+    }
+
+    private void insertEvidence(
+            String id,
+            SourceDocument source,
+            String relationId,
+            String quote,
+            Instant createdAt
+    ) {
+        jdbcTemplate.update(
+                "INSERT INTO document_relation_evidences ("
+                        + "id, space_id, document_relation_id, source_document_id, chunk_id, section_path, "
+                        + "quote, start_offset, end_offset, evidence_role, created_at"
+                        + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                id,
+                SPACE_ID,
+                relationId,
+                source.id(),
+                "chunk-1",
+                "会议纪要",
+                quote,
+                0,
+                quote.length(),
+                "source",
+                createdAt.toString()
         );
     }
 }

@@ -15,6 +15,7 @@ import {
     LayoutDashboard,
     Link2,
     LoaderCircle,
+    MapPin,
     Search,
     ShieldCheck,
     Sparkles,
@@ -63,6 +64,7 @@ import {
     type GraphData,
     type GraphEdge,
     type DocumentGraphData,
+    type DocumentGraphEvidence,
     type GraphNode,
     type KnowledgeSpace,
     type KnowledgeTagSummary,
@@ -79,6 +81,7 @@ type DocumentPreviewTab = 'rendered' | 'source' | 'ai';
 type DocumentPreviewSelection = {
     document: SourceDocument;
     initialTab: DocumentPreviewTab;
+    evidence?: DocumentGraphEvidence;
 };
 type DocumentExtractionState = {
     status: 'processing' | 'success' | 'error';
@@ -597,6 +600,26 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
         ? graph.nodes.find((node) => node.id === selectedNodeId) ?? null
         : null;
     const selectedEdges = graph.edges.filter((edge) => edge.source === selectedNodeId || edge.target === selectedNodeId);
+
+    const openDocumentGraphDocument = (documentId: string, evidence?: DocumentGraphEvidence) => {
+        const node = documentGraph.nodes.find((item) => item.id === documentId);
+        if (!node) return;
+        setDocumentPreview({
+            document: {
+                id: node.id,
+                name: node.name,
+                kind: node.kind,
+                documentType: node.documentType as SourceDocument['documentType'],
+                contentHash: '',
+                excerpt: node.summary,
+                status: node.status,
+                importedAt: node.updatedAt,
+                updatedAt: node.updatedAt,
+            },
+            initialTab: evidence ? 'source' : 'rendered',
+            evidence,
+        });
+    };
 
     const visibleNodes = useMemo(() => {
         const keyword = search.trim().toLowerCase();
@@ -1385,7 +1408,11 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                         : view === 'documents'
                         ? <DocumentSidebar documents={persistedDocuments} space={currentSpace}/>
                         : graphMode === 'document'
-                            ? <DocumentGraphSidebar graph={documentGraphAsGraphData}/>
+                            ? <DocumentGraphSidebar
+                                graph={documentGraph}
+                                selectedNodeId={selectedNodeId}
+                                onOpenDocument={(documentId) => openDocumentGraphDocument(documentId)}
+                                onOpenEvidence={(documentId, evidence) => openDocumentGraphDocument(documentId, evidence)}/>
                         : selectedNode
                             ? <NodeDetail node={selectedNode} edges={selectedEdges} graph={graph}
                                 onSelectNode={setSelectedNodeId}/>
@@ -1396,6 +1423,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 document={documentPreview.document}
                 spaceId={currentSpaceId}
                 initialTab={documentPreview.initialTab}
+                evidence={documentPreview.evidence}
                 extractionState={documentExtractionStates[documentPreview.document.id]}
                 extractionView={extractionView?.documentId === documentPreview.document.id ? extractionView : null}
                 extractionLoadError={extractionResultLoadErrors[documentPreview.document.id]}
@@ -1795,6 +1823,7 @@ function DocumentPreviewModal({
                                   document,
                                   spaceId,
                                   initialTab,
+                                  evidence,
                                   extractionState,
                                   extractionView,
                                   extractionLoadError,
@@ -1811,6 +1840,7 @@ function DocumentPreviewModal({
     document: SourceDocument;
     spaceId: string;
     initialTab: DocumentPreviewTab;
+    evidence?: DocumentGraphEvidence;
     extractionState?: DocumentExtractionState;
     extractionView: AiExtractionViewState | null;
     extractionLoadError?: string;
@@ -1915,6 +1945,10 @@ function DocumentPreviewModal({
                 <button className="space-icon-button" aria-label={`关闭${previewModeLabel}`} title="关闭"
                     onClick={onClose}><X size={16}/></button>
             </header>
+            {evidence && <div className="document-evidence-location">
+                <MapPin size={15}/><div><strong>已定位关系证据 · {evidence.sectionPath || '原文'}</strong>
+                    <span>“{evidence.quote}” · 分片 {evidence.chunkId}</span></div>
+            </div>}
             <div className="document-preview-meta">
                 <div className="document-preview-mode" role="tablist" aria-label="来源资料查看模式">
                     <button
@@ -1986,7 +2020,11 @@ function DocumentPreviewModal({
                         : content && (previewMode === 'rendered'
                             ? <article className="document-preview-markdown"><ReactMarkdown
                                 remarkPlugins={[remarkGfm]}>{content.contentText}</ReactMarkdown></article>
-                            : <pre className="document-preview-content">{content.contentText}</pre>)}
+                            : <pre className="document-preview-content">{evidence?.quote && content.contentText.includes(evidence.quote)
+                                ? content.contentText.split(evidence.quote).map((part, index, parts) => <span key={`${part}-${index}`}>
+                                    {part}{index < parts.length - 1 && <mark className="document-evidence-highlight">{evidence.quote}</mark>}
+                                </span>)
+                                : content.contentText}</pre>)}
         </section>
     </div>;
 }

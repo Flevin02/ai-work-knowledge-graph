@@ -377,7 +377,19 @@ export type DocumentGraphEdge = {
   status: 'confirmed';
   confidence: number;
   reason: string;
+  evidences: DocumentGraphEvidence[];
   updatedAt: string;
+};
+
+export type DocumentGraphEvidence = {
+  id: string;
+  sourceDocumentId: string;
+  chunkId: string;
+  sectionPath: string;
+  quote: string;
+  startOffset?: number | null;
+  endOffset?: number | null;
+  evidenceRole: string;
 };
 
 export type DocumentGraphData = {
