@@ -1,6 +1,6 @@
 ---
 title: AI 工作知识图谱维护助手 PRD
-version: v0.35
+version: v0.36
 status: 开发中
 created: 2026-08-17
 updated: 2026-08-25
@@ -718,19 +718,20 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 已确认文档关联主线的产品边界：默认业务节点收敛为真实来源文档，默认先按文档内容关联；标签仅作为用户可选的筛选、补充候选和解释条件。独立图谱类型不再是后续用户流程或新增 AI 识别的必选维度。文档关系持久化和后端 API 已落地；标签字典、文档标签、标签证据、独立 Fake 标签运行、标签查询、不可变审核历史、批量审核 API及桌面 Web 标签运行/导航统计/审核联调已完成，但真实标签模型、标签候选补充、手工标签编辑、文档关系图和移动端仍待专项后续阶段。
 - 当前标签运行只使用测试注入的 Fake `DocumentTaggingClient`；默认生产上下文没有真实实现时会以 `tag_extraction_failed` 结束并可恢复。当前上下文上限为 32 分片、24,000 字符，超限明确记录 `chunk_failed`，不会静默只分析部分原文；该参数尚未通过真实模型 Token、延迟或长文质量评估。
 - 文档关联阶段 1 已完成运行、关系、证据、审核的本地持久化基础、无 Embedding 候选召回、Fake 关系判断、逐字证据校验、后端审核 API 和固定资料完整指标评估。当前结果仅证明固定虚构资料上的 Fake/SQLite Pipeline；真实模型关系质量、前端关联审核、文档关系图、浏览器和生产验证仍未完成，Precision@8 0.1707 也表明候选上下文噪声仍需后续对照优化。
+- 已完成固定资料开关对照：使用 document-association-eval-v1 的 12 份资料和冻结 expectedTags 作为人工 confirmed 输入，只改变 includeConfirmedTags=false/true，TopK 固定为 8。两条路径 Recall@8 均为 1.0000；开启标签后候选总数由 41 增至 48，Precision@8 由 0.1707 降至 0.1458，固定硬负例未新增。结论是当前标签通道能补候选但会引入未标注候选噪声，不能称为质量提升；详细结果见 docs/tests/document-association-tag-augmentation-evaluation-v1.md。
 - 已完成阶段 2 的 confirmed 标签补充候选最小切片：`POST /documents/{documentId}/association-runs?includeConfirmedTags=false` 默认保持无标签内容召回；用户显式传 `true` 后，服务端一次读取当前空间有效文档的 `confirmed` 标签，以共享标签补充候选并记录 `tagCandidateCount`、`keywordCandidateCount` 和 `confirmed_tag_match` 生成方式。共同标签只影响候选召回，不直接形成关系或跳过证据校验/人工审核；Java 21 根 Reactor 全量 84 项、前端 typecheck/build 通过。
 - 2026-08-21 已完成目标态核验：当前浏览器中的真实页面仍是实体/关系混合图，节点点击只更新右侧详情，来源资料名称没有详情页跳转；标签区是空态；没有问答、引用或 Agent 运行入口；Cytoscape 没有悬浮/键盘邻居高亮。新目标已写入 [`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)，文档关系图、标签叠加、详情页、固定 RAG 有据问答和可选 Agent 均保持未实现状态。
 - 本轮 PDF 前端契约已经通过 TypeScript 检查和生产构建，但当前会话缺少浏览器控制运行工具，未执行 PDF 文件选择、卡片标签和预览弹窗的新增浏览器回归；既有 Markdown/TXT 浏览器证据不能替代该项验收。
 - 本地 HTTP 与浏览器验证只使用 `fixture/annual-party/` 和临时生成的纯虚构资料；已进行一次真实模型结构化抽取，但本轮浏览器回归使用 Fake 运行状态，未使用真实公司资料，也未进行生产部署或真实模型浏览器端到端验证。
 - 历史真实结果虽通过结构、引用和逐字证据校验，但模型曾把“项目到人员”的关系错误归类为 `project_contains_feature`；当前 `prd-extraction-v3` 已增加服务端类型方向校验以拒绝该类结果，但尚未使用真实模型复验，人工审核边界继续保留。
-- 当前浏览器证据来自本机无头 Chrome 自动化；本次 confirmed 标签补充入口只完成前端契约、构建和后端服务验证，未执行该入口的可见浏览器点击回归；仍未进行可见窗口下的人工视觉验收、移动端触控回归和辅助技术读屏验收。
+- 当前浏览器证据来自本机无头 Chrome 自动化；本次 confirmed 标签补充入口只完成前端契约、构建和后端服务验证。当前会话未提供可调用的浏览器控制工具，因此未执行该入口的浏览器点击回归；仍未进行可见窗口下的人工视觉验收、移动端触控回归和辅助技术读屏验收。
 - 本轮无知识空间空态、主工作区创建入口与创建弹窗已通过前端类型检查和生产构建；尚未执行点击遮罩、Escape 关闭、创建成功切换空间和移动端布局的可见浏览器回归。
 - 本机默认 Maven 运行时可能使用 Java 25；本项目必须显式使用 Java 21，避免 Lombok 注解处理失败。
 - OpenAPI JSON 已在本地临时端口验证路径、标签和响应模型，但尚未进行独立部署后的 Knife4j 页面人工验收。
 
 # 19. 下一步代办与新会话入口
 
-新会话开始时，先阅读本节、`docs/roadmap.md`、[`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)、[`docs/tests/document-association-evaluation-report-v1.md`](../tests/document-association-evaluation-report-v1.md) 和 `document-tag-v1` 契约，然后进入专项阶段 2 的下一小切片：基于本次已完成的 confirmed 标签补充候选通道，补固定 12 份资料在开关关闭/开启时的标签标注质量对照和桌面 Web 入口回归，再进入文档关系图。当前不同时实现真实标签模型、Embedding、问答或 Agent；移动端、触控和读屏仍顺延。
+新会话开始时，先阅读本节、`docs/roadmap.md`、[`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)、[`docs/tests/document-association-evaluation-report-v1.md`](../tests/document-association-evaluation-report-v1.md)、[`docs/tests/document-association-tag-augmentation-evaluation-v1.md`](../tests/document-association-tag-augmentation-evaluation-v1.md) 和 `document-tag-v1` 契约，然后进入专项阶段 2 的下一小切片：针对开启标签后 Precision@8 下降和未标注候选增加，实验标签候选降权、仅补充内容通道未命中的候选或按共同标签数量分层的单变量策略，并在浏览器控制工具可用时补做入口回归。当前不同时实现真实标签模型、Embedding、问答或 Agent；移动端、触控和读屏仍顺延。
 
 ## 19.1 已完成验收：SQLite 有界连接池与流式抽取主线
 

@@ -814,6 +814,9 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
         private static final Comparator<ScoredCandidate> ORDER = Comparator
                 .comparingInt(ScoredCandidate::primaryChannelPriority)
                 .thenComparing(Comparator.comparingInt(ScoredCandidate::score).reversed())
+                // 内容指纹和文件名不依赖导入时生成的随机 UUID，保证固定资料评估可重复
+                .thenComparing(candidate -> candidate.profile().document().contentHash())
+                .thenComparing(candidate -> candidate.profile().document().name())
                 .thenComparing(candidate -> candidate.profile().document().id());
 
         private int primaryChannelPriority() {
