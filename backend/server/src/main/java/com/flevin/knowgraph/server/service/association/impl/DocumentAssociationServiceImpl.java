@@ -66,7 +66,6 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
 
     private static final String PROMPT_VERSION = "document-association-v1";
     private static final String SCHEMA_VERSION = "document-association-v1";
-    private static final String RECALL_POLICY_VERSION = "document-candidate-recall-v1";
     private static final String ASSOCIATION_POLICY_VERSION = "document-association-policy-v1";
     private static final int TOP_K = 8;
     private static final int MAX_CURRENT_CHUNKS = 8;
@@ -133,7 +132,13 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
         // 查询当前有效来源资料，冻结本次运行的内容指纹
         SourceDocument sourceDocument = requireDocument(spaceId, sourceDocumentId);
         Instant createdAt = Instant.now();
-        DocumentAssociationRun processingRun = newProcessingRun(sourceDocument, createdAt);
+
+        // 按本次标签开关冻结候选策略版本，避免后续恢复时混淆内容与标签增强运行
+        DocumentAssociationRun processingRun = newProcessingRun(
+                sourceDocument,
+                createdAt,
+                includeConfirmedTags
+        );
 
         // 先保存 processing 运行，模型不可用或输出失败后仍可查询失败阶段
         persistenceService.saveRun(processingRun);
@@ -471,11 +476,13 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
      *
      * @param sourceDocument 当前来源资料
      * @param createdAt 运行创建时间
+     * @param includeConfirmedTags 是否使用 confirmed 标签补充候选
      * @return processing 运行领域模型
      */
     private DocumentAssociationRun newProcessingRun(
             SourceDocument sourceDocument,
-            Instant createdAt
+            Instant createdAt,
+            boolean includeConfirmedTags
     ) {
         return new DocumentAssociationRun(
                 UUID.randomUUID().toString(),
@@ -493,7 +500,9 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
                 0,
                 PROMPT_VERSION,
                 SCHEMA_VERSION,
-                RECALL_POLICY_VERSION,
+                includeConfirmedTags
+                        ? DocumentCandidateRecallService.CONFIRMED_TAG_AUGMENTATION_POLICY_VERSION
+                        : DocumentCandidateRecallService.CONTENT_POLICY_VERSION,
                 ASSOCIATION_POLICY_VERSION,
                 null,
                 null,
@@ -535,7 +544,7 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
                 run.semanticCandidateCount(),
                 run.promptVersion(),
                 run.schemaVersion(),
-                run.candidateRecallPolicyVersion(),
+                recall.candidateRecallPolicyVersion(),
                 run.associationPolicyVersion(),
                 run.embeddingProvider(),
                 run.embeddingModel(),

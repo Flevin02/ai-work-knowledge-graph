@@ -35,11 +35,11 @@ import java.util.stream.Collectors;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 固定资料上的默认内容召回与 confirmed 标签补充召回对照。
+ * 固定资料上的 confirmed 标签仅补内容漏召回实验。
  *
  * <p>测试使用 annotations.json 中冻结的 expectedTags 作为人工 confirmed 标签输入，
- * 不把标签生成模型的质量混入本实验；实验只比较标签通道对候选 Recall@8、
- * Precision@8、候选数量和硬负例的影响。</p>
+ * 不把标签生成模型的质量混入本实验；标签只补充默认内容通道未命中的候选，
+ * 用于验证内容候选排序是否保持不变，以及该策略能否改善候选集合指标。</p>
  */
 @SpringBootTest(classes = KnowledgeGraphApplication.class, properties = {
         "app.database-path=target/test-data/document-association-tag-augmentation-evaluation.sqlite",
@@ -48,7 +48,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DocumentAssociationTagAugmentationEvaluationTests {
 
     private static final String SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
-    private static final String REPORT_FILE = "../../docs/tests/document-association-tag-augmentation-evaluation-v1.md";
+    private static final String REPORT_FILE =
+            "../../docs/tests/document-association-tag-augmentation-evaluation-v1.md";
 
     @Autowired
     private DocumentCandidateRecallService candidateRecallService;
@@ -94,8 +95,18 @@ class DocumentAssociationTagAugmentationEvaluationTests {
         // 默认关闭必须保持候选基线；开启后必须至少有一条 confirmed 标签补充候选
         assertThat(result.defaultCandidateCount()).isGreaterThan(0);
         assertThat(result.augmentedTagCandidateCount()).isGreaterThan(0);
+        assertThat(result.defaultCandidateRecallPolicyVersions())
+                .containsOnly(DocumentCandidateRecallService.CONTENT_POLICY_VERSION);
+        assertThat(result.augmentedCandidateRecallPolicyVersions())
+                .containsOnly(DocumentCandidateRecallService.CONFIRMED_TAG_AUGMENTATION_POLICY_VERSION);
         assertThat(result.defaultRecallAt8()).isGreaterThanOrEqualTo(0.90);
         assertThat(result.augmentedRecallAt8()).isEqualTo(result.defaultRecallAt8());
+        assertThat(result.augmentedCandidateCount() - result.defaultCandidateCount())
+                .isEqualTo(result.augmentedTagCandidateCount());
+        assertThat(result.cases()).allSatisfy(item -> assertThat(new ArrayList<>(item.augmentedCandidates()))
+                .startsWith(item.defaultCandidates().toArray(String[]::new)));
+        assertThat(result.defaultHardNegativeCount()).isZero();
+        assertThat(result.augmentedHardNegativeCount()).isZero();
         assertThat(result.defaultSelfCandidateCount()).isZero();
         assertThat(result.augmentedSelfCandidateCount()).isZero();
         assertThat(result.defaultCrossSpaceCandidateCount()).isZero();
@@ -185,11 +196,15 @@ class DocumentAssociationTagAugmentationEvaluationTests {
         int augmentedSelf = 0;
         int defaultCrossSpace = 0;
         int augmentedCrossSpace = 0;
+        Set<String> defaultCandidateRecallPolicyVersions = new LinkedHashSet<>();
+        Set<String> augmentedCandidateRecallPolicyVersions = new LinkedHashSet<>();
         List<CaseResult> cases = new ArrayList<>();
         for (RetrievalCase retrievalCase : fixture.retrievalCases()) {
             SourceDocument source = documents.get(retrievalCase.sourceDocumentId());
             DocumentCandidateRecall baseline = candidateRecallService.recall(SPACE_ID, source.id(), 8, false);
             DocumentCandidateRecall augmented = candidateRecallService.recall(SPACE_ID, source.id(), 8, true);
+            defaultCandidateRecallPolicyVersions.add(baseline.candidateRecallPolicyVersion());
+            augmentedCandidateRecallPolicyVersions.add(augmented.candidateRecallPolicyVersion());
             Set<String> baselineIds = fixtureIds(baseline, documents);
             Set<String> augmentedIds = fixtureIds(augmented, documents);
             int baselineHits = intersectionSize(baselineIds, retrievalCase.expectedCandidateIds());
@@ -210,7 +225,7 @@ class DocumentAssociationTagAugmentationEvaluationTests {
             augmentedCrossSpace += countCrossSpaceCandidates(documents, augmented);
             cases.add(new CaseResult(retrievalCase.caseId(), baselineIds, augmentedIds, baselineHits, augmentedHitsForCase, baselineNegatives, augmentedNegatives, augmented.tagCandidateCount()));
         }
-        return new ComparisonResult(expected, defaultHits, defaultCandidates, defaultHardNegatives, augmentedHits, augmentedCandidates, augmentedHardNegatives, augmentedTagCandidates, defaultSelf, augmentedSelf, defaultCrossSpace, augmentedCrossSpace, cases);
+        return new ComparisonResult(expected, defaultHits, defaultCandidates, defaultHardNegatives, augmentedHits, augmentedCandidates, augmentedHardNegatives, augmentedTagCandidates, defaultSelf, augmentedSelf, defaultCrossSpace, augmentedCrossSpace, defaultCandidateRecallPolicyVersions, augmentedCandidateRecallPolicyVersions, cases);
     }
 
     /** @param recall 候选召回结果 @param documents 固定资料映射 @return 固定资料候选 ID 集合 */
@@ -236,10 +251,13 @@ class DocumentAssociationTagAugmentationEvaluationTests {
     private void writeReport(ComparisonResult result) throws IOException {
         Path report = Path.of(REPORT_FILE);
         StringBuilder content = new StringBuilder();
-        content.append("# 文档关联 confirmed 标签补充候选评估 v1\n\n")
+        content.append("# 文档关联 confirmed 标签仅补内容漏召回评估 v1\n\n")
                 .append("- 资料集：document-association-eval-v1\n")
                 .append("- 运行方式：Java 21 + SQLite + 冻结 expectedTags 作为 confirmed user 标签\n")
-                .append("- 变量：只改变 includeConfirmedTags=false/true，TopK 固定为 8\n")
+                .append("- 候选策略：关闭标签使用 ").append(String.join(", ", result.defaultCandidateRecallPolicyVersions()))
+                .append("；开启标签使用 ").append(String.join(", ", result.augmentedCandidateRecallPolicyVersions())).append("\n")
+                .append("- 单变量策略：confirmed 标签只补充所有默认内容通道均未命中的候选，并排在内容候选之后\n")
+                .append("- 对照：includeConfirmedTags=false/true，TopK 固定为 8\n")
                 .append("- 说明：本报告评估标签对候选召回的影响，不代表标签生成模型 Precision/Recall\n\n")
                 .append("## 汇总\n\n| 指标 | 关闭标签 | 开启 confirmed 标签 |\n| --- | ---: | ---: |\n")
                 .append("| Recall@8 | ").append(format(result.defaultRecallAt8())).append(" | ").append(format(result.augmentedRecallAt8())).append(" |\n")
@@ -257,7 +275,8 @@ class DocumentAssociationTagAugmentationEvaluationTests {
                 .append(item.augmentedHitCount()).append("/").append(item.augmentedHardNegativeCount()).append(" | ")
                 .append(item.tagCandidateCount()).append(" |\n"));
         content.append("\n## 结论与边界\n\n")
-                .append("开启 confirmed 标签后，标签只作为候选召回信号；关系判断、逐字证据校验和人工审核仍由原有 Pipeline 执行。共同标签造成的额外硬负例必须继续由后续模型判断返回 none，不能直接确认为关系。\n\n")
+                .append("本策略恢复了默认内容候选的稳定顺序，并把 confirmed 标签通道统计收敛为真正仅由标签补充的候选；但候选总数仍为 48，Precision@8 仍为 0.1458，与上一轮未降噪开关对照一致。原因是部分内容召回不足 8 条时，单个宽泛共同标签仍会填满剩余名额，因此该策略不能称为候选质量提升。下一单变量实验应评估共同标签数量分层阈值。\n\n")
+                .append("开启 confirmed 标签后，标签仍只作为候选召回信号；关系判断、逐字证据校验和人工审核由原有 Pipeline 执行，共同标签不能直接确认为关系。\n\n")
                 .append("本实验将冻结 expectedTags 作为人工 confirmed 输入，未测试真实标签模型的抽取质量；浏览器入口、真实模型、生产代理和移动端另行验证。\n");
         Files.createDirectories(report.getParent());
         Files.writeString(report, content.toString(), StandardCharsets.UTF_8);
@@ -305,7 +324,7 @@ class DocumentAssociationTagAugmentationEvaluationTests {
     private record RetrievalCase(String caseId, String sourceDocumentId, Set<String> expectedCandidateIds, Set<String> hardNegativeIds) { }
     private record CaseResult(String caseId, Set<String> defaultCandidates, Set<String> augmentedCandidates, int defaultHitCount, int augmentedHitCount, int defaultHardNegativeCount, int augmentedHardNegativeCount, int tagCandidateCount) { }
 
-    private record ComparisonResult(int expectedCandidateCount, int defaultHitCount, int defaultCandidateCount, int defaultHardNegativeCount, int augmentedHitCount, int augmentedCandidateCount, int augmentedHardNegativeCount, int augmentedTagCandidateCount, int defaultSelfCandidateCount, int augmentedSelfCandidateCount, int defaultCrossSpaceCandidateCount, int augmentedCrossSpaceCandidateCount, List<CaseResult> cases) {
+    private record ComparisonResult(int expectedCandidateCount, int defaultHitCount, int defaultCandidateCount, int defaultHardNegativeCount, int augmentedHitCount, int augmentedCandidateCount, int augmentedHardNegativeCount, int augmentedTagCandidateCount, int defaultSelfCandidateCount, int augmentedSelfCandidateCount, int defaultCrossSpaceCandidateCount, int augmentedCrossSpaceCandidateCount, Set<String> defaultCandidateRecallPolicyVersions, Set<String> augmentedCandidateRecallPolicyVersions, List<CaseResult> cases) {
         private double defaultRecallAt8() { return expectedCandidateCount == 0 ? 1.0 : (double) defaultHitCount / expectedCandidateCount; }
         private double augmentedRecallAt8() { return expectedCandidateCount == 0 ? 1.0 : (double) augmentedHitCount / expectedCandidateCount; }
         private double defaultPrecisionAt8() { return defaultCandidateCount == 0 ? 1.0 : (double) defaultHitCount / defaultCandidateCount; }

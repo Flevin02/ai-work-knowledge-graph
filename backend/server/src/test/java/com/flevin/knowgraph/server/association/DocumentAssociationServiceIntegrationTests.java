@@ -15,6 +15,7 @@ import com.flevin.knowgraph.server.KnowledgeGraphApplication;
 import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
 import com.flevin.knowgraph.server.service.association.DocumentAssociationService;
 import com.flevin.knowgraph.server.service.association.DocumentAssociationClient;
+import com.flevin.knowgraph.server.service.association.DocumentCandidateRecallService;
 import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.flevin.knowgraph.server.support.TestKnowledgeSpaceFixtures;
 import org.junit.jupiter.api.BeforeEach;
@@ -202,6 +203,8 @@ class DocumentAssociationServiceIntegrationTests {
         assertThat(augmented.candidateCount()).isEqualTo(1);
         assertThat(augmented.tagCandidateCount()).isEqualTo(1);
         assertThat(augmented.keywordCandidateCount()).isZero();
+        assertThat(augmented.candidateRecallPolicyVersion())
+                .isEqualTo(DocumentCandidateRecallService.CONFIRMED_TAG_AUGMENTATION_POLICY_VERSION);
         assertThat(fakeAssociationClient.invocationCount).hasValue(1);
         assertThat(augmented.relations()).singleElement()
                 .extracting("generationMode")

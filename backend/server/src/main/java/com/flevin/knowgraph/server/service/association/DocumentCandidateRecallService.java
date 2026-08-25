@@ -10,6 +10,12 @@ import com.flevin.knowgraph.server.model.association.DocumentCandidateRecall;
  */
 public interface DocumentCandidateRecallService {
 
+    /** 默认无标签内容候选召回策略版本。 */
+    String CONTENT_POLICY_VERSION = "document-candidate-recall-v1";
+
+    /** 用户显式开启 confirmed 标签补充后的候选召回策略版本。 */
+    String CONFIRMED_TAG_AUGMENTATION_POLICY_VERSION = "document-candidate-recall-v2";
+
     /**
      * 按冻结的 TopK=8 规则召回当前文档的关联候选。
      *

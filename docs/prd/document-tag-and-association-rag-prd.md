@@ -1,7 +1,7 @@
 ---
 title: 文档关系图、标签关联与有据问答 PRD
-version: v1.13
-status: 阶段 2 标签候选开关对照完成，下一步做候选降噪实验
+version: v1.14
+status: 阶段 2 标签仅补内容漏召回实验完成，下一步做共同标签数量分层阈值实验
 created: 2026-08-19
 updated: 2026-08-25
 owner: 知脉产品与研发
@@ -12,7 +12,7 @@ related_prd: ai-work-knowledge-graph-maintainer-prd.md
 
 本文档定义“知脉”从“文档内实体关系抽取”转向“默认文档内容关联、可选标签增强、文档关系图和有据问答”的产品目标、业务规则、交互流程、AI/RAG 链路、未来 Agent 扩展边界、验证指标、实施顺序和回滚边界。
 
-当前文档同时记录目标态和分阶段实施状态，不把未落地的真实标签模型、RAG、问答或 Agent 设计描述为已实现。2026-08-21 已完成目标态核验；2026-08-24 已完成阶段 0、阶段 1，以及阶段 2 的标签持久化、Fake 标签运行、查询和人工审核后端闭环；2026-08-25 已完成桌面 Web 标签运行、查询、审核和空间统计联调，下一步补充用户显式开启的已确认标签候选通道。
+当前文档同时记录目标态和分阶段实施状态，不把未落地的真实标签模型、RAG、问答或 Agent 设计描述为已实现。2026-08-21 已完成目标态核验；2026-08-24 已完成阶段 0、阶段 1，以及阶段 2 的标签持久化、Fake 标签运行、查询和人工审核后端闭环；2026-08-25 已完成桌面 Web 标签运行、查询、审核和空间统计联调、confirmed 标签补充候选及 `document-candidate-recall-v2` 仅补内容漏召回实验。该实验恢复内容候选顺序但未改善 Precision@8，下一步只评估共同标签数量分层阈值。
 
 2026-08-24 已完成阶段 1：四张文档关联持久化表、MyBatis-Plus 分层、无 Embedding 候选召回、供应商无关 Fake 关系判断、候选集合与逐字证据校验、suggested 关系幂等物化、运行恢复、文档关系查询和批量审核 API 均已落地。固定 12 份资料的 7 条正例/5 组负例端到端评估达到既定质量门槛。同日完成阶段 2 前三个小切片：标签字典、文档标签、标签证据、独立标签运行、供应商无关 Fake 候选、三层校验、suggested 幂等物化、运行恢复、标签查询、不可变审核历史、批量审核和空间已确认标签统计 API 已落地。2026-08-25 完成第四小切片的桌面 Web 联调；真实标签模型、标签候选补充、文档关系图和移动端仍未实现。
 
@@ -900,6 +900,7 @@ Agent 只有在以下场景可重复验证后才能进入产品主线：
 - `document_tag_reviews` 已落地并使用唯一索引保存单次不可变审核事实；`GET /documents/{documentId}/tags` 批量恢复标签、证据和审核历史，`POST /documents/{documentId}/tag-review-batches` 原子执行 `suggested → confirmed/rejected`，`GET /tags` 通过 MyBatis XML Join 只统计已确认标签和有效文档数量。桌面 Web 已在“AI 输出”内拆分标签与实体关系兼容层，完成空态、处理中、完成、失败、单条/批量审核、并发 409 回读、左侧 confirmed 统计和刷新恢复回归；成功/处理中态使用隔离 SQLite 纯虚构快照，不代表真实模型或生产验证。
 - 已完成 confirmed 标签补充候选最小切片：关联运行增加 `includeConfirmedTags` 显式查询参数，默认 `false` 时完全保持无标签内容召回基线；开启后只从当前空间有效来源资料的 `confirmed` 文档标签读取共享标签，候选标记为 `confirmed_tag_match`，运行保存标签/默认内容通道候选统计并将共享标签放入受限模型上下文。该通道不直接保存关系、不接受 suggested 标签、不跨空间读取，服务端证据校验和人工审核保持不变；84 项 Java 21 根 Reactor、前端 typecheck/build 通过。
 - 已完成 confirmed 标签补充候选固定资料对照：使用 document-association-eval-v1 的冻结 expectedTags 作为人工 confirmed 输入，只改变 `includeConfirmedTags`，TopK 固定为 8。关闭/开启 Recall@8 均为 1.0000；开启后候选总数 41→48、Precision@8 0.1707→0.1458，固定硬负例未新增。该结果说明当前标签通道是候选覆盖增强但会引入未标注候选噪声，不能直接进入文档关系图；报告见 `docs/tests/document-association-tag-augmentation-evaluation-v1.md`。
+- 已完成 `document-candidate-recall-v2` 标签仅补内容漏召回实验：开启标签时只有默认内容通道均未命中的候选才进入标签补充通道，且排序低于内容候选；固定资料内容候选顺序恢复，但候选总数和 Precision@8 未改善，下一步评估共同标签数量分层阈值。
 
 ### `conversations` 与 `conversation_messages`
 
@@ -1165,7 +1166,7 @@ spaceId
 
 - 已确认默认文档内容关联、可选标签关联、五种关系、文档关系图和有据问答优先于 Agent 的决策。
 - 已建立 `document-association-eval-v1` 正负样本、候选召回用例和机器可读标注答案。
-- 已冻结 `document-association-v1` Prompt/Schema、`document-candidate-recall-v1` 候选召回策略、`document-association-policy-v1` 关联策略及阶段 2 的 `document-tag-v1` Prompt/Schema 边界。
+- 已冻结 `document-association-v1` Prompt/Schema、默认 `document-candidate-recall-v1` 候选召回策略、阶段 2 的 `document-candidate-recall-v2` confirmed 标签补充策略、`document-association-policy-v1` 关联策略及 `document-tag-v1` Prompt/Schema 边界。
 - 已冻结关系方向字段和“`updates` → `conflicts_with` → `supports` → `references` → `related_to`”最具体关系优先级。
 - 验收结果：12 份资料、7 条正例、5 组负例和 7 个召回用例通过 JSON、标识、关系覆盖、正负冲突、文件路径和逐字证据静态校验。
 
@@ -1173,7 +1174,7 @@ spaceId
 
 - 第一小切片已完成：建立文档关联运行、关系、证据和审核的 SQLite/MyBatis 持久化基础及自动测试，没有同时实现标签、Embedding、文档关系图或前端审核。
 - 第二小切片已完成：实现无 Embedding 的显式引用、文件名、标题、摘要、章节标题和关键词候选召回，直接复用来源资料、章节解析和已落地文档关联持久化边界。
-- 候选召回固定使用 `document-candidate-recall-v1`、TopK=8、当前空间有效资料过滤和主体文档排除；结果保留命中通道、关键词、规则排序分数和稳定排名，不把规则分数当作关系置信度。
+- 默认内容候选召回固定使用 `document-candidate-recall-v1`、TopK=8、当前空间有效资料过滤和主体文档排除；阶段 2 标签增强运行使用 `document-candidate-recall-v2`，只补充所有默认内容通道均未命中的候选并排在内容候选之后；结果保留命中通道、关键词、规则排序分数和稳定排名，不把规则分数当作关系置信度。
 - 固定 `document-association-eval-v1` 的 7 个召回用例已通过 Java 21 SQLite 集成测试：期望候选进入前 8、孤立打印机资料返回空列表、冻结硬负例未进入对应前 8，且 TopK 超过 8 会被拒绝。
 - 新增文档关系、关系证据、审核和运行记录所需的数据表、Repository、Service、API 和测试。
 - 实现显式引用、文件名、标题、摘要、章节标题和关键词的内容候选召回。
@@ -1189,7 +1190,8 @@ spaceId
 - **已完成第三小切片**：新增不可变标签审核历史、文档/空间标签查询和批量 `accept/reject` 审核 API；只接受服务端文档标签关系标识与动作，验证 `suggested → confirmed/rejected`、空间/文档归属、同批重复、重复审核冲突和刷新恢复。
 - **已完成第四小切片**：桌面 Web 来源资料 AI 概览已消费最近标签运行、文档标签和批量审核 API，左侧标签区只消费空间 confirmed 标签统计；隔离 Chrome 覆盖真实空态、处理中自动收敛、完成、默认客户端未启用失败、审核冲突和刷新恢复，并保留独立实体关系兼容层。
 - **已完成第六小切片**：为文档候选召回增加用户显式开启的 confirmed 标签补充通道，记录候选来源和固定资料开关差异；标签相同仍不能直接确认关系，默认内容召回继续独立成立。对照结果为 Recall 不变、Precision 下降，固定硬负例未新增但未标注候选数量增加。
-- **下一小切片**：只改变一个变量，实验标签候选降权、仅补充内容通道未命中的候选或按共同标签数量分层，目标是减少未标注候选噪声并恢复 Precision；当前不等待 Embedding 或文档关系图。
+- **已完成第七小切片**：新增 `document-candidate-recall-v2`，confirmed 标签只补充所有内容通道均未命中的候选并排在内容候选之后；固定资料回归恢复内容候选顺序，但开启标签后的候选总数仍为 48、Precision@8 仍为 0.1458，Recall@8 仍为 1.0000，不能称为质量提升。
+- **下一小切片**：只改变一个变量，实验共同标签数量分层阈值，目标是减少未标注候选噪声并恢复 Precision；当前不等待 Embedding 或文档关系图。
 - 接入 AI 候选标签、证据校验、人工审核、编辑和恢复。
 - 提供用户主动启用的标签筛选/候选补充，不改变默认内容关联结果；共同标签不能单独确认关系。
 - 验收：固定资料验证标签开启与关闭两种路径，开启后可补充候选，关闭后内容关联仍可独立完成。

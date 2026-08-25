@@ -40,8 +40,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class DocumentCandidateRecallServiceImpl implements DocumentCandidateRecallService {
 
-    public static final String POLICY_VERSION = "document-candidate-recall-v1";
-
     private static final int DEFAULT_TOP_K = 8;
     private static final int MAX_TOP_K = 8;
     private static final int MIN_MEANINGFUL_TERM_LENGTH = 4;
@@ -264,7 +262,9 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
                 spaceId,
                 sourceDocument.id(),
                 sourceDocument.contentHash(),
-                POLICY_VERSION,
+                includeConfirmedTags
+                        ? CONFIRMED_TAG_AUGMENTATION_POLICY_VERSION
+                        : CONTENT_POLICY_VERSION,
                 topK,
                 candidates,
                 confirmedTagNamesByDocument.getOrDefault(sourceDocument.id(), List.of()),
@@ -398,13 +398,15 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
                 ? intersectionNormalized(sourceProfile.confirmedTags(), candidateProfile.confirmedTags())
                 : Set.of();
 
-        // 只有明确引用、标题/章节/摘要命中或高信息量关键词命中才进入候选集合
-        if (!explicitReference
-                && titleMatches.isEmpty()
-                && sectionMatches.isEmpty()
-                && summaryMatches.isEmpty()
-                && keywordMatches.isEmpty()
-                && tagMatches.isEmpty()) {
+        boolean contentMatch = explicitReference
+                || !titleMatches.isEmpty()
+                || !sectionMatches.isEmpty()
+                || !summaryMatches.isEmpty()
+                || !keywordMatches.isEmpty();
+        Set<String> supplementalTagMatches = contentMatch ? Set.of() : tagMatches;
+
+        // 只有内容通道或 confirmed 标签通道命中时才进入候选集合
+        if (!contentMatch && supplementalTagMatches.isEmpty()) {
             return java.util.Optional.empty();
         }
 
@@ -417,7 +419,7 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
         score += weightedOverlap(sectionMatches, 45);
         score += weightedOverlap(summaryMatches, 30);
         score += weightedOverlap(keywordMatches, 12);
-        score += weightedOverlap(tagMatches, 25);
+        score += weightedOverlap(supplementalTagMatches, 25);
 
         // 记录稳定通道顺序，供后续模型上下文和人工排查解释召回来源
         List<String> matchedChannels = new ArrayList<>();
@@ -436,17 +438,17 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
         if (!keywordMatches.isEmpty()) {
             matchedChannels.add("keyword_match");
         }
-        if (!tagMatches.isEmpty()) {
+        if (!supplementalTagMatches.isEmpty()) {
             matchedChannels.add("confirmed_tag_match");
         }
 
-        // 合并通道命中词并按长度、字典序稳定排序，避免 Fake 评估出现随机结果
+        // 合并内容通道和标签通道命中词，并按长度、字典序稳定排序，避免评估出现随机结果
         Set<String> matchedTerms = new LinkedHashSet<>();
         matchedTerms.addAll(titleMatches);
         matchedTerms.addAll(sectionMatches);
         matchedTerms.addAll(summaryMatches);
         matchedTerms.addAll(keywordMatches);
-        matchedTerms.addAll(tagMatches);
+        matchedTerms.addAll(supplementalTagMatches);
 
         List<String> orderedTerms = matchedTerms.stream()
                 .sorted(Comparator.comparingInt(String::length).reversed().thenComparing(String::compareTo))
@@ -457,7 +459,7 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
                 candidateProfile,
                 matchedChannels,
                 orderedTerms,
-                tagMatches.stream().sorted().toList(),
+                supplementalTagMatches.stream().sorted().toList(),
                 score
         ));
     }
@@ -833,7 +835,7 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
                 return 3;
             }
             if (matchedChannels.contains("confirmed_tag_match")) {
-                return 4;
+                return 6;
             }
             return 5;
         }

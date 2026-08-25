@@ -1,6 +1,6 @@
 ---
 title: AI 工作知识图谱维护助手 PRD
-version: v0.36
+version: v0.37
 status: 开发中
 created: 2026-08-17
 updated: 2026-08-25
@@ -720,6 +720,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 文档关联阶段 1 已完成运行、关系、证据、审核的本地持久化基础、无 Embedding 候选召回、Fake 关系判断、逐字证据校验、后端审核 API 和固定资料完整指标评估。当前结果仅证明固定虚构资料上的 Fake/SQLite Pipeline；真实模型关系质量、前端关联审核、文档关系图、浏览器和生产验证仍未完成，Precision@8 0.1707 也表明候选上下文噪声仍需后续对照优化。
 - 已完成固定资料开关对照：使用 document-association-eval-v1 的 12 份资料和冻结 expectedTags 作为人工 confirmed 输入，只改变 includeConfirmedTags=false/true，TopK 固定为 8。两条路径 Recall@8 均为 1.0000；开启标签后候选总数由 41 增至 48，Precision@8 由 0.1707 降至 0.1458，固定硬负例未新增。结论是当前标签通道能补候选但会引入未标注候选噪声，不能称为质量提升；详细结果见 docs/tests/document-association-tag-augmentation-evaluation-v1.md。
 - 已完成阶段 2 的 confirmed 标签补充候选最小切片：`POST /documents/{documentId}/association-runs?includeConfirmedTags=false` 默认保持无标签内容召回；用户显式传 `true` 后，服务端一次读取当前空间有效文档的 `confirmed` 标签，以共享标签补充候选并记录 `tagCandidateCount`、`keywordCandidateCount` 和 `confirmed_tag_match` 生成方式。共同标签只影响候选召回，不直接形成关系或跳过证据校验/人工审核；Java 21 根 Reactor 全量 84 项、前端 typecheck/build 通过。
+- 已完成阶段 2 标签候选降噪单变量实验：新增 `document-candidate-recall-v2` 版本，confirmed 标签只补充所有内容通道均未命中的候选，并排在内容候选之后；固定资料回归证明默认内容候选顺序恢复，开启标签后的候选总数仍为 48、Precision@8 仍为 0.1458，Recall@8 仍为 1.0000，固定硬负例仍为 0。该策略未带来质量提升，下一实验改评估共同标签数量分层阈值；报告见 docs/tests/document-association-tag-augmentation-evaluation-v1.md。
 - 2026-08-21 已完成目标态核验：当前浏览器中的真实页面仍是实体/关系混合图，节点点击只更新右侧详情，来源资料名称没有详情页跳转；标签区是空态；没有问答、引用或 Agent 运行入口；Cytoscape 没有悬浮/键盘邻居高亮。新目标已写入 [`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)，文档关系图、标签叠加、详情页、固定 RAG 有据问答和可选 Agent 均保持未实现状态。
 - 本轮 PDF 前端契约已经通过 TypeScript 检查和生产构建，但当前会话缺少浏览器控制运行工具，未执行 PDF 文件选择、卡片标签和预览弹窗的新增浏览器回归；既有 Markdown/TXT 浏览器证据不能替代该项验收。
 - 本地 HTTP 与浏览器验证只使用 `fixture/annual-party/` 和临时生成的纯虚构资料；已进行一次真实模型结构化抽取，但本轮浏览器回归使用 Fake 运行状态，未使用真实公司资料，也未进行生产部署或真实模型浏览器端到端验证。
@@ -731,7 +732,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 
 # 19. 下一步代办与新会话入口
 
-新会话开始时，先阅读本节、`docs/roadmap.md`、[`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)、[`docs/tests/document-association-evaluation-report-v1.md`](../tests/document-association-evaluation-report-v1.md)、[`docs/tests/document-association-tag-augmentation-evaluation-v1.md`](../tests/document-association-tag-augmentation-evaluation-v1.md) 和 `document-tag-v1` 契约，然后进入专项阶段 2 的下一小切片：针对开启标签后 Precision@8 下降和未标注候选增加，实验标签候选降权、仅补充内容通道未命中的候选或按共同标签数量分层的单变量策略，并在浏览器控制工具可用时补做入口回归。当前不同时实现真实标签模型、Embedding、问答或 Agent；移动端、触控和读屏仍顺延。
+新会话开始时，先阅读本节、`docs/roadmap.md`、[`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)、[`docs/tests/document-association-evaluation-report-v1.md`](../tests/document-association-evaluation-report-v1.md)、[`docs/tests/document-association-tag-augmentation-evaluation-v1.md`](../tests/document-association-tag-augmentation-evaluation-v1.md) 和 `document-tag-v1` 契约，然后进入专项阶段 2 的下一小切片：针对 `document-candidate-recall-v2` 仍未降低 Precision@8，实验共同标签数量分层阈值等单变量策略，并在浏览器控制工具可用时补做入口回归。当前不同时实现真实标签模型、Embedding、问答或 Agent；移动端、触控和读屏仍顺延。
 
 ## 19.1 已完成验收：SQLite 有界连接池与流式抽取主线
 
