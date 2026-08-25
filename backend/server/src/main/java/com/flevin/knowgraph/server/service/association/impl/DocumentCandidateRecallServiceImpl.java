@@ -263,7 +263,7 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
                 sourceDocument.id(),
                 sourceDocument.contentHash(),
                 includeConfirmedTags
-                        ? CONFIRMED_TAG_AUGMENTATION_POLICY_VERSION
+                        ? CONFIRMED_TAG_THRESHOLD_POLICY_VERSION
                         : CONTENT_POLICY_VERSION,
                 topK,
                 candidates,
@@ -403,7 +403,10 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
                 || !sectionMatches.isEmpty()
                 || !summaryMatches.isEmpty()
                 || !keywordMatches.isEmpty();
-        Set<String> supplementalTagMatches = contentMatch ? Set.of() : tagMatches;
+        Set<String> supplementalTagMatches = contentMatch
+                || tagMatches.size() < MIN_CONFIRMED_TAG_MATCHES
+                ? Set.of()
+                : tagMatches;
 
         // 只有内容通道或 confirmed 标签通道命中时才进入候选集合
         if (!contentMatch && supplementalTagMatches.isEmpty()) {

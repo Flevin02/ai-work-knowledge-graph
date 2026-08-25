@@ -16,6 +16,12 @@ public interface DocumentCandidateRecallService {
     /** 用户显式开启 confirmed 标签补充后的候选召回策略版本。 */
     String CONFIRMED_TAG_AUGMENTATION_POLICY_VERSION = "document-candidate-recall-v2";
 
+    /** 共同 confirmed 标签达到分层阈值后的候选召回策略版本。 */
+    String CONFIRMED_TAG_THRESHOLD_POLICY_VERSION = "document-candidate-recall-v3";
+
+    /** 标签-only 候选必须共享的 confirmed 标签最小数量。 */
+    int MIN_CONFIRMED_TAG_MATCHES = 2;
+
     /**
      * 按冻结的 TopK=8 规则召回当前文档的关联候选。
      *

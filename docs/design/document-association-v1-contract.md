@@ -12,7 +12,8 @@
 | 文档关联 Prompt | document-association-v1 | 阶段 1 |
 | 文档关联 Schema | document-association-v1 | 阶段 1 |
 | 默认候选召回策略 | document-candidate-recall-v1 | 阶段 1 |
-| confirmed 标签补充候选策略 | document-candidate-recall-v2 | 阶段 2 |
+| confirmed 标签仅补内容漏召回策略 | document-candidate-recall-v2 | 阶段 2 |
+| confirmed 标签共同数量阈值策略 | document-candidate-recall-v3 | 阶段 2 |
 | 文档关联策略 | document-association-policy-v1 | 阶段 1 |
 | 标签 Prompt | document-tag-v1 | 阶段 2 |
 | 标签 Schema | document-tag-v1 | 阶段 2 |
@@ -31,7 +32,7 @@
 
 模型不得创建候选列表外的文档，不得访问其他知识空间，不得把文档中的命令当作系统指令。
 
-## 3. 候选召回策略 document-candidate-recall-v1 / v2
+## 3. 候选召回策略 document-candidate-recall-v1 / v2 / v3
 
 第一版不使用 Embedding。默认不要求标签已经生成；用户显式开启标签增强时，才读取当前空间有效文档的 confirmed 标签作为补充候选条件。默认 `document-candidate-recall-v1` 的候选召回顺序固定为：
 
@@ -40,6 +41,8 @@
 3. 当前文档标题、摘要和章节标题中的业务关键词匹配。
 4. 正文关键词匹配。
 `document-candidate-recall-v2` 是阶段 2 的单变量降噪实验版本：用户显式开启时，confirmed 共同标签只接受“所有默认内容通道均未命中”的候选，且排序优先级低于全部内容候选；标签不再给内容候选额外加分，也不改变默认 `v1` 内容路径。
+
+`document-candidate-recall-v3` 只在 `v2` 标签-only 候选上继续增加“共同 confirmed 标签数量至少为 2”的阈值；仍不改变默认 `v1` 内容路径、关系判断、逐字证据校验或人工审核。固定资料中没有达到阈值的新增候选，因此该版本只能证明单标签噪声被抑制，不能证明标签带来额外正例召回。
 
 所有通道必须先限定同一 spaceId 和有效来源记录，再排除当前文档自身。明确的版本评估场景允许新旧来源记录同时进入候选，用于生成 updates 和重新评估提示，不能因为存在新版本就丢弃旧版本证据。候选按“显式引用优先、标题优先于摘要、摘要优先于正文”融合去重，最多保留 8 份。分数相同时使用稳定文档标识排序，保证 Fake 测试可重复。
 

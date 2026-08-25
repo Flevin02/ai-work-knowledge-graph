@@ -35,11 +35,11 @@ import java.util.stream.Collectors;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 固定资料上的 confirmed 标签仅补内容漏召回实验。
+ * 固定资料上的 confirmed 标签共同数量分层阈值实验。
  *
  * <p>测试使用 annotations.json 中冻结的 expectedTags 作为人工 confirmed 标签输入，
- * 不把标签生成模型的质量混入本实验；标签只补充默认内容通道未命中的候选，
- * 用于验证内容候选排序是否保持不变，以及该策略能否改善候选集合指标。</p>
+ * 不把标签生成模型的质量混入本实验；在内容通道未命中的前提下，
+ * 只有达到最小共同标签数量的候选才进入补充通道。</p>
  */
 @SpringBootTest(classes = KnowledgeGraphApplication.class, properties = {
         "app.database-path=target/test-data/document-association-tag-augmentation-evaluation.sqlite",
@@ -49,7 +49,7 @@ class DocumentAssociationTagAugmentationEvaluationTests {
 
     private static final String SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
     private static final String REPORT_FILE =
-            "../../docs/tests/document-association-tag-augmentation-evaluation-v1.md";
+            "../../docs/tests/document-association-tag-threshold-evaluation-v1.md";
 
     @Autowired
     private DocumentCandidateRecallService candidateRecallService;
@@ -92,17 +92,16 @@ class DocumentAssociationTagAugmentationEvaluationTests {
         ComparisonResult result = compare(fixture, documents);
         writeReport(result);
 
-        // 默认关闭必须保持候选基线；开启后必须至少有一条 confirmed 标签补充候选
+        // 默认关闭必须保持候选基线；固定资料开启阈值后应过滤上一轮单标签噪声
         assertThat(result.defaultCandidateCount()).isGreaterThan(0);
-        assertThat(result.augmentedTagCandidateCount()).isGreaterThan(0);
+        assertThat(result.augmentedTagCandidateCount()).isZero();
         assertThat(result.defaultCandidateRecallPolicyVersions())
                 .containsOnly(DocumentCandidateRecallService.CONTENT_POLICY_VERSION);
         assertThat(result.augmentedCandidateRecallPolicyVersions())
-                .containsOnly(DocumentCandidateRecallService.CONFIRMED_TAG_AUGMENTATION_POLICY_VERSION);
+                .containsOnly(DocumentCandidateRecallService.CONFIRMED_TAG_THRESHOLD_POLICY_VERSION);
         assertThat(result.defaultRecallAt8()).isGreaterThanOrEqualTo(0.90);
         assertThat(result.augmentedRecallAt8()).isEqualTo(result.defaultRecallAt8());
-        assertThat(result.augmentedCandidateCount() - result.defaultCandidateCount())
-                .isEqualTo(result.augmentedTagCandidateCount());
+        assertThat(result.augmentedCandidateCount()).isEqualTo(result.defaultCandidateCount());
         assertThat(result.cases()).allSatisfy(item -> assertThat(new ArrayList<>(item.augmentedCandidates()))
                 .startsWith(item.defaultCandidates().toArray(String[]::new)));
         assertThat(result.defaultHardNegativeCount()).isZero();
@@ -251,12 +250,14 @@ class DocumentAssociationTagAugmentationEvaluationTests {
     private void writeReport(ComparisonResult result) throws IOException {
         Path report = Path.of(REPORT_FILE);
         StringBuilder content = new StringBuilder();
-        content.append("# 文档关联 confirmed 标签仅补内容漏召回评估 v1\n\n")
+        content.append("# 文档关联 confirmed 标签共同数量分层阈值评估 v1\n\n")
                 .append("- 资料集：document-association-eval-v1\n")
                 .append("- 运行方式：Java 21 + SQLite + 冻结 expectedTags 作为 confirmed user 标签\n")
                 .append("- 候选策略：关闭标签使用 ").append(String.join(", ", result.defaultCandidateRecallPolicyVersions()))
                 .append("；开启标签使用 ").append(String.join(", ", result.augmentedCandidateRecallPolicyVersions())).append("\n")
-                .append("- 单变量策略：confirmed 标签只补充所有默认内容通道均未命中的候选，并排在内容候选之后\n")
+                .append("- 单变量策略：内容通道未命中且共同 confirmed 标签数量至少为 ")
+                .append(DocumentCandidateRecallService.MIN_CONFIRMED_TAG_MATCHES)
+                .append(" 个时才补充候选，并排在内容候选之后\n")
                 .append("- 对照：includeConfirmedTags=false/true，TopK 固定为 8\n")
                 .append("- 说明：本报告评估标签对候选召回的影响，不代表标签生成模型 Precision/Recall\n\n")
                 .append("## 汇总\n\n| 指标 | 关闭标签 | 开启 confirmed 标签 |\n| --- | ---: | ---: |\n")
@@ -275,7 +276,7 @@ class DocumentAssociationTagAugmentationEvaluationTests {
                 .append(item.augmentedHitCount()).append("/").append(item.augmentedHardNegativeCount()).append(" | ")
                 .append(item.tagCandidateCount()).append(" |\n"));
         content.append("\n## 结论与边界\n\n")
-                .append("本策略恢复了默认内容候选的稳定顺序，并把 confirmed 标签通道统计收敛为真正仅由标签补充的候选；但候选总数仍为 48，Precision@8 仍为 0.1458，与上一轮未降噪开关对照一致。原因是部分内容召回不足 8 条时，单个宽泛共同标签仍会填满剩余名额，因此该策略不能称为候选质量提升。下一单变量实验应评估共同标签数量分层阈值。\n\n")
+                .append("共同标签数量阈值过滤掉了上一轮固定资料中的 7 个单标签补充候选，使开启标签后的候选总数回到 41、Precision@8 回到 0.1707；Recall@8 保持 1.0000，说明本固定资料未证明单标签候选能补充冻结正例。该结果是保守降噪回到无标签基线，不能称为标签质量提升；后续若要恢复标签召回，必须新增至少两个共同标签且带正例的标注资料。\n\n")
                 .append("开启 confirmed 标签后，标签仍只作为候选召回信号；关系判断、逐字证据校验和人工审核由原有 Pipeline 执行，共同标签不能直接确认为关系。\n\n")
                 .append("本实验将冻结 expectedTags 作为人工 confirmed 输入，未测试真实标签模型的抽取质量；浏览器入口、真实模型、生产代理和移动端另行验证。\n");
         Files.createDirectories(report.getParent());

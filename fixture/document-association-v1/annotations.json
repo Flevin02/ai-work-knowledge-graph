@@ -8,6 +8,8 @@
     "associationSchemaVersion": "document-association-v1",
     "candidateRecallPolicyVersion": "document-candidate-recall-v1",
     "confirmedTagAugmentationPolicyVersion": "document-candidate-recall-v2",
+    "confirmedTagThresholdPolicyVersion": "document-candidate-recall-v3",
+    "minimumConfirmedTagMatches": 2,
     "associationPolicyVersion": "document-association-policy-v1",
     "tagPromptVersion": "document-tag-v1",
     "tagSchemaVersion": "document-tag-v1"

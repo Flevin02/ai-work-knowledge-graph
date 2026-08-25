@@ -194,7 +194,19 @@ class DocumentAssociationServiceIntegrationTests {
         assertThat(baseline.candidateCount()).isZero();
         assertThat(baseline.tagCandidateCount()).isZero();
 
-        // 显式开启后才通过 confirmed 标签补充候选，并记录通道统计
+        // 只有一个共同标签时，分层阈值应阻止标签-only 候选进入模型判断
+        DocumentAssociationRunResponse singleTagAugmented = associationService.createRun(
+                SPACE_ID,
+                source.id(),
+                true
+        );
+        assertThat(singleTagAugmented.candidateCount()).isZero();
+        assertThat(singleTagAugmented.tagCandidateCount()).isZero();
+        assertThat(fakeAssociationClient.invocationCount).hasValue(0);
+
+        // 增加第二个共同标签后，显式开启路径才允许标签补充候选
+        insertConfirmedUserTag(source.id(), "tag-source-second", "共同标签二");
+        insertConfirmedUserTag(candidate.id(), "tag-candidate-second", "共同标签二");
         DocumentAssociationRunResponse augmented = associationService.createRun(
                 SPACE_ID,
                 source.id(),
@@ -204,7 +216,7 @@ class DocumentAssociationServiceIntegrationTests {
         assertThat(augmented.tagCandidateCount()).isEqualTo(1);
         assertThat(augmented.keywordCandidateCount()).isZero();
         assertThat(augmented.candidateRecallPolicyVersion())
-                .isEqualTo(DocumentCandidateRecallService.CONFIRMED_TAG_AUGMENTATION_POLICY_VERSION);
+                .isEqualTo(DocumentCandidateRecallService.CONFIRMED_TAG_THRESHOLD_POLICY_VERSION);
         assertThat(fakeAssociationClient.invocationCount).hasValue(1);
         assertThat(augmented.relations()).singleElement()
                 .extracting("generationMode")

@@ -501,7 +501,7 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
                 PROMPT_VERSION,
                 SCHEMA_VERSION,
                 includeConfirmedTags
-                        ? DocumentCandidateRecallService.CONFIRMED_TAG_AUGMENTATION_POLICY_VERSION
+                        ? DocumentCandidateRecallService.CONFIRMED_TAG_THRESHOLD_POLICY_VERSION
                         : DocumentCandidateRecallService.CONTENT_POLICY_VERSION,
                 ASSOCIATION_POLICY_VERSION,
                 null,
