@@ -110,11 +110,18 @@ button { cursor: pointer; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 .toolbar-card { gap: 15px; margin-top: 15px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(17, 26, 45, .82); }
+.toolbar-actions { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
+.toolbar-actions .secondary-button { padding: 7px 10px; font-size: 10px; }
+.toolbar-actions .secondary-button.selected { color: #ddd6fe; border-color: #8b5cf6; background: rgba(139, 92, 246, .18); }
 .search-box { display: flex; align-items: center; gap: 8px; flex: 0 1 310px; color: var(--muted-2); }
 .search-box input { width: 100%; border: 0; outline: 0; color: var(--text); background: transparent; font-size: 12px; }
 .search-box input::placeholder { color: var(--muted-2); }
 .toolbar-hint { margin-left: auto; color: var(--muted-2); font-size: 10px; }
 .graph-card { position: relative; min-height: 0; flex: 1 1 auto; margin-top: 12px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: radial-gradient(circle at 50% 44%, rgba(57, 75, 112, .23), rgba(11, 17, 32, .6) 60%), #0d1628; }
+.graph-empty-state { position: absolute; inset: 0 0 31px; display: grid; place-items: center; align-content: center; gap: 8px; padding: 24px; color: var(--muted-2); text-align: center; }
+.graph-empty-state svg { color: #64748b; }
+.graph-empty-state strong { color: var(--muted); font-size: 13px; }
+.graph-empty-state span { max-width: 330px; font-size: 11px; line-height: 1.6; }
 .graph-canvas { position: absolute; inset: 0 0 31px; }
 .graph-footnote { position: absolute; left: 0; right: 0; bottom: 0; height: 31px; display: flex; align-items: center; padding: 0 13px; border-top: 1px solid rgba(36, 50, 74, .85); color: var(--muted-2); background: rgba(10, 17, 31, .82); font-size: 10px; }
 .detail-panel { border-left: 1px solid var(--line); padding: 28px 21px; }

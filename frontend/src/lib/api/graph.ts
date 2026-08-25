@@ -1,4 +1,11 @@
-import type {GraphNode, GraphEdge, NodeType, NodeStatus, EdgeStatus} from '@/lib/types';
+import type {
+  DocumentGraphData,
+  GraphNode,
+  GraphEdge,
+  NodeType,
+  NodeStatus,
+  EdgeStatus,
+} from '@/lib/types';
 import {backendApiUrl, readApiResponse} from '@/lib/api/client';
 
 type GraphNodeResponse = {
@@ -27,6 +34,11 @@ type GraphEdgeResponse = {
 type GraphResponse = {
   nodes: GraphNodeResponse[];
   edges: GraphEdgeResponse[];
+};
+
+type DocumentGraphResponse = {
+  nodes: DocumentGraphData['nodes'];
+  edges: DocumentGraphData['edges'];
 };
 
 export async function getGraph(spaceId: string): Promise<{nodes: GraphNode[]; edges: GraphEdge[]}> {
@@ -58,4 +70,15 @@ export async function getGraph(spaceId: string): Promise<{nodes: GraphNode[]; ed
       updatedAt: edge.updatedAt,
     })),
   };
+}
+
+/**
+ * 查询独立文档关系图，只接收真实来源文档节点和已确认文档关系边。
+ */
+export async function getDocumentGraph(spaceId: string): Promise<DocumentGraphData> {
+  const response = await fetch(`${backendApiUrl}/v1/spaces/${encodeURIComponent(spaceId)}/document-graph`, {
+    method: 'GET',
+    cache: 'no-store',
+  });
+  return readApiResponse<DocumentGraphResponse>(response);
 }

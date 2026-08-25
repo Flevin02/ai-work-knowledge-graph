@@ -358,6 +358,33 @@ export type GraphData = {
   documents: SourceDocument[];
 };
 
+export type DocumentGraphNode = {
+  id: string;
+  name: string;
+  kind: SourceDocumentKind;
+  documentType: string;
+  summary: string;
+  status: SourceDocument['status'];
+  updatedAt: string;
+};
+
+export type DocumentGraphEdge = {
+  id: string;
+  sourceDocumentId: string;
+  targetDocumentId: string;
+  relationType: string;
+  direction: string;
+  status: 'confirmed';
+  confidence: number;
+  reason: string;
+  updatedAt: string;
+};
+
+export type DocumentGraphData = {
+  nodes: DocumentGraphNode[];
+  edges: DocumentGraphEdge[];
+};
+
 export const nodeTypeLabels: Record<NodeType, string> = {
   project: '项目',
   department: '部门',

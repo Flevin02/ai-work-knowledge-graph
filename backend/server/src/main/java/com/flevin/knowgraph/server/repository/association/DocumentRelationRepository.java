@@ -112,6 +112,29 @@ public class DocumentRelationRepository {
     }
 
     /**
+     * 按空间和审核状态查询文档关系，供独立文档关系图批量组装使用。
+     *
+     * @param spaceId 知识空间标识
+     * @param status 关系审核状态
+     * @return 按最近更新时间倒序排列的文档关系
+     */
+    public List<DocumentRelation> findAllBySpaceAndStatus(
+            String spaceId,
+            String status
+    ) {
+        // 只在当前知识空间读取目标状态关系，避免跨空间构造图边
+        return mapper.selectList(
+                        Wrappers.<DocumentRelationEntity>lambdaQuery()
+                                .eq(DocumentRelationEntity::getSpaceId, spaceId)
+                                .eq(DocumentRelationEntity::getStatus, status)
+                                .orderByDesc(DocumentRelationEntity::getUpdatedAt)
+                                .orderByDesc(DocumentRelationEntity::getId)
+                ).stream()
+                .map(entityMapper::toDomain)
+                .toList();
+    }
+
+    /**
      * 保存一条文档关系。
      *
      * @param relation 文档关系领域模型

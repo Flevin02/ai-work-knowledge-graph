@@ -9,9 +9,10 @@ type GraphCanvasProps = {
   edges: GraphEdge[];
   selectedNodeId: string | null;
   onSelectNode: (nodeId: string) => void;
+  ariaLabel?: string;
 };
 
-export default function GraphCanvas({ nodes, edges, selectedNodeId, onSelectNode }: GraphCanvasProps) {
+export default function GraphCanvas({ nodes, edges, selectedNodeId, onSelectNode, ariaLabel = '工作知识关系图谱' }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<Core | null>(null);
 
@@ -129,5 +130,5 @@ export default function GraphCanvas({ nodes, edges, selectedNodeId, onSelectNode
     }
   }, [edges, nodes, selectedNodeId]);
 
-  return <div ref={containerRef} className="graph-canvas" aria-label="工作知识关系图谱" />;
+  return <div ref={containerRef} className="graph-canvas" aria-label={ariaLabel} />;
 }

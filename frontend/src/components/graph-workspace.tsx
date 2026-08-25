@@ -24,6 +24,7 @@ import {
     X,
 } from 'lucide-react';
 import GraphCanvas from './graph-canvas';
+import DocumentGraphSidebar from './document-graph-sidebar';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -38,7 +39,7 @@ import {
     submitDocumentExtractionBatch,
     streamDocumentExtraction
 } from '@/lib/api/documents';
-import {getGraph} from '@/lib/api/graph';
+import {getDocumentGraph, getGraph} from '@/lib/api/graph';
 import {createDocumentAssociationRun} from '@/lib/api/associations';
 import {createKnowledgeSpace, deleteKnowledgeSpace, listKnowledgeSpaces} from '@/lib/api/spaces';
 import {
@@ -61,6 +62,7 @@ import {
     type DocumentAssociationRun,
     type GraphData,
     type GraphEdge,
+    type DocumentGraphData,
     type GraphNode,
     type KnowledgeSpace,
     type KnowledgeTagSummary,
@@ -70,6 +72,7 @@ import {
 } from '@/lib/types';
 
 type GraphWorkspaceProps = { initialGraph: GraphData };
+type GraphMode = 'entity' | 'document';
 type View = 'graph' | 'documents' | 'health';
 type NoticeTone = 'success' | 'warning' | 'error' | 'loading';
 type DocumentPreviewTab = 'rendered' | 'source' | 'ai';
@@ -185,6 +188,8 @@ function toExtractionState(document: SourceDocument): DocumentExtractionState | 
 
 export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     const [graph, setGraph] = useState(initialGraph);
+    const [documentGraph, setDocumentGraph] = useState<DocumentGraphData>({nodes: [], edges: []});
+    const [graphMode, setGraphMode] = useState<GraphMode>('entity');
     const [view, setView] = useState<View>('graph');
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(initialGraph.nodes[0]?.id ?? null);
     const [search, setSearch] = useState('');
@@ -301,6 +306,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                     setDocumentTotalPages(0);
                     setDocumentExtractionStates({});
                     setGraph({nodes: [], edges: [], documents: []});
+                    setDocumentGraph({nodes: [], edges: []});
                     setSelectedNodeId(null);
                     setNotice('当前还没有知识空间，请先创建一个。');
                     setNoticeTone('warning');
@@ -524,21 +530,84 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
         };
     }, [currentSpaceId, graphRefreshKey]);
 
+    useEffect(() => {
+        if (!currentSpaceId) {
+            setDocumentGraph({nodes: [], edges: []});
+            return;
+        }
+        let cancelled = false;
+
+        const loadDocumentGraph = async () => {
+            try {
+                // 查询独立文档关系图，节点来自 source_documents，边来自 confirmed document_relations
+                const loadedDocumentGraph = await getDocumentGraph(currentSpaceId);
+                if (!cancelled) setDocumentGraph(loadedDocumentGraph);
+            } catch (error) {
+                if (cancelled) return;
+                setDocumentGraph({nodes: [], edges: []});
+                setNotice(`文档关系图加载失败：${error instanceof Error ? error.message : '未知错误'}`);
+                setNoticeTone('warning');
+            }
+        };
+
+        void loadDocumentGraph();
+        return () => {
+            cancelled = true;
+        };
+    }, [currentSpaceId, graphRefreshKey]);
+
     const currentSpace = spaces.find((space) => space.id === currentSpaceId) ?? null;
 
-    const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId) ?? null;
+    const documentGraphAsGraphData: GraphData = useMemo(() => ({
+        nodes: documentGraph.nodes.map((node) => ({
+            id: node.id,
+            type: 'document',
+            label: node.name,
+            summary: node.summary,
+            status: node.status === 'active' ? 'active' : 'orphan',
+            sourceIds: [node.id],
+            createdAt: node.updatedAt,
+            updatedAt: node.updatedAt,
+        })),
+        edges: documentGraph.edges.map((edge) => ({
+            id: edge.id,
+            source: edge.sourceDocumentId,
+            target: edge.targetDocumentId,
+            type: edge.relationType,
+            status: edge.status,
+            confidence: edge.confidence,
+            evidence: [],
+            createdAt: edge.updatedAt,
+            updatedAt: edge.updatedAt,
+        })),
+        documents: documentGraph.nodes.map((node) => ({
+            id: node.id,
+            name: node.name,
+            kind: node.kind,
+            documentType: node.documentType as SourceDocument['documentType'],
+            contentHash: '',
+            excerpt: node.summary,
+            status: node.status,
+            importedAt: node.updatedAt,
+            updatedAt: node.updatedAt,
+        })),
+    }), [documentGraph]);
+    const activeGraph = graphMode === 'document' ? documentGraphAsGraphData : graph;
+    const selectedNode = graphMode === 'entity'
+        ? graph.nodes.find((node) => node.id === selectedNodeId) ?? null
+        : null;
     const selectedEdges = graph.edges.filter((edge) => edge.source === selectedNodeId || edge.target === selectedNodeId);
 
     const visibleNodes = useMemo(() => {
         const keyword = search.trim().toLowerCase();
-        return graph.nodes.filter((node) => !keyword || `${node.label} ${node.summary}`.toLowerCase().includes(keyword));
-    }, [graph.nodes, search]);
+        return activeGraph.nodes.filter((node) => !keyword || `${node.label} ${node.summary}`.toLowerCase().includes(keyword));
+    }, [activeGraph.nodes, search]);
 
     const visibleEdges = useMemo(() => {
         const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
-        return graph.edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target) && edge.status !== 'rejected');
-    }, [graph.edges, visibleNodes]);
-    const confirmedEdgeCount = graph.edges.filter((edge) => edge.status === 'confirmed').length;
+        return activeGraph.edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target) && edge.status !== 'rejected');
+    }, [activeGraph.edges, visibleNodes]);
+    const confirmedEdgeCount = activeGraph.edges.filter((edge) => edge.status === 'confirmed').length;
 
     const loadMoreDocuments = () => {
         if (
@@ -1156,7 +1225,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                     <nav className="side-nav" aria-label="主导航">
                         <button className={view === 'graph' ? 'nav-item active' : 'nav-item'}
                             onClick={() => setView('graph')}><LayoutDashboard
-                            size={17}/> 工作图谱 <span>{graph.nodes.length}</span></button>
+                            size={17}/> 工作图谱 <span>{activeGraph.nodes.length}</span></button>
                         <button className={view === 'documents' ? 'nav-item active' : 'nav-item'}
                             onClick={() => setView('documents')}><FileText
                             size={17}/> 来源资料 <span>{documentTotal}</span></button>
@@ -1213,7 +1282,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                             <div className="eyebrow">工作台 / {currentSpace?.name ?? '未创建知识空间'}</div>
                             <h1>{pageTitle}</h1><p>{pageDescription}</p></div>
                         <div className="page-stats">
-                            <div><strong>{graph.nodes.length}</strong><span>图谱节点</span></div>
+                            <div><strong>{activeGraph.nodes.length}</strong><span>{graphMode === 'document' ? '文档节点' : '图谱节点'}</span></div>
                             <div><strong>{confirmedEdgeCount}</strong><span>已采纳关系</span></div>
                             <div><strong>{documentTotal}</strong><span>来源资料</span></div>
                         </div>
@@ -1234,13 +1303,31 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                     </div> : <>
                     {view === 'graph' && <>
                         <div className="toolbar-card">
+                            <div className="toolbar-actions">
+                                <button className={graphMode === 'entity' ? 'secondary-button selected' : 'secondary-button'}
+                                    type="button" onClick={() => {
+                                        setGraphMode('entity');
+                                        setSelectedNodeId(graph.nodes[0]?.id ?? null);
+                                    }}>实体兼容图谱</button>
+                                <button className={graphMode === 'document' ? 'secondary-button selected' : 'secondary-button'}
+                                    type="button" onClick={() => {
+                                        setGraphMode('document');
+                                        setSelectedNodeId(documentGraph.nodes[0]?.id ?? null);
+                                    }}>文档关系图</button>
+                            </div>
                             <div className="search-box"><Search size={17}/><input value={search}
                                 onChange={(event) => setSearch(event.target.value)}
-                                placeholder="搜索项目、任务、人员或资料"/></div>
-                            <span className="toolbar-hint">实线：已采纳　虚线：待审核　红框：需关注</span>
+                                placeholder={graphMode === 'document' ? '搜索来源文档' : '搜索项目、任务、人员或资料'}/></div>
+                            <span className="toolbar-hint">{graphMode === 'document'
+                                ? '节点来自真实来源资料；实线表示已确认文档关系'
+                                : '实线：已采纳　虚线：待审核　红框：需关注'}</span>
                         </div>
-                        <div className="graph-card"><GraphCanvas nodes={visibleNodes} edges={visibleEdges}
-                            selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId}/>
+                        <div className="graph-card">{graphMode === 'document' && !visibleNodes.length
+                            ? <div className="graph-empty-state"><FileText size={28}/><strong>当前还没有可展示的文档关系图</strong>
+                                <span>需要先导入来源文档，并在文档关联审核后确认关系；待审核关系不会出现在默认图中。</span></div>
+                            : <GraphCanvas nodes={visibleNodes} edges={visibleEdges}
+                                selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId}
+                                ariaLabel={graphMode === 'document' ? '独立文档关系图' : '工作知识关系图谱'}/>}
                             <div className="graph-footnote">当前视图 {visibleNodes.length} 个节点
                                 / {visibleEdges.length} 条关系 · 点击节点查看证据
                             </div>
@@ -1297,6 +1384,8 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                         ? <div className="empty-detail"><Archive size={28}/><p>创建知识空间后即可开始导入文档</p></div>
                         : view === 'documents'
                         ? <DocumentSidebar documents={persistedDocuments} space={currentSpace}/>
+                        : graphMode === 'document'
+                            ? <DocumentGraphSidebar graph={documentGraphAsGraphData}/>
                         : selectedNode
                             ? <NodeDetail node={selectedNode} edges={selectedEdges} graph={graph}
                                 onSelectNode={setSelectedNodeId}/>
