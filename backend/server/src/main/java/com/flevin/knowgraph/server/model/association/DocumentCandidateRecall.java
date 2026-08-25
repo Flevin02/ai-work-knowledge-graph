@@ -11,6 +11,9 @@ import java.util.List;
  * @param candidateRecallPolicyVersion 候选召回策略版本
  * @param topK 本次召回上限
  * @param candidates 按规则分数和稳定文档标识排序的候选资料
+ * @param sourceConfirmedTags 当前主体文档已确认标签
+ * @param tagCandidateCount 仅由 confirmed 标签命中的候选数量
+ * @param keywordCandidateCount 由默认内容通道命中的候选数量
  */
 public record DocumentCandidateRecall(
         String spaceId,
@@ -18,10 +21,14 @@ public record DocumentCandidateRecall(
         String sourceContentHash,
         String candidateRecallPolicyVersion,
         int topK,
-        List<DocumentCandidate> candidates
+        List<DocumentCandidate> candidates,
+        List<String> sourceConfirmedTags,
+        int tagCandidateCount,
+        int keywordCandidateCount
 ) {
 
     public DocumentCandidateRecall {
         candidates = List.copyOf(candidates);
+        sourceConfirmedTags = List.copyOf(sourceConfirmedTags);
     }
 }

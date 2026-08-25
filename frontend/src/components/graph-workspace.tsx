@@ -39,6 +39,7 @@ import {
     streamDocumentExtraction
 } from '@/lib/api/documents';
 import {getGraph} from '@/lib/api/graph';
+import {createDocumentAssociationRun} from '@/lib/api/associations';
 import {createKnowledgeSpace, deleteKnowledgeSpace, listKnowledgeSpaces} from '@/lib/api/spaces';
 import {
     createDocumentTaggingRun,
@@ -57,6 +58,7 @@ import {
     type DocumentTag,
     type DocumentTagReviewAction,
     type DocumentTaggingRun,
+    type DocumentAssociationRun,
     type GraphData,
     type GraphEdge,
     type GraphNode,
@@ -1997,6 +1999,8 @@ function DocumentTagPanel({
     const [isLoading, setIsLoading] = useState(true);
     const [isTagging, setIsTagging] = useState(false);
     const [isReviewing, setIsReviewing] = useState(false);
+    const [isAssociating, setIsAssociating] = useState(false);
+    const [associationRun, setAssociationRun] = useState<DocumentAssociationRun | null>(null);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [actionError, setActionError] = useState<string | null>(null);
     const [selectedTagIds, setSelectedTagIds] = useState<Record<string, boolean>>({});
@@ -2084,6 +2088,21 @@ function DocumentTagPanel({
         }
     };
 
+    const startConfirmedTagAssociation = async () => {
+        if (isAssociating) return;
+        setIsAssociating(true);
+        setActionError(null);
+        try {
+            // 仅在用户明确点击后开启 confirmed 标签补充候选通道
+            const run = await createDocumentAssociationRun(spaceId, document.id, true);
+            setAssociationRun(run);
+        } catch (error) {
+            setActionError(`标签补充候选失败：${error instanceof Error ? error.message : '未知错误'}`);
+        } finally {
+            setIsAssociating(false);
+        }
+    };
+
     const pendingTags = tags.filter((tag) => tag.status === 'suggested');
     const selectedPendingTagIds = pendingTags
         .map((tag) => tag.id)
@@ -2106,11 +2125,18 @@ function DocumentTagPanel({
         <header className="document-tag-header">
             <div><span>可选增强</span><h3>文档标签</h3>
                 <p>标签必须引用当前原文；只有已确认标签进入左侧导航。</p></div>
-            <button className="primary-button" type="button" disabled={runIsProcessing}
-                onClick={() => void startTagging()}>
-                {runIsProcessing ? <LoaderCircle className="spin" size={14}/> : <Sparkles size={14}/>}
-                {runIsProcessing ? '正在生成标签' : latestRun ? '重新生成标签' : '生成候选标签'}
-            </button>
+            <div className="document-tag-header-actions">
+                <button className="secondary-button" type="button" disabled={runIsProcessing || isAssociating}
+                    onClick={() => void startConfirmedTagAssociation()}>
+                    {isAssociating ? <LoaderCircle className="spin" size={14}/> : <Link2 size={14}/>}
+                    {isAssociating ? '正在补充候选' : '按已确认标签补充候选'}
+                </button>
+                <button className="primary-button" type="button" disabled={runIsProcessing || isAssociating}
+                    onClick={() => void startTagging()}>
+                    {runIsProcessing ? <LoaderCircle className="spin" size={14}/> : <Sparkles size={14}/>}
+                    {runIsProcessing ? '正在生成标签' : latestRun ? '重新生成标签' : '生成候选标签'}
+                </button>
+            </div>
         </header>
 
         {loadError && <div className="document-tag-message error"><AlertTriangle size={15}/>
@@ -2133,6 +2159,14 @@ function DocumentTagPanel({
         {!runIsProcessing && latestRun?.status === 'completed' && <div className="document-tag-run completed"><Check size={16}/>
             <div><strong>最近一次标签运行已完成</strong>
                 <span>{latestRun.summary || '模型未返回可展示摘要。'} · 新增 {latestRun.suggestionCount} 个候选</span></div>
+        </div>}
+        {associationRun?.status === 'completed' && <div className="document-tag-run completed"><Link2 size={16}/>
+            <div><strong>标签补充候选已完成</strong>
+                <span>比较 {associationRun.comparedCount} 份候选，新增 {associationRun.suggestionCount} 条关系建议；标签通道命中 {associationRun.tagCandidateCount} 份。</span></div>
+        </div>}
+        {associationRun?.status === 'failed' && <div className="document-tag-run failed"><AlertTriangle size={16}/>
+            <div><strong>标签补充候选未完成</strong>
+                <span>{associationRun.errorMessage || '服务端未启用文档关联判断。'}{associationRun.failureStage ? ` · 阶段 ${associationRun.failureStage}` : ''}</span></div>
         </div>}
 
         <div className="document-tag-summary">

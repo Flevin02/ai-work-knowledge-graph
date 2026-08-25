@@ -898,6 +898,7 @@ Agent 只有在以下场景可重复验证后才能进入产品主线：
 - `DocumentTaggingClient` 隔离具体模型和供应商；当前只有测试 Fake。固定 Pipeline 将当前来源原文确定性解析为章节感知分片，最多提供 32 个分片且合计不超过 24,000 字符；超限记录 `chunk_failed`，不静默截断。document-tag-v1 输出最多 8 个标签，模型局部候选/证据标识必须通过 Bean、引用集合、当前文档分片/章节和 quote 逐字校验后，才能由服务端生成数据库标识并批量原子保存。
 - `POST /documents/{documentId}/tagging-runs` 已创建同步 Fake 运行，`GET /documents/{documentId}/tagging-runs/{runId}` 已按空间、文档和运行标识恢复状态、摘要和本次新保存候选；同版本重复运行保留新运行但复用旧标签和证据。桌面联调新增 `GET /documents/{documentId}/tagging-runs/latest`，刷新页面后从服务端恢复最近状态，不使用浏览器本地业务数据。Java 21 根 Reactor 全量 83 项测试通过；固定资料标签 Precision/Recall 和真实模型仍未验证。
 - `document_tag_reviews` 已落地并使用唯一索引保存单次不可变审核事实；`GET /documents/{documentId}/tags` 批量恢复标签、证据和审核历史，`POST /documents/{documentId}/tag-review-batches` 原子执行 `suggested → confirmed/rejected`，`GET /tags` 通过 MyBatis XML Join 只统计已确认标签和有效文档数量。桌面 Web 已在“AI 输出”内拆分标签与实体关系兼容层，完成空态、处理中、完成、失败、单条/批量审核、并发 409 回读、左侧 confirmed 统计和刷新恢复回归；成功/处理中态使用隔离 SQLite 纯虚构快照，不代表真实模型或生产验证。
+- 已完成 confirmed 标签补充候选最小切片：关联运行增加 `includeConfirmedTags` 显式查询参数，默认 `false` 时完全保持无标签内容召回基线；开启后只从当前空间有效来源资料的 `confirmed` 文档标签读取共享标签，候选标记为 `confirmed_tag_match`，运行保存标签/默认内容通道候选统计并将共享标签放入受限模型上下文。该通道不直接保存关系、不接受 suggested 标签、不跨空间读取，服务端证据校验和人工审核保持不变；84 项 Java 21 根 Reactor、前端 typecheck/build 通过。
 
 ### `conversations` 与 `conversation_messages`
 

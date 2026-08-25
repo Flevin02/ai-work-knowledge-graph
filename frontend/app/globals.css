@@ -290,6 +290,7 @@ button { cursor: pointer; }
 .document-tag-empty { min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: var(--muted); text-align: center; font-size: 10px; }
 .document-tag-empty svg { color: #c4b5fd; }
 .document-tag-empty strong { color: var(--text); font-size: 13px; }
+.document-tag-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .ai-extraction-history-result { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .ai-extraction-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .ai-history-warning { flex: 0 0 auto; display: flex; align-items: flex-start; gap: 9px; border-bottom: 1px solid rgba(245, 158, 11, .24); padding: 10px 22px; color: #fde68a; background: rgba(245, 158, 11, .08); font-size: 10px; line-height: 1.5; }

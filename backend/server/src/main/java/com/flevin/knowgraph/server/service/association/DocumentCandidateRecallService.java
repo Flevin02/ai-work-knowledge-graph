@@ -35,4 +35,20 @@ public interface DocumentCandidateRecallService {
             String sourceDocumentId,
             int topK
     );
+
+    /**
+     * 按冻结内容通道召回候选，并允许用户显式开启已确认标签补充通道。
+     *
+     * @param spaceId 知识空间标识
+     * @param sourceDocumentId 当前作为召回主体的来源资料标识
+     * @param topK 候选数量上限，取值范围为 1 到 8
+     * @param includeConfirmedTags 是否读取当前空间已确认标签作为补充召回条件
+     * @return 无 Embedding 候选召回结果
+     */
+    DocumentCandidateRecall recall(
+            String spaceId,
+            String sourceDocumentId,
+            int topK,
+            boolean includeConfirmedTags
+    );
 }

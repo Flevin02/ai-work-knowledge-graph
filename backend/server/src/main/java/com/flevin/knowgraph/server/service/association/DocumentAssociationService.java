@@ -25,6 +25,20 @@ public interface DocumentAssociationService {
     );
 
     /**
+     * 为当前来源资料创建文档关联运行，并可显式开启已确认标签补充候选。
+     *
+     * @param spaceId 知识空间标识
+     * @param sourceDocumentId 当前分析文档标识
+     * @param includeConfirmedTags 是否使用已确认标签补充候选；默认关闭
+     * @return 运行状态和通过服务端校验的新建议
+     */
+    DocumentAssociationRunResponse createRun(
+            String spaceId,
+            String sourceDocumentId,
+            boolean includeConfirmedTags
+    );
+
+    /**
      * 恢复指定文档关联运行及其新保存的建议。
      *
      * @param spaceId 知识空间标识

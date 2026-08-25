@@ -113,6 +113,23 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
             String spaceId,
             String sourceDocumentId
     ) {
+        return createRun(spaceId, sourceDocumentId, false);
+    }
+
+    /**
+     * 为当前来源资料创建文档关联运行，并可显式开启 confirmed 标签补充候选。
+     *
+     * @param spaceId 知识空间标识
+     * @param sourceDocumentId 当前分析文档标识
+     * @param includeConfirmedTags 是否使用已确认标签补充候选
+     * @return 运行状态和通过服务端校验的新建议
+     */
+    @Override
+    public DocumentAssociationRunResponse createRun(
+            String spaceId,
+            String sourceDocumentId,
+            boolean includeConfirmedTags
+    ) {
         // 查询当前有效来源资料，冻结本次运行的内容指纹
         SourceDocument sourceDocument = requireDocument(spaceId, sourceDocumentId);
         Instant createdAt = Instant.now();
@@ -124,7 +141,13 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
         DocumentCandidateRecall recall;
         try {
             // 执行冻结的 TopK=8 无 Embedding 候选召回
-            recall = candidateRecallService.recall(spaceId, sourceDocumentId, TOP_K);
+            recall = candidateRecallService.recall(
+                    spaceId,
+                    sourceDocumentId,
+                    TOP_K,
+                    includeConfirmedTags
+            );
+            processingRun = withRecallStats(processingRun, recall);
         } catch (RuntimeException exception) {
             log.warn(
                     "文档关联候选召回失败: runId={}, documentId={}",
@@ -220,7 +243,7 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
         }
 
         try {
-            // 校验 DTO 约束、候选一一对应、证据标识唯一和阶段 1 标签空集
+            // 校验 DTO 约束、候选一一对应、证据标识唯一和共同标签不得直接确认关系
             validateResultShape(request, result);
         } catch (AssociationOutputException exception) {
             return finishRun(
@@ -486,6 +509,48 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
     }
 
     /**
+     * 将本次召回通道统计写入 processing 快照，供成功或失败运行最终持久化。
+     *
+     * @param run processing 运行快照
+     * @param recall 候选召回结果
+     * @return 带召回通道统计的运行快照
+     */
+    private DocumentAssociationRun withRecallStats(
+            DocumentAssociationRun run,
+            DocumentCandidateRecall recall
+    ) {
+        return new DocumentAssociationRun(
+                run.id(),
+                run.spaceId(),
+                run.sourceDocumentId(),
+                run.sourceContentHash(),
+                run.status(),
+                run.failureStage(),
+                run.errorMessage(),
+                run.candidateCount(),
+                run.comparedCount(),
+                run.suggestionCount(),
+                recall.tagCandidateCount(),
+                recall.keywordCandidateCount(),
+                run.semanticCandidateCount(),
+                run.promptVersion(),
+                run.schemaVersion(),
+                run.candidateRecallPolicyVersion(),
+                run.associationPolicyVersion(),
+                run.embeddingProvider(),
+                run.embeddingModel(),
+                run.embeddingVersion(),
+                run.topK(),
+                run.similarityThreshold(),
+                run.modelRequestCount(),
+                run.retryCount(),
+                run.durationMs(),
+                run.createdAt(),
+                run.completedAt()
+        );
+    }
+
+    /**
      * 组装只包含当前空间、固定候选和可定位原文分片的模型请求。
      *
      * @param run 当前关联运行
@@ -516,6 +581,7 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
         DocumentAssociationDocumentContext currentDocument = toDocumentContext(
                 sourceDocument,
                 resolveSummary(sourceDocument),
+                recall.sourceConfirmedTags(),
                 sourceChunks
         );
 
@@ -557,9 +623,10 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
                 MAX_CANDIDATE_CHUNKS
         );
         return new DocumentAssociationCandidateContext(
-                toDocumentContext(document, candidate.summary(), chunks),
+                toDocumentContext(document, candidate.summary(), candidate.confirmedTags(), chunks),
                 candidate.matchedChannels(),
                 candidate.matchedTerms(),
+                candidate.confirmedTags(),
                 candidate.score(),
                 candidate.rank()
         );
@@ -570,12 +637,14 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
      *
      * @param document 来源资料
      * @param summary 自然摘要或导入预览
+     * @param confirmedTags 已确认标签名称
      * @param chunks 允许模型引用的分片
      * @return 安全文档上下文
      */
     private DocumentAssociationDocumentContext toDocumentContext(
             SourceDocument document,
             String summary,
+            List<String> confirmedTags,
             List<DocumentChunk> chunks
     ) {
         return new DocumentAssociationDocumentContext(
@@ -585,6 +654,7 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
                 document.documentType().getValue(),
                 document.contentHash(),
                 summary,
+                confirmedTags,
                 chunks
         );
     }
@@ -725,13 +795,13 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
             );
         }
 
-        // 阶段 1 不允许模型通过未落地标签建立关系
+        // 共同标签只负责补充候选，模型不得通过标签字段绕过关系证据校验
         boolean containsTags = result.decisions().stream()
                 .anyMatch(decision -> !decision.matchedTagIds().isEmpty());
         if (containsTags) {
             throw new AssociationOutputException(
                     "structured_output_invalid",
-                    "文档关联阶段 1 不接受标签匹配结果"
+                    "文档关联不接受仅由标签匹配形成的关系结果"
             );
         }
 
@@ -980,6 +1050,8 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
     private String resolveGenerationMode(DocumentAssociationCandidateContext candidate) {
         return candidate.matchedChannels().contains("explicit_reference")
                 ? "explicit_reference"
+                : candidate.matchedChannels().contains("confirmed_tag_match")
+                ? "tag_match"
                 : "keyword_match";
     }
 
@@ -1018,9 +1090,9 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
                 candidateCount,
                 comparedCount,
                 suggestionCount,
-                0,
-                candidateCount,
-                0,
+                processingRun.tagCandidateCount(),
+                processingRun.keywordCandidateCount(),
+                processingRun.semanticCandidateCount(),
                 processingRun.promptVersion(),
                 processingRun.schemaVersion(),
                 processingRun.candidateRecallPolicyVersion(),

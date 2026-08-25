@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 
@@ -35,12 +36,15 @@ public class DocumentAssociationController {
     )
     public ApiResponse<DocumentAssociationRunResponse> createRun(
             @Parameter(description = "知识空间标识") @PathVariable String spaceId,
-            @Parameter(description = "当前分析的来源资料标识") @PathVariable String documentId
+            @Parameter(description = "当前分析的来源资料标识") @PathVariable String documentId,
+            @Parameter(description = "是否显式开启已确认标签补充候选，默认关闭")
+            @RequestParam(defaultValue = "false") boolean includeConfirmedTags
     ) {
         // 为当前来源资料执行一次可恢复的固定文档关联 Pipeline
         DocumentAssociationRunResponse response = documentAssociationService.createRun(
                 spaceId,
-                documentId
+                documentId,
+                includeConfirmedTags
         );
 
         // 使用统一响应返回运行状态、失败阶段和已校验建议

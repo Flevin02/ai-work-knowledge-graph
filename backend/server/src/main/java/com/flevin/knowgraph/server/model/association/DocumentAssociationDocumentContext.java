@@ -13,6 +13,7 @@ import java.util.List;
  * @param documentType 文档业务类型
  * @param contentHash 本次分析使用的内容指纹
  * @param summary 最近成功生成的自然摘要；没有时使用导入预览
+ * @param confirmedTags 当前文档已确认标签；只在显式开启标签通道时提供
  * @param chunks 允许模型引用的可追溯原文分片
  */
 public record DocumentAssociationDocumentContext(
@@ -22,10 +23,12 @@ public record DocumentAssociationDocumentContext(
         String documentType,
         String contentHash,
         String summary,
+        List<String> confirmedTags,
         List<DocumentChunk> chunks
 ) {
 
     public DocumentAssociationDocumentContext {
+        confirmedTags = List.copyOf(confirmedTags);
         chunks = List.copyOf(chunks);
     }
 }

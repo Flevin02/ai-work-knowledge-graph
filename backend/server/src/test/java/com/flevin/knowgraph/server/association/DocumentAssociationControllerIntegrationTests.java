@@ -82,6 +82,8 @@ class DocumentAssociationControllerIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.error").value(false))
                 .andExpect(jsonPath("$.data.status").value("completed"))
+                .andExpect(jsonPath("$.data.tagCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.keywordCandidateCount").value(1))
                 .andExpect(jsonPath("$.data.relations[0].status").value("suggested"))
                 .andReturn()
                 .getResponse()

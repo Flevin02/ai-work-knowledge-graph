@@ -10,6 +10,7 @@ import com.flevin.knowgraph.server.model.document.SourceDocument;
 import com.flevin.knowgraph.server.repository.ai.AiExtractionRunRepository;
 import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
 import com.flevin.knowgraph.server.repository.space.KnowledgeSpaceRepository;
+import com.flevin.knowgraph.server.repository.tag.DocumentTagRepository;
 import com.flevin.knowgraph.server.service.ai.rag.PrdMarkdownSectionParser;
 import com.flevin.knowgraph.server.service.association.DocumentCandidateRecallService;
 import lombok.RequiredArgsConstructor;
@@ -31,8 +32,8 @@ import java.util.stream.Collectors;
 /**
  * 文档关联第一版确定性候选召回实现。
  *
- * <p>当前只使用文件名、确定性标题、章节标题、资料摘要和正文关键词，
- * 不使用标签、Embedding 或模型生成结果。规则分数只用于候选排序，
+ * <p>默认只使用文件名、确定性标题、章节标题、资料摘要和正文关键词；
+ * 用户显式开启时追加 confirmed 标签，不使用 Embedding 或模型生成结果。规则分数只用于候选排序，
  * 不能替代后续关系判断、证据校验和人工审核。</p>
  */
 @Service
@@ -142,6 +143,7 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
     private final SourceDocumentRepository sourceDocumentRepository;
     private final AiExtractionRunRepository aiExtractionRunRepository;
     private final PrdMarkdownSectionParser sectionParser;
+    private final DocumentTagRepository documentTagRepository;
 
     /**
      * 按冻结的 TopK=8 规则召回当前文档的关联候选。
@@ -175,6 +177,26 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
             String sourceDocumentId,
             int topK
     ) {
+        return recall(spaceId, sourceDocumentId, topK, false);
+    }
+
+    /**
+     * 按默认内容通道召回候选，并可追加用户已确认标签通道。
+     *
+     * @param spaceId 知识空间标识
+     * @param sourceDocumentId 当前作为召回主体的来源资料标识
+     * @param topK 候选数量上限
+     * @param includeConfirmedTags 是否读取 confirmed 标签补充候选
+     * @return 候选召回结果
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public DocumentCandidateRecall recall(
+            String spaceId,
+            String sourceDocumentId,
+            int topK,
+            boolean includeConfirmedTags
+    ) {
         // 校验候选数量，保证固定评估的 TopK 不被调用方扩大
         validateTopK(topK);
 
@@ -198,10 +220,16 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
                 .stream()
                 .collect(Collectors.toMap(DocumentExtractionOverview::documentId, Function.identity()));
 
+        // 用户显式开启后一次读取当前空间所有有效文档的 confirmed 标签，默认路径不访问标签表
+        Map<String, List<String>> confirmedTagNamesByDocument = includeConfirmedTags
+                ? documentTagRepository.findConfirmedTagNamesByDocuments(spaceId, documentIds)
+                : Map.of();
+
         // 分别解析主体和候选资料的标题、章节、最新摘要及关键词元数据
         DocumentProfile sourceProfile = buildProfile(
                 sourceDocument,
-                resolveSummary(sourceDocument, extractionOverviews)
+                resolveSummary(sourceDocument, extractionOverviews),
+                confirmedTagNamesByDocument.getOrDefault(sourceDocument.id(), List.of())
         );
 
         // 对每份候选只做一次确定性评分，避免循环中重复解析同一原文
@@ -209,7 +237,9 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
                 .map(candidate -> scoreCandidate(
                         sourceProfile,
                         candidate,
-                        resolveSummary(candidate, extractionOverviews)
+                        resolveSummary(candidate, extractionOverviews),
+                        confirmedTagNamesByDocument.getOrDefault(candidate.id(), List.of()),
+                        includeConfirmedTags
                 ))
                 .flatMap(java.util.Optional::stream)
                 .sorted(ScoredCandidate.ORDER)
@@ -223,13 +253,23 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
             candidates.add(toCandidate(scoredCandidates.get(index), index + 1));
         }
 
+        int tagCandidateCount = (int) scoredCandidates.stream()
+                .filter(candidate -> candidate.matchedChannels().contains("confirmed_tag_match"))
+                .count();
+        int keywordCandidateCount = (int) scoredCandidates.stream()
+                .filter(candidate -> candidate.matchedChannels().stream()
+                        .anyMatch(channel -> !"confirmed_tag_match".equals(channel)))
+                .count();
         return new DocumentCandidateRecall(
                 spaceId,
                 sourceDocument.id(),
                 sourceDocument.contentHash(),
                 POLICY_VERSION,
                 topK,
-                candidates
+                candidates,
+                confirmedTagNamesByDocument.getOrDefault(sourceDocument.id(), List.of()),
+                tagCandidateCount,
+                keywordCandidateCount
         );
     }
 
@@ -260,11 +300,27 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
      *
      * @param document 来源资料
      * @param summary 最近一次成功自然摘要；不存在时使用导入预览
-     * @return 标题、章节、摘要和正文关键词画像
+     * @return 标题、章节、摘要、正文关键词和 confirmed 标签画像
      */
     private DocumentProfile buildProfile(
             SourceDocument document,
             String summary
+    ) {
+        return buildProfile(document, summary, List.of());
+    }
+
+    /**
+     * 构造包含已确认标签的来源资料检索画像。
+     *
+     * @param document 来源资料
+     * @param summary 最近一次成功自然摘要或导入预览
+     * @param confirmedTags 当前文档已确认标签
+     * @return 来源资料检索画像
+     */
+    private DocumentProfile buildProfile(
+            SourceDocument document,
+            String summary,
+            List<String> confirmedTags
     ) {
         // 复用章节感知解析器，保持候选召回与后续分片的标题识别规则一致
         List<DocumentSection> sections = sectionParser.parse(document.contentText());
@@ -298,7 +354,8 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
                 titleTerms,
                 sectionTerms,
                 summaryTerms,
-                bodyTerms
+                bodyTerms,
+                List.copyOf(confirmedTags)
         );
     }
 
@@ -308,15 +365,19 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
      * @param sourceProfile 当前主体文档画像
      * @param candidate 候选来源资料
      * @param candidateSummary 候选资料最近一次成功自然摘要或导入预览
+     * @param candidateTags 候选资料已确认标签
+     * @param includeConfirmedTags 是否启用标签通道
      * @return 命中至少一个可解释通道时返回评分结果
      */
     private java.util.Optional<ScoredCandidate> scoreCandidate(
             DocumentProfile sourceProfile,
             SourceDocument candidate,
-            String candidateSummary
+            String candidateSummary,
+            List<String> candidateTags,
+            boolean includeConfirmedTags
     ) {
         // 解析候选资料画像，保证每份候选只读取一次章节和关键词
-        DocumentProfile candidateProfile = buildProfile(candidate, candidateSummary);
+        DocumentProfile candidateProfile = buildProfile(candidate, candidateSummary, candidateTags);
 
         // 显式检查任一文档正文是否点名另一份资料的文件名或确定性标题
         boolean explicitReference = isExplicitReference(sourceProfile, candidateProfile);
@@ -333,13 +394,17 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
                 .filter(term -> hasPositiveOccurrence(sourceProfile.document().contentText(), term))
                 .filter(term -> hasPositiveOccurrence(candidateProfile.document().contentText(), term))
                 .collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<String> tagMatches = includeConfirmedTags
+                ? intersectionNormalized(sourceProfile.confirmedTags(), candidateProfile.confirmedTags())
+                : Set.of();
 
         // 只有明确引用、标题/章节/摘要命中或高信息量关键词命中才进入候选集合
         if (!explicitReference
                 && titleMatches.isEmpty()
                 && sectionMatches.isEmpty()
                 && summaryMatches.isEmpty()
-                && keywordMatches.isEmpty()) {
+                && keywordMatches.isEmpty()
+                && tagMatches.isEmpty()) {
             return java.util.Optional.empty();
         }
 
@@ -352,6 +417,7 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
         score += weightedOverlap(sectionMatches, 45);
         score += weightedOverlap(summaryMatches, 30);
         score += weightedOverlap(keywordMatches, 12);
+        score += weightedOverlap(tagMatches, 25);
 
         // 记录稳定通道顺序，供后续模型上下文和人工排查解释召回来源
         List<String> matchedChannels = new ArrayList<>();
@@ -370,6 +436,9 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
         if (!keywordMatches.isEmpty()) {
             matchedChannels.add("keyword_match");
         }
+        if (!tagMatches.isEmpty()) {
+            matchedChannels.add("confirmed_tag_match");
+        }
 
         // 合并通道命中词并按长度、字典序稳定排序，避免 Fake 评估出现随机结果
         Set<String> matchedTerms = new LinkedHashSet<>();
@@ -377,6 +446,7 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
         matchedTerms.addAll(sectionMatches);
         matchedTerms.addAll(summaryMatches);
         matchedTerms.addAll(keywordMatches);
+        matchedTerms.addAll(tagMatches);
 
         List<String> orderedTerms = matchedTerms.stream()
                 .sorted(Comparator.comparingInt(String::length).reversed().thenComparing(String::compareTo))
@@ -387,6 +457,7 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
                 candidateProfile,
                 matchedChannels,
                 orderedTerms,
+                tagMatches.stream().sorted().toList(),
                 score
         ));
     }
@@ -452,6 +523,7 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
                 scoredCandidate.profile().title(),
                 scoredCandidate.matchedChannels(),
                 scoredCandidate.matchedTerms(),
+                scoredCandidate.confirmedTags(),
                 scoredCandidate.score(),
                 rank
         );
@@ -468,6 +540,32 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
         return left.stream()
                 .filter(right::contains)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    /**
+     * 按轻量规范化键计算标签交集，保留主体文档一侧的展示名称。
+     *
+     * @param left 主体文档标签
+     * @param right 候选文档标签
+     * @return 共享标签展示名
+     */
+    private Set<String> intersectionNormalized(List<String> left, List<String> right) {
+        Set<String> rightKeys = right.stream()
+                .map(this::normalizeTagKey)
+                .collect(Collectors.toSet());
+        return left.stream()
+                .filter(tag -> rightKeys.contains(normalizeTagKey(tag)))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    /**
+     * 仅折叠大小写、首尾空格和连续空格，避免把语义近似标签误合并。
+     *
+     * @param tag 标签展示名
+     * @return 标签规范化键
+     */
+    private String normalizeTagKey(String tag) {
+        return tag == null ? "" : tag.strip().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -680,6 +778,7 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
      * @param sectionTerms 章节标题关键词
      * @param summaryTerms 摘要关键词
      * @param bodyTerms 正文关键词
+     * @param confirmedTags 已确认标签名称
      */
     private record DocumentProfile(
             SourceDocument document,
@@ -690,7 +789,8 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
             Set<String> titleTerms,
             Set<String> sectionTerms,
             Set<String> summaryTerms,
-            Set<String> bodyTerms
+            Set<String> bodyTerms,
+            List<String> confirmedTags
     ) {
     }
 
@@ -700,12 +800,14 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
      * @param profile 候选资料画像
      * @param matchedChannels 命中通道
      * @param matchedTerms 命中关键词
+     * @param confirmedTags 命中标签
      * @param score 规则排序分数
      */
     private record ScoredCandidate(
             DocumentProfile profile,
             List<String> matchedChannels,
             List<String> matchedTerms,
+            List<String> confirmedTags,
             int score
     ) {
 
@@ -727,7 +829,10 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
             if (matchedChannels.contains("summary_match")) {
                 return 3;
             }
-            return 4;
+            if (matchedChannels.contains("confirmed_tag_match")) {
+                return 4;
+            }
+            return 5;
         }
     }
 }

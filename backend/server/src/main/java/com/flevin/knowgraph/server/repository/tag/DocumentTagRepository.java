@@ -16,7 +16,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -150,6 +153,55 @@ public class DocumentTagRepository {
                 ).stream()
                 .map(this::toDomain)
                 .toList();
+    }
+
+    /**
+     * 按空间和来源资料批量读取已确认标签名称，供可选候选召回使用。
+     *
+     * @param spaceId 知识空间标识
+     * @param sourceDocumentIds 来源资料标识列表
+     * @return 来源资料标识到已确认标签展示名的映射
+     */
+    public Map<String, List<String>> findConfirmedTagNamesByDocuments(
+            String spaceId,
+            List<String> sourceDocumentIds
+    ) {
+        if (sourceDocumentIds.isEmpty()) {
+            return Map.of();
+        }
+
+        // 一次读取所有文档的 confirmed 关系，避免候选循环中逐文档查询标签
+        List<DocumentTagEntity> relations = documentTagMapper.selectList(
+                Wrappers.<DocumentTagEntity>lambdaQuery()
+                        .eq(DocumentTagEntity::getSpaceId, spaceId)
+                        .in(DocumentTagEntity::getSourceDocumentId, sourceDocumentIds)
+                        .eq(DocumentTagEntity::getStatus, "confirmed")
+        );
+        List<String> tagIds = relations.stream()
+                .map(DocumentTagEntity::getTagId)
+                .distinct()
+                .toList();
+        Map<String, String> tagNamesById = findTagsByIds(spaceId, tagIds).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        KnowledgeTag::id,
+                        KnowledgeTag::name,
+                        (left, right) -> left
+                ));
+        Map<String, List<String>> namesByDocument = new LinkedHashMap<>();
+        relations.forEach(relation -> {
+            String tagName = tagNamesById.get(relation.getTagId());
+            if (tagName != null && !tagName.isBlank()) {
+                namesByDocument.computeIfAbsent(
+                        relation.getSourceDocumentId(),
+                        ignored -> new ArrayList<>())
+                        .add(tagName);
+            }
+        });
+        return namesByDocument.entrySet().stream()
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(
+                        Map.Entry::getKey,
+                        entry -> List.copyOf(entry.getValue())
+                ));
     }
 
     /**

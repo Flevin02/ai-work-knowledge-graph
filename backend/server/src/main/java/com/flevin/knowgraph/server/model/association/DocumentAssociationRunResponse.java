@@ -16,6 +16,8 @@ import java.util.List;
  * @param candidateCount 召回候选数量
  * @param comparedCount 实际判断候选数量
  * @param suggestionCount 本次新保存的建议数量
+ * @param tagCandidateCount 已确认标签通道候选数量
+ * @param keywordCandidateCount 默认内容通道候选数量
  * @param promptVersion Prompt 版本
  * @param schemaVersion Schema 版本
  * @param candidateRecallPolicyVersion 候选召回策略版本
@@ -34,6 +36,8 @@ public record DocumentAssociationRunResponse(
         @Schema(description = "召回候选数量", example = "2") int candidateCount,
         @Schema(description = "实际判断候选数量", example = "2") int comparedCount,
         @Schema(description = "本次新保存的建议数量", example = "1") int suggestionCount,
+        @Schema(description = "已确认标签通道候选数量", example = "1") int tagCandidateCount,
+        @Schema(description = "默认内容通道候选数量", example = "1") int keywordCandidateCount,
         @Schema(description = "Prompt 版本", example = "document-association-v1") String promptVersion,
         @Schema(description = "Schema 版本", example = "document-association-v1") String schemaVersion,
         @Schema(description = "候选召回策略版本", example = "document-candidate-recall-v1") String candidateRecallPolicyVersion,

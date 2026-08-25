@@ -422,7 +422,7 @@ CREATE TABLE IF NOT EXISTS document_association_runs (
     compared_count INTEGER NOT NULL DEFAULT 0 CHECK (compared_count >= 0),
     -- 最终写入的候选关系建议数量。
     suggestion_count INTEGER NOT NULL DEFAULT 0 CHECK (suggestion_count >= 0),
-    -- 标签通道候选数量；阶段 1 默认保持 0。
+    -- confirmed 标签通道候选数量；默认关闭时保持 0。
     tag_candidate_count INTEGER NOT NULL DEFAULT 0 CHECK (tag_candidate_count >= 0),
     -- 关键词、标题和显式引用通道候选数量。
     keyword_candidate_count INTEGER NOT NULL DEFAULT 0 CHECK (keyword_candidate_count >= 0),

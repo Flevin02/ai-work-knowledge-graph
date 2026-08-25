@@ -322,6 +322,19 @@ export type DocumentTagReviewBatchResponse = {
   tags: DocumentTag[];
 };
 
+export type DocumentAssociationRun = {
+  runId: string;
+  sourceDocumentId: string;
+  status: 'processing' | 'completed' | 'failed';
+  failureStage?: string | null;
+  errorMessage?: string | null;
+  candidateCount: number;
+  comparedCount: number;
+  suggestionCount: number;
+  tagCandidateCount: number;
+  keywordCandidateCount: number;
+};
+
 export type KnowledgeTagSummary = {
   tagId: string;
   name: string;

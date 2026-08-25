@@ -70,6 +70,11 @@ class DocumentAssociationServiceIntegrationTests {
         jdbcTemplate.update("DELETE FROM document_relation_evidences");
         jdbcTemplate.update("DELETE FROM document_relations");
         jdbcTemplate.update("DELETE FROM document_association_runs");
+        jdbcTemplate.update("DELETE FROM document_tag_reviews");
+        jdbcTemplate.update("DELETE FROM document_tag_evidences");
+        jdbcTemplate.update("DELETE FROM document_tags");
+        jdbcTemplate.update("DELETE FROM tags");
+        jdbcTemplate.update("DELETE FROM document_tagging_runs");
         jdbcTemplate.update("DELETE FROM source_documents");
         jdbcTemplate.update("DELETE FROM import_batches");
         TestKnowledgeSpaceFixtures.ensureDefaultSpace(jdbcTemplate);
@@ -164,6 +169,72 @@ class DocumentAssociationServiceIntegrationTests {
         assertThat(run.candidateCount()).isZero();
         assertThat(run.relations()).isEmpty();
         assertThat(fakeAssociationClient.invocationCount).hasValue(0);
+    }
+
+    @Test
+    void confirmedTagAugmentationIsOptInAndStaysWithinCurrentSpace() {
+        SourceDocument source = importDocument(
+                "无关键词主体.md",
+                "# 蓝色船票\n编号 AX17 仅供甲方查阅。"
+        );
+        SourceDocument candidate = importDocument(
+                "无关键词候选.md",
+                "# 紫色天线\n编号 BQ29 仅供乙方查阅。"
+        );
+        insertConfirmedUserTag(source.id(), "tag-source", "共同标签");
+        insertConfirmedUserTag(candidate.id(), "tag-candidate", "共同标签");
+
+        // 默认关闭标签通道时不应把共同标签带入原有内容召回基线
+        DocumentAssociationRunResponse baseline = associationService.createRun(
+                SPACE_ID,
+                source.id(),
+                false
+        );
+        assertThat(baseline.candidateCount()).isZero();
+        assertThat(baseline.tagCandidateCount()).isZero();
+
+        // 显式开启后才通过 confirmed 标签补充候选，并记录通道统计
+        DocumentAssociationRunResponse augmented = associationService.createRun(
+                SPACE_ID,
+                source.id(),
+                true
+        );
+        assertThat(augmented.candidateCount()).isEqualTo(1);
+        assertThat(augmented.tagCandidateCount()).isEqualTo(1);
+        assertThat(augmented.keywordCandidateCount()).isZero();
+        assertThat(fakeAssociationClient.invocationCount).hasValue(1);
+        assertThat(augmented.relations()).singleElement()
+                .extracting("generationMode")
+                .isEqualTo("tag_match");
+    }
+
+    private void insertConfirmedUserTag(
+            String documentId,
+            String suffix,
+            String tagName
+    ) {
+        String now = java.time.Instant.now().toString();
+        String tagId = "tag-definition-" + tagName;
+        jdbcTemplate.update(
+                "INSERT OR IGNORE INTO tags(id, space_id, name, normalized_key, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, ?)",
+                tagId,
+                SPACE_ID,
+                tagName,
+                tagName,
+                now,
+                now
+        );
+        jdbcTemplate.update(
+                "INSERT INTO document_tags(id, space_id, source_document_id, tag_id, source_type, status, confidence, extraction_run_id, content_hash, prompt_version, schema_version, document_tag_key, created_at, updated_at) VALUES (?, ?, ?, ?, 'user', 'confirmed', NULL, NULL, ?, NULL, NULL, ?, ?, ?)",
+                suffix + "-relation",
+                SPACE_ID,
+                documentId,
+                tagId,
+                "content-" + suffix,
+                suffix + "-key",
+                now,
+                now
+        );
     }
 
     private SourceDocument importDocument(String name, String content) {
