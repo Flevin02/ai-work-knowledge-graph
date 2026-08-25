@@ -2242,25 +2242,35 @@ function AiExtractionTab({
     onClose: () => void;
 }) {
     if (view?.result) {
-        const historyNotice = extractionState?.status === 'error'
-            ? `最近一次提取失败，当前展示上一次成功保存的结果：${extractionState.message}`
-            : extractionState?.status === 'processing'
-                ? '新的 AI 提取仍在服务端处理中，当前先展示上一次成功保存的结果。'
-                : null;
-        return <>
-            {historyNotice && <div className="ai-history-warning">
+        return <div className="ai-extraction-history-result">
+            {extractionState?.status === 'error' && <div className="ai-history-warning">
                 <AlertTriangle size={15}/>
-                <span>{historyNotice}</span>
+                <div>
+                    <strong>本次提取失败，已显示上一次成功结果。</strong>
+                    <details>
+                        <summary>查看原因</summary>
+                        <p>{extractionState.message || '服务端没有保存本次提取的不完整结果。'}</p>
+                    </details>
+                </div>
+                <button className="secondary-button" type="button" onClick={onExtract}>
+                    <Sparkles size={14}/> 重新提取
+                </button>
+            </div>}
+            {extractionState?.status === 'processing' && <div className="ai-history-warning processing">
+                <LoaderCircle className="spin" size={15}/>
+                <div>
+                    <strong>新的 AI 提取仍在处理中，当前显示上一次成功结果。</strong>
+                </div>
             </div>}
             <AiExtractionPreviewPanel
-            extraction={view.result}
-            reviewStatuses={reviewStatuses}
-            reviewSelections={reviewSelections}
-            onReviewRelations={onReviewRelations}
-            onSelectRelation={onSelectRelation}
-            onClose={onClose}
+                extraction={view.result}
+                reviewStatuses={reviewStatuses}
+                reviewSelections={reviewSelections}
+                onReviewRelations={onReviewRelations}
+                onSelectRelation={onSelectRelation}
+                onClose={onClose}
             />
-        </>;
+        </div>;
     }
 
     if (loadError && hasCompletedResult) {
@@ -2310,7 +2320,7 @@ function AiExtractionTab({
 
     return <div className="document-preview-state ai-output-state"><Sparkles size={26}/>
         <h3>尚无 AI 输出</h3>
-        <p>点击下方按钮后，实时分片进度、候选实体、关系、证据和冲突会显示在当前 Tab。</p>
+        <p>点击下方按钮后，实时分片进度、候选关联、证据和冲突会显示在当前 Tab。</p>
         <button className="primary-button" onClick={onExtract}><Sparkles size={14}/> 开始 AI 提取</button>
         <span className="ai-output-boundary">AI 只生成候选事实，关系仍需人工审核。</span>
     </div>;
@@ -2348,10 +2358,6 @@ function AiExtractionProgressPanel({
     };
 
     return <div className="ai-extraction-panel">
-            <div className="ai-extraction-meta">
-                <span>{view.provider && view.model ? `${view.provider} · ${view.model}` : '正在建立 text/event-stream 连接'}</span>
-                <span>{view.promptVersion && view.schemaVersion ? `Prompt ${view.promptVersion} · Schema ${view.schemaVersion}` : '运行标识将在服务端创建后显示'}</span>
-            </div>
             <div className={`ai-stream-status ${isFailed ? 'error' : 'processing'}`}>
                 {isFailed ? <AlertTriangle size={16}/> : <LoaderCircle className="spin" size={16}/>}
                 <div>
@@ -2361,12 +2367,10 @@ function AiExtractionProgressPanel({
             </div>
             <div className="ai-extraction-summary ai-stream-summary">
                 <div>
-                    <strong>{view.chunkCount ? `${view.currentChunkIndex}/${view.chunkCount}` : '—'}</strong><span>当前分片</span>
+                    <strong>{view.chunkCount ? `${view.currentChunkIndex}/${view.chunkCount}` : '—'}</strong><span>分片进度</span>
                 </div>
-                <div><strong>{view.chunks.length}</strong><span>已校验分片</span></div>
-                <div><strong>{entities.length}</strong><span>候选实体</span></div>
-                <div><strong>{relations.length}</strong><span>候选关系</span></div>
-                <div><strong>{view.rawOutput.length}</strong><span>当前分片已接收字符</span></div>
+                <div><strong>{relations.length}</strong><span>候选关联</span></div>
+                <div><strong>{view.chunks.reduce((count, chunk) => count + chunk.extraction.evidences.length, 0)}</strong><span>已校验证据</span></div>
             </div>
             <div
                 ref={streamContentRef}
@@ -2391,17 +2395,21 @@ function AiExtractionProgressPanel({
                     {view.chunks.map((chunk) => <article className="ai-stream-validated-item" key={chunk.chunkId}>
                         <div>
                             <span>{chunk.sectionPath}</span>
-                            <strong>{chunk.extraction.entities.length} 个实体 · {chunk.extraction.relations.length} 条关系
+                            <strong>{chunk.extraction.relations.length} 条候选关联
                                 · {chunk.extraction.evidences.length} 条证据</strong>
                         </div>
                         <p>{chunk.extraction.summary || '该分片没有返回摘要。'}</p>
-                        {chunk.extraction.entities.length > 0 && <div className="ai-stream-entity-names">
-                            {chunk.extraction.entities.map((entity) => <span key={entity.candidateId}>{entity.name}</span>)}
-                        </div>}
                     </article>)}
                 </section>}
                 {view.rawOutput && <details className="ai-stream-technical-output">
-                    <summary>技术详情：查看当前分片的模型原始 JSON（{view.rawOutput.length} 字符）</summary>
+                    <summary>技术详情：运行配置与模型原始 JSON（{view.rawOutput.length} 字符）</summary>
+                    <div className="ai-technical-meta">
+                        <span>{view.provider && view.model ? `${view.provider} · ${view.model}` : '模型信息等待服务端确认'}</span>
+                        <span>{view.promptVersion && view.schemaVersion
+                            ? `Prompt ${view.promptVersion} · Schema ${view.schemaVersion}`
+                            : 'Prompt 与 Schema 信息等待服务端确认'}</span>
+                        <span>{entities.length} 个内部候选实体</span>
+                    </div>
                     <pre>{view.rawOutput}</pre>
                 </details>}
             </div>
@@ -2424,16 +2432,21 @@ function AiExtractionPreviewPanel({
     onClose: () => void;
 }) {
     const entities = extraction.chunks.flatMap((chunk) => chunk.extraction.entities);
-    const relations = extraction.chunks.flatMap((chunk) => chunk.extraction.relations);
     const evidences = extraction.chunks.flatMap((chunk) => chunk.extraction.evidences);
     const conflicts = extraction.chunks.flatMap((chunk) => chunk.extraction.conflicts);
     const entityNames = new Map(entities.map((entity) => [entity.candidateId, entity.name]));
-    const relationEntries = extraction.chunks.flatMap((chunk) => chunk.extraction.relations.map((relation, index) => ({
-        key: `${chunk.chunkId}-relation-${index}`,
-        chunkId: chunk.chunkId,
-        relationIndex: index,
-        relation,
-    })));
+    const relationEntries = extraction.chunks.flatMap((chunk) => {
+        const evidenceById = new Map(chunk.extraction.evidences.map((evidence) => [evidence.evidenceId, evidence]));
+        return chunk.extraction.relations.map((relation, index) => ({
+            key: `${chunk.chunkId}-relation-${index}`,
+            chunkId: chunk.chunkId,
+            relationIndex: index,
+            relation,
+            evidences: relation.evidenceIds
+                .map((evidenceId) => evidenceById.get(evidenceId))
+                .filter((evidence): evidence is NonNullable<typeof evidence> => Boolean(evidence)),
+        }));
+    });
     const reviewedRelations = relationEntries.filter(({key}) => reviewStatuses[getAiRelationReviewKey(extraction.extractionId, key)]);
     const pendingRelationCount = relationEntries.length - reviewedRelations.length;
     const acceptedRelationCount = relationEntries.filter(({key}) => reviewStatuses[getAiRelationReviewKey(extraction.extractionId, key)] === 'accepted').length;
@@ -2467,134 +2480,113 @@ function AiExtractionPreviewPanel({
     };
 
     return <div className="ai-extraction-panel">
-            <div className="ai-extraction-meta">
-                <span>{extraction.provider} · {extraction.model}</span>
-                <span>Prompt {extraction.promptVersion} · Schema {extraction.schemaVersion}</span>
+        <div className={`ai-review-status-bar ${reviewComplete ? 'complete' : ''}`}>
+            <div><ShieldCheck size={16}/><strong>{reviewComplete ? '关联审核已完成' : '请审核候选关联'}</strong></div>
+            <span>待审核 {pendingRelationCount} · 已采纳 {acceptedRelationCount} · 已拒绝 {rejectedRelationCount}</span>
+        </div>
+        {!reviewComplete && <div className="ai-review-bulk-toolbar">
+            <button className={allPendingRelationsSelected ? 'ai-review-select-all selected' : 'ai-review-select-all'}
+                aria-pressed={allPendingRelationsSelected} onClick={toggleAllPendingRelations}>
+                <Check size={14}/> {allPendingRelationsSelected ? '取消全选' : '全选待审核关联'}
+            </button>
+            <span className="ai-review-selected-count">已选择 {selectedRelationKeys.length} 条</span>
+            <div className="ai-review-bulk-actions">
+                <button className="secondary-button" disabled={!selectedRelationKeys.length}
+                    onClick={() => updateSelectedRelations('REJECT')}><X size={14}/> 批量拒绝</button>
+                <button className="primary-button" disabled={!selectedRelationKeys.length}
+                    onClick={() => updateSelectedRelations('ACCEPT')}><Check size={14}/> 批量采纳</button>
             </div>
-            <div className="ai-extraction-summary">
-                <div><strong>{extraction.chunkCount}</strong><span>分片</span></div>
-                <div><strong>{entities.length}</strong><span>候选实体</span></div>
-                <div><strong>{relations.length}</strong><span>候选关系</span></div>
-                <div><strong>{evidences.length}</strong><span>原文证据</span></div>
-                <div><strong>{conflicts.length}</strong><span>冲突</span></div>
-            </div>
-            <div className={`ai-review-status-bar ${reviewComplete ? 'complete' : ''}`}>
-                <div><ShieldCheck size={16}/><strong>{reviewComplete ? '关联审核已完成' : '请审核候选关联'}</strong></div>
-                <span>待审核 {pendingRelationCount} · 已采纳 {acceptedRelationCount} · 已拒绝 {rejectedRelationCount}</span>
-            </div>
-            {!reviewComplete && <div className="ai-review-bulk-toolbar">
-                <button className={allPendingRelationsSelected ? 'ai-review-select-all selected' : 'ai-review-select-all'}
-                    aria-pressed={allPendingRelationsSelected} onClick={toggleAllPendingRelations}>
-                    <Check size={14}/> {allPendingRelationsSelected ? '取消全选' : '全选待审核关联'}
-                </button>
-                <span className="ai-review-selected-count">已选择 {selectedRelationKeys.length} 条</span>
-                <div className="ai-review-bulk-actions">
-                    <button className="secondary-button" disabled={!selectedRelationKeys.length}
-                        onClick={() => updateSelectedRelations('REJECT')}><X size={14}/> 批量拒绝</button>
-                    <button className="primary-button" disabled={!selectedRelationKeys.length}
-                        onClick={() => updateSelectedRelations('ACCEPT')}><Check size={14}/> 批量采纳</button>
-                </div>
+        </div>}
+        <div className="ai-extraction-content ai-review-content">
+            {relationEntries.length
+                ? <div className="ai-review-relation-list">{relationEntries.map((relationEntry) => {
+                    const relationReviewKey = getAiRelationReviewKey(extraction.extractionId, relationEntry.key);
+                    const reviewStatus = reviewStatuses[relationReviewKey];
+                    const isSelected = Boolean(reviewSelections[relationReviewKey]);
+                    return <article
+                        className={`ai-review-relation ${reviewStatus ?? 'pending'} ${isSelected ? 'selected' : ''}`}
+                        key={relationEntry.key}
+                        tabIndex={reviewStatus ? undefined : 0}
+                        aria-label={reviewStatus ? undefined : `${isSelected ? '取消选择' : '选择'}关联：${entityNames.get(relationEntry.relation.sourceEntityId) ?? relationEntry.relation.sourceEntityId} ${formatRelationType(relationEntry.relation.relationType)} ${entityNames.get(relationEntry.relation.targetEntityId) ?? relationEntry.relation.targetEntityId}`}
+                        onClick={(event) => {
+                            if (reviewStatus || (event.target as HTMLElement).closest('button')) return;
+                            onSelectRelation(relationReviewKey, !isSelected);
+                        }}
+                        onKeyDown={(event) => {
+                            if (reviewStatus
+                                || (event.target as HTMLElement).closest('button')
+                                || (event.key !== 'Enter' && event.key !== ' ')) return;
+                            event.preventDefault();
+                            onSelectRelation(relationReviewKey, !isSelected);
+                        }}
+                    >
+                        <div className="ai-review-relation-head">
+                            <div className="ai-review-relation-main">
+                                <div className="ai-review-relation-line">
+                                    <strong>{entityNames.get(relationEntry.relation.sourceEntityId) ?? relationEntry.relation.sourceEntityId}</strong>
+                                    <span>{formatRelationType(relationEntry.relation.relationType)}</span>
+                                    <strong>{entityNames.get(relationEntry.relation.targetEntityId) ?? relationEntry.relation.targetEntityId}</strong>
+                                </div>
+                            </div>
+                            <div className="ai-review-relation-meta">
+                                {isSelected && <span className="ai-review-selected-icon" title="已选择"><Check
+                                    size={14}/></span>}
+                                <em>置信度 {Math.round(relationEntry.relation.confidence * 100)}%</em>
+                            </div>
+                        </div>
+                        {relationEntry.evidences.length > 0
+                            ? <div className="ai-review-evidence">{relationEntry.evidences.map((evidence) => <blockquote
+                                key={evidence.evidenceId}>“{evidence.quote}”<span>{evidence.sectionPath}</span>
+                            </blockquote>)}</div>
+                            : <p className="ai-review-no-evidence">没有可显示的原文证据</p>}
+                        <div className="ai-review-actions">
+                            {reviewStatus
+                                ? <span className={`ai-review-decision ${reviewStatus}`}>
+                                    {reviewStatus === 'accepted' ? '已采纳关联' : '已拒绝关联'}
+                                </span>
+                                : <>
+                                    <button className="secondary-button" onClick={() => void onReviewRelations([{
+                                        relationKey: relationEntry.key,
+                                        chunkId: relationEntry.chunkId,
+                                        relationIndex: relationEntry.relationIndex,
+                                        action: 'REJECT',
+                                    }])}><X size={14}/> 拒绝关联</button>
+                                    <button className="primary-button" onClick={() => void onReviewRelations([{
+                                        relationKey: relationEntry.key,
+                                        chunkId: relationEntry.chunkId,
+                                        relationIndex: relationEntry.relationIndex,
+                                        action: 'ACCEPT',
+                                    }])}><Check size={14}/> 采纳关联</button>
+                                </>}
+                        </div>
+                    </article>;
+                })}</div>
+                : <p className="ai-review-empty">本次没有需要审核的候选关联。</p>}
+            {conflicts.length > 0 && <div className="ai-result-section"><h3>检测到的冲突</h3>
+                <div className="ai-conflict-list">{conflicts.map((conflict, index) => <div
+                    key={`conflict-${index}`}><AlertTriangle size={14}/><span>{conflict.description}</span></div>)}</div>
             </div>}
-            <div className="ai-extraction-content">
-                {extraction.chunks.map((chunk) => <section className="ai-chunk-card" key={chunk.chunkId}>
-                    <div className="ai-chunk-heading"><span>{chunk.sectionPath}</span><em>{chunk.chunkId}</em></div>
-                    <div className="ai-result-section">
-                        <h3>候选实体</h3>
-                        {chunk.extraction.entities.length
-                            ? <div className="ai-entity-list">{chunk.extraction.entities.map((entity) => <div
-                                key={entity.candidateId}><span>{entity.type}</span><strong>{entity.name}</strong>
-                                <p>{entity.summary || '暂无摘要'}</p></div>)}</div>
-                            : <p className="ai-empty-result">当前分片未识别出实体</p>}
-                    </div>
-                    <div className="ai-result-section">
-                        <h3>候选关系</h3>
-                        {chunk.extraction.relations.length
-                            ? <div className="ai-review-relation-list">{chunk.extraction.relations.map((relation, index) => {
-                                const relationKey = `${chunk.chunkId}-relation-${index}`;
-                                const relationReviewKey = getAiRelationReviewKey(extraction.extractionId, relationKey);
-                                const reviewStatus = reviewStatuses[relationReviewKey];
-                                const evidenceById = new Map(chunk.extraction.evidences.map((evidence) => [evidence.evidenceId, evidence]));
-                                const relationEvidence = relation.evidenceIds
-                                    .map((evidenceId) => evidenceById.get(evidenceId))
-                                    .filter((evidence): evidence is NonNullable<typeof evidence> => Boolean(evidence));
-                                const isSelected = Boolean(reviewSelections[relationReviewKey]);
-                                return <article
-                                    className={`ai-review-relation ${reviewStatus ?? 'pending'} ${isSelected ? 'selected' : ''}`}
-                                    key={relationKey}
-                                    tabIndex={reviewStatus ? undefined : 0}
-                                    aria-label={reviewStatus ? undefined : `${isSelected ? '取消选择' : '选择'}关联：${entityNames.get(relation.sourceEntityId) ?? relation.sourceEntityId} ${formatRelationType(relation.relationType)} ${entityNames.get(relation.targetEntityId) ?? relation.targetEntityId}`}
-                                    onClick={(event) => {
-                                        if (reviewStatus || (event.target as HTMLElement).closest('button')) return;
-                                        onSelectRelation(relationReviewKey, !isSelected);
-                                    }}
-                                    onKeyDown={(event) => {
-                                        if (reviewStatus
-                                            || (event.target as HTMLElement).closest('button')
-                                            || (event.key !== 'Enter' && event.key !== ' ')) return;
-                                        event.preventDefault();
-                                        onSelectRelation(relationReviewKey, !isSelected);
-                                    }}
-                                >
-                                    <div className="ai-review-relation-head">
-                                        <div className="ai-review-relation-main">
-                                            <div className="ai-review-relation-line">
-                                            <strong>{entityNames.get(relation.sourceEntityId) ?? relation.sourceEntityId}</strong>
-                                            <span>{formatRelationType(relation.relationType)}</span>
-                                            <strong>{entityNames.get(relation.targetEntityId) ?? relation.targetEntityId}</strong>
-                                            </div>
-                                        </div>
-                                        <div className="ai-review-relation-meta">
-                                            {isSelected && <span className="ai-review-selected-icon" title="已选择"><Check
-                                                size={14}/></span>}
-                                            <em>置信度 {Math.round(relation.confidence * 100)}%</em>
-                                        </div>
-                                    </div>
-                                    {relationEvidence.length > 0
-                                        ? <div className="ai-review-evidence">{relationEvidence.map((evidence) => <blockquote
-                                            key={evidence.evidenceId}>“{evidence.quote}”<span>{evidence.sectionPath}</span>
-                                        </blockquote>)}</div>
-                                        : <p className="ai-review-no-evidence">没有可显示的原文证据</p>}
-                                    <div className="ai-review-actions">
-                                        {reviewStatus
-                                            ? <span className={`ai-review-decision ${reviewStatus}`}>
-                                                {reviewStatus === 'accepted' ? '已采纳关联' : '已拒绝关联'}
-                                            </span>
-                                            : <>
-                                                <button className="secondary-button" onClick={() => void onReviewRelations([{
-                                                    relationKey,
-                                                    chunkId: chunk.chunkId,
-                                                    relationIndex: index,
-                                                    action: 'REJECT',
-                                                }])}><X size={14}/> 拒绝关联</button>
-                                                <button className="primary-button" onClick={() => void onReviewRelations([{
-                                                    relationKey,
-                                                    chunkId: chunk.chunkId,
-                                                    relationIndex: index,
-                                                    action: 'ACCEPT',
-                                                }])}><Check size={14}/> 采纳关联</button>
-                                            </>}
-                                    </div>
-                                </article>;
-                            })}</div>
-                            : <p className="ai-empty-result">当前分片未识别出关系</p>}
-                    </div>
-                    {chunk.extraction.evidences.length > 0 && <div className="ai-result-section"><h3>原文证据</h3>
-                        <div className="ai-evidence-list">{chunk.extraction.evidences.map((evidence) => <blockquote
-                            key={evidence.evidenceId}>“{evidence.quote}”<span>{evidence.sectionPath}</span>
-                        </blockquote>)}</div>
-                    </div>}
-                    {chunk.extraction.conflicts.length > 0 && <div className="ai-result-section"><h3>冲突</h3>
-                        <div className="ai-conflict-list">{chunk.extraction.conflicts.map((conflict, index) => <div
-                            key={`${chunk.chunkId}-conflict-${index}`}><AlertTriangle
-                            size={14}/><span>{conflict.description}</span></div>)}</div>
-                    </div>}
+            <details className="ai-extraction-technical-details">
+                <summary>技术详情</summary>
+                <div className="ai-technical-meta">
+                    <span>{extraction.provider} · {extraction.model}</span>
+                    <span>Prompt {extraction.promptVersion} · Schema {extraction.schemaVersion}</span>
+                    <span>{extraction.chunkCount} 个分片 · {entities.length} 个内部候选实体 · {evidences.length} 条原文证据</span>
+                </div>
+                {extraction.chunks.map((chunk) => chunk.extraction.entities.length > 0 && <section
+                    className="ai-technical-entity-section" key={chunk.chunkId}>
+                    <div><strong>{chunk.sectionPath}</strong><span>{chunk.chunkId}</span></div>
+                    <div className="ai-entity-list">{chunk.extraction.entities.map((entity) => <div
+                        key={entity.candidateId}><span>{entity.type}</span><strong>{entity.name}</strong>
+                        <p>{entity.summary || '暂无摘要'}</p></div>)}</div>
                 </section>)}
-            </div>
-            <footer className="ai-review-footer">
-                <span>{reviewComplete ? '本次候选关联已全部处理。' : `还有 ${pendingRelationCount} 条候选关联待处理。`}</span>
-                <button className="primary-button" disabled={!reviewComplete} onClick={onClose}><Check size={15}/>
-                    {reviewComplete ? '完成审核并关闭' : '完成审核'}</button>
-            </footer>
+            </details>
+        </div>
+        <footer className="ai-review-footer">
+            <span>{reviewComplete ? '本次候选关联已全部处理。' : `还有 ${pendingRelationCount} 条候选关联待处理。`}</span>
+            <button className="primary-button" disabled={!reviewComplete} onClick={onClose}><Check size={15}/>
+                {reviewComplete ? '完成审核并关闭' : '完成审核'}</button>
+        </footer>
     </div>;
 }
 
