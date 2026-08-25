@@ -246,6 +246,90 @@ export type AiExtractionRunDetail = {
   result?: AiDocumentExtraction;
 };
 
+export type DocumentTagStatus = 'suggested' | 'confirmed' | 'rejected' | 'stale';
+export type DocumentTagReviewAction = 'accept' | 'reject';
+
+export type DocumentTagEvidence = {
+  id?: string;
+  sourceDocumentId: string;
+  chunkId: string;
+  sectionPath: string;
+  quote: string;
+  startOffset?: number | null;
+  endOffset?: number | null;
+};
+
+export type DocumentTagReview = {
+  id: string;
+  action: DocumentTagReviewAction;
+  reason?: string | null;
+  operatorName: string;
+  createdAt: string;
+};
+
+export type DocumentTag = {
+  id: string;
+  tagId: string;
+  name: string;
+  normalizedKey: string;
+  sourceType: 'ai' | 'user' | 'rule';
+  status: DocumentTagStatus;
+  confidence?: number | null;
+  extractionRunId?: string | null;
+  evidences: DocumentTagEvidence[];
+  reviews: DocumentTagReview[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DocumentTagSuggestion = {
+  id: string;
+  tagId: string;
+  name: string;
+  status: DocumentTagStatus;
+  confidence?: number | null;
+  evidences: DocumentTagEvidence[];
+  createdAt: string;
+};
+
+export type DocumentTaggingRun = {
+  runId: string;
+  sourceDocumentId: string;
+  status: 'processing' | 'completed' | 'failed';
+  failureStage?: string | null;
+  errorMessage?: string | null;
+  summary?: string | null;
+  chunkCount: number;
+  contextCharacterCount: number;
+  suggestionCount: number;
+  evidenceFailureCount: number;
+  promptVersion: string;
+  schemaVersion: string;
+  suggestions: DocumentTagSuggestion[];
+  createdAt: string;
+  completedAt?: string | null;
+};
+
+export type DocumentTagReviewDecision = {
+  documentTagId: string;
+  action: DocumentTagReviewAction;
+  reason?: string;
+};
+
+export type DocumentTagReviewBatchResponse = {
+  acceptedCount: number;
+  rejectedCount: number;
+  tags: DocumentTag[];
+};
+
+export type KnowledgeTagSummary = {
+  tagId: string;
+  name: string;
+  normalizedKey: string;
+  documentCount: number;
+  updatedAt: string;
+};
+
 export type KnowledgeSpace = {
   id: string;
   name: string;

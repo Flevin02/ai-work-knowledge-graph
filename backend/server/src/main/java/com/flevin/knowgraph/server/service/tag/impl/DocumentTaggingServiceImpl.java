@@ -295,6 +295,30 @@ public class DocumentTaggingServiceImpl implements DocumentTaggingService {
     }
 
     /**
+     * 恢复指定文档最近创建的一次标签运行。
+     *
+     * @param spaceId 知识空间标识
+     * @param sourceDocumentId 当前来源资料标识
+     * @return 最近一次运行状态和建议
+     */
+    @Override
+    public DocumentTaggingRunResponse getLatestRun(
+            String spaceId,
+            String sourceDocumentId
+    ) {
+        // 校验知识空间仍有效，防止跨空间恢复运行
+        knowledgeSpaceRepository.findActiveById(spaceId)
+                .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "知识空间不存在"));
+
+        // 按空间和来源资料读取最近创建的标签运行
+        DocumentTaggingRun run = runRepository.findLatest(spaceId, sourceDocumentId)
+                .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "文档标签运行不存在"));
+
+        // 批量组装最近运行实际新保存的 suggested 标签和证据
+        return toRunResponse(run);
+    }
+
+    /**
      * 创建带固定 Prompt/Schema 版本的 processing 运行。
      *
      * @param sourceDocument 当前来源资料

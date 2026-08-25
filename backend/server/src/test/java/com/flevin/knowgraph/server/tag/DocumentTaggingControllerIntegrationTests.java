@@ -73,6 +73,15 @@ class DocumentTaggingControllerIntegrationTests {
                 "# 会议纪要\n2026 年星桥科技年会筹备正式启动。"
         );
 
+        mockMvc.perform(get(
+                        "/v1/spaces/{spaceId}/documents/{documentId}/tagging-runs/latest",
+                        SPACE_ID,
+                        document.id()
+                ))
+                .andExpect(status().is4xxClientError())
+                .andExpect(jsonPath("$.code").value(404))
+                .andExpect(jsonPath("$.msg").value("文档标签运行不存在"));
+
         String responseJson = mockMvc.perform(post(
                         "/v1/spaces/{spaceId}/documents/{documentId}/tagging-runs",
                         SPACE_ID,
@@ -86,6 +95,15 @@ class DocumentTaggingControllerIntegrationTests {
                 .getResponse()
                 .getContentAsString(StandardCharsets.UTF_8);
         JsonNode run = objectMapper.readTree(responseJson).path("data");
+
+        mockMvc.perform(get(
+                        "/v1/spaces/{spaceId}/documents/{documentId}/tagging-runs/latest",
+                        SPACE_ID,
+                        document.id()
+                ))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.runId").value(run.path("runId").asText()))
+                .andExpect(jsonPath("$.data.status").value("completed"));
 
         mockMvc.perform(get(
                         "/v1/spaces/{spaceId}/documents/{documentId}/tagging-runs/{runId}",
@@ -102,6 +120,9 @@ class DocumentTaggingControllerIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(
                         "$.paths['/v1/spaces/{spaceId}/documents/{documentId}/tagging-runs'].post"
+                ).exists())
+                .andExpect(jsonPath(
+                        "$.paths['/v1/spaces/{spaceId}/documents/{documentId}/tagging-runs/latest'].get"
                 ).exists())
                 .andExpect(jsonPath(
                         "$.paths['/v1/spaces/{spaceId}/documents/{documentId}/tagging-runs/{runId}'].get"

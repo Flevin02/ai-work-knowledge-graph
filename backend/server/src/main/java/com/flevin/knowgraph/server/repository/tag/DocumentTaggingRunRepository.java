@@ -86,4 +86,28 @@ public class DocumentTaggingRunRepository {
         // 将持久化实体转换为领域运行模型
         return Optional.ofNullable(entity).map(entityMapper::toDomain);
     }
+
+    /**
+     * 查询指定来源资料最近创建的一次标签运行。
+     *
+     * @param spaceId 知识空间标识
+     * @param sourceDocumentId 来源资料标识
+     * @return 最近一次运行；从未运行时返回空
+     */
+    public Optional<DocumentTaggingRun> findLatest(
+            String spaceId,
+            String sourceDocumentId
+    ) {
+        // 按创建时间倒序读取一条运行，供桌面 Web 刷新后恢复处理结果
+        DocumentTaggingRunEntity entity = mapper.selectOne(
+                Wrappers.<DocumentTaggingRunEntity>lambdaQuery()
+                        .eq(DocumentTaggingRunEntity::getSpaceId, spaceId)
+                        .eq(DocumentTaggingRunEntity::getSourceDocumentId, sourceDocumentId)
+                        .orderByDesc(DocumentTaggingRunEntity::getCreatedAt)
+                        .last("LIMIT 1")
+        );
+
+        // 将最近运行实体转换为领域模型
+        return Optional.ofNullable(entity).map(entityMapper::toDomain);
+    }
 }

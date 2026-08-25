@@ -49,6 +49,25 @@ public class DocumentTaggingController {
         return ApiResponse.success(response);
     }
 
+    @GetMapping(value = "/tagging-runs/latest", name = "查询最近文档标签运行")
+    @Operation(
+            summary = "查询最近文档标签运行",
+            description = "恢复当前来源资料最近一次标签运行的状态、失败原因、版本和已保存建议。"
+    )
+    public ApiResponse<DocumentTaggingRunResponse> getLatestRun(
+            @Parameter(description = "知识空间标识") @PathVariable String spaceId,
+            @Parameter(description = "当前分析的来源资料标识") @PathVariable String documentId
+    ) {
+        // 按空间和来源资料恢复最近创建的标签运行
+        DocumentTaggingRunResponse response = documentTaggingService.getLatestRun(
+                spaceId,
+                documentId
+        );
+
+        // 使用统一响应返回桌面 Web 刷新恢复所需运行详情
+        return ApiResponse.success(response);
+    }
+
     @GetMapping(value = "/tagging-runs/{runId}", name = "查询文档标签运行")
     @Operation(
             summary = "查询文档标签运行",

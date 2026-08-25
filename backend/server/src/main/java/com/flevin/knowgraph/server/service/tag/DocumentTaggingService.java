@@ -20,6 +20,18 @@ public interface DocumentTaggingService {
     );
 
     /**
+     * 恢复指定文档最近创建的一次标签运行。
+     *
+     * @param spaceId 知识空间标识
+     * @param sourceDocumentId 当前来源资料标识
+     * @return 最近一次运行状态和建议
+     */
+    DocumentTaggingRunResponse getLatestRun(
+            String spaceId,
+            String sourceDocumentId
+    );
+
+    /**
      * 恢复指定文档的一次标签运行及其新保存建议。
      *
      * @param spaceId 知识空间标识

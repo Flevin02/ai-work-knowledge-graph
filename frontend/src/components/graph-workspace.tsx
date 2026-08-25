@@ -1,6 +1,6 @@
 'use client';
 
-import {useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
     AlertTriangle,
     Archive,
@@ -18,6 +18,7 @@ import {
     Search,
     ShieldCheck,
     Sparkles,
+    Tags,
     Trash2,
     Upload,
     X,
@@ -40,16 +41,27 @@ import {
 import {getGraph} from '@/lib/api/graph';
 import {createKnowledgeSpace, deleteKnowledgeSpace, listKnowledgeSpaces} from '@/lib/api/spaces';
 import {
+    createDocumentTaggingRun,
+    getLatestDocumentTaggingRun,
+    listConfirmedKnowledgeTags,
+    listDocumentTags,
+    reviewDocumentTags,
+} from '@/lib/api/tags';
+import {
     nodeTypeColors,
     nodeTypeLabels,
     type EdgeStatus,
     type AiChunkExtraction,
     type AiDocumentExtraction,
     type AiRelationReviewAction,
+    type DocumentTag,
+    type DocumentTagReviewAction,
+    type DocumentTaggingRun,
     type GraphData,
     type GraphEdge,
     type GraphNode,
     type KnowledgeSpace,
+    type KnowledgeTagSummary,
     type SourceDocument,
     type SourceDocumentContent,
     type SourceDocumentKind,
@@ -116,6 +128,12 @@ const relationTypeLabels: Record<string, string> = {
     department_responsible_for_project: '部门负责项目',
     decision_affects_requirement: '决策影响需求',
 };
+const documentTagStatusLabels: Record<DocumentTag['status'], string> = {
+    suggested: '待审核',
+    confirmed: '已确认',
+    rejected: '已拒绝',
+    stale: '需重新评估',
+};
 
 function formatStatus(status: EdgeStatus) {
     return {suggested: '待审核', confirmed: '已采纳', rejected: '已拒绝', stale: '已失效'}[status];
@@ -127,6 +145,10 @@ function formatRelationType(relationType: string) {
 
 function getAiRelationReviewKey(extractionId: string, relationKey: string) {
     return `${extractionId}:${relationKey}`;
+}
+
+function formatDocumentTagStatus(status: DocumentTag['status']) {
+    return documentTagStatusLabels[status];
 }
 
 function issueCount(graph: GraphData) {
@@ -196,6 +218,10 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     const [documentLoadMoreError, setDocumentLoadMoreError] = useState<string | null>(null);
     const [documentRefreshKey, setDocumentRefreshKey] = useState(0);
     const [graphRefreshKey, setGraphRefreshKey] = useState(0);
+    const [confirmedTags, setConfirmedTags] = useState<KnowledgeTagSummary[]>([]);
+    const [isLoadingConfirmedTags, setIsLoadingConfirmedTags] = useState(false);
+    const [confirmedTagLoadError, setConfirmedTagLoadError] = useState<string | null>(null);
+    const [tagRefreshKey, setTagRefreshKey] = useState(0);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const preservedDocumentNoticeSpaceIdRef = useRef<string | null>(null);
     const suppressDocumentSearchNoticeRef = useRef(false);
@@ -214,6 +240,37 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
         // 切换知识空间时不再跟踪上一空间中已受理但尚未开始的批量抽取任务
         queuedBatchExtractionDocumentIdsRef.current = {};
     }, [currentSpaceId]);
+
+    useEffect(() => {
+        if (!currentSpaceId) {
+            setConfirmedTags([]);
+            setConfirmedTagLoadError(null);
+            setIsLoadingConfirmedTags(false);
+            return;
+        }
+        let cancelled = false;
+        setIsLoadingConfirmedTags(true);
+        setConfirmedTagLoadError(null);
+
+        const loadConfirmedTags = async () => {
+            try {
+                const loadedTags = await listConfirmedKnowledgeTags(currentSpaceId);
+                if (cancelled) return;
+                setConfirmedTags(loadedTags);
+            } catch (error) {
+                if (cancelled) return;
+                setConfirmedTags([]);
+                setConfirmedTagLoadError(error instanceof Error ? error.message : '标签导航加载失败');
+            } finally {
+                if (!cancelled) setIsLoadingConfirmedTags(false);
+            }
+        };
+
+        void loadConfirmedTags();
+        return () => {
+            cancelled = true;
+        };
+    }, [currentSpaceId, tagRefreshKey]);
 
     useEffect(() => {
         // 等待用户停止输入后再提交搜索条件，避免每个字符都请求列表接口
@@ -1122,10 +1179,27 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
 
                     <section className="sidebar-section">
                         <div className="section-heading">标签</div>
-                        <div className="tag-navigation-empty">
-                            <Inbox size={15}/>
-                            <span>完成 AI 分析并确认标签后，这里会显示文档标签。</span>
-                        </div>
+                        {isLoadingConfirmedTags
+                            ? <div className="tag-navigation-empty"><LoaderCircle className="spin" size={15}/>
+                                <span>正在读取已确认标签…</span></div>
+                            : confirmedTagLoadError
+                                ? <div className="tag-navigation-error"><AlertTriangle size={15}/>
+                                    <span>标签加载失败：{confirmedTagLoadError}</span>
+                                    <button type="button" onClick={() => setTagRefreshKey((current) => current + 1)}>重试</button>
+                                </div>
+                                : confirmedTags.length
+                                    ? <div className="tag-navigation-list">{confirmedTags.map((tag) => <div
+                                        className="tag-navigation-row"
+                                        key={tag.tagId}
+                                        title={`${tag.name} · ${tag.documentCount} 份有效来源资料`}
+                                    >
+                                        <span><Tags size={13}/>{tag.name}</span>
+                                        <strong>{tag.documentCount}</strong>
+                                    </div>)}</div>
+                                    : <div className="tag-navigation-empty">
+                                        <Inbox size={15}/>
+                                        <span>完成 AI 分析并确认标签后，这里会显示文档标签。</span>
+                                    </div>}
                     </section>
 
                     <div className="sidebar-footer"><CircleHelp size={15}/> 关联建议必须有证据，并经过人工审核</div>
@@ -1241,6 +1315,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 onExtract={() => void extractDocument(documentPreview.document)}
                 onReviewRelations={reviewAiRelations}
                 onSelectRelation={updateAiRelationReviewSelection}
+                onTagsChanged={() => setTagRefreshKey((current) => current + 1)}
                 onClose={() => {
                     const closingDocumentId = documentPreview.document.id;
                     setDocumentPreview(null);
@@ -1639,6 +1714,7 @@ function DocumentPreviewModal({
                                   onExtract,
                                   onReviewRelations,
                                   onSelectRelation,
+                                  onTagsChanged,
                                   onClose,
                               }: {
     document: SourceDocument;
@@ -1658,6 +1734,7 @@ function DocumentPreviewModal({
         decisions: AiRelationReviewDecision[]
     ) => Promise<void>;
     onSelectRelation: (selectionKey: string, selected: boolean) => void;
+    onTagsChanged: () => void;
     onClose: () => void;
 }) {
     const [content, setContent] = useState<SourceDocumentContent | null>(null);
@@ -1786,7 +1863,9 @@ function DocumentPreviewModal({
                 >SHA-256 · {(content?.contentHash ?? document.contentHash).slice(0, 16)}…</span>}
             </div>
             {previewMode === 'ai'
-                ? <AiExtractionTab
+                ? <AiOverviewTab
+                    document={document}
+                    spaceId={spaceId}
                     extractionState={extractionState}
                     view={extractionView}
                     loadError={extractionLoadError}
@@ -1802,6 +1881,7 @@ function DocumentPreviewModal({
                         decisions
                     )}
                     onSelectRelation={onSelectRelation}
+                    onTagsChanged={onTagsChanged}
                     onClose={onClose}
                 />
                 : isLoading
@@ -1817,6 +1897,320 @@ function DocumentPreviewModal({
                                 remarkPlugins={[remarkGfm]}>{content.contentText}</ReactMarkdown></article>
                             : <pre className="document-preview-content">{content.contentText}</pre>)}
         </section>
+    </div>;
+}
+
+function AiOverviewTab({
+                           document,
+                           spaceId,
+                           extractionState,
+                           view,
+                           loadError,
+                           isLoading,
+                           hasCompletedResult,
+                           reviewStatuses,
+                           reviewSelections,
+                           onLoad,
+                           onExtract,
+                           onReviewRelations,
+                           onSelectRelation,
+                           onTagsChanged,
+                           onClose,
+                       }: {
+    document: SourceDocument;
+    spaceId: string;
+    extractionState?: DocumentExtractionState;
+    view: AiExtractionViewState | null;
+    loadError?: string;
+    isLoading: boolean;
+    hasCompletedResult: boolean;
+    reviewStatuses: Record<string, AiRelationReviewStatus>;
+    reviewSelections: AiRelationReviewSelection;
+    onLoad: () => void;
+    onExtract: () => void;
+    onReviewRelations: (decisions: AiRelationReviewDecision[]) => Promise<void>;
+    onSelectRelation: (selectionKey: string, selected: boolean) => void;
+    onTagsChanged: () => void;
+    onClose: () => void;
+}) {
+    const [section, setSection] = useState<'tags' | 'entities'>('tags');
+
+    useEffect(() => {
+        if (view?.status === 'connecting' || view?.status === 'processing') {
+            setSection('entities');
+        }
+    }, [view?.status]);
+
+    return <div className="ai-overview-panel">
+        <div className="ai-overview-navigation" role="tablist" aria-label="AI 输出分类">
+            <button
+                className={section === 'tags' ? 'active' : ''}
+                type="button"
+                role="tab"
+                aria-selected={section === 'tags'}
+                onClick={() => setSection('tags')}
+            ><Tags size={14}/> 文档标签</button>
+            <button
+                className={section === 'entities' ? 'active' : ''}
+                type="button"
+                role="tab"
+                aria-selected={section === 'entities'}
+                onClick={() => setSection('entities')}
+            ><GitBranch size={14}/> 实体与关系（兼容）</button>
+        </div>
+        <div className="ai-overview-content">
+            {section === 'tags'
+                ? <DocumentTagPanel
+                    document={document}
+                    spaceId={spaceId}
+                    onTagsChanged={onTagsChanged}
+                />
+                : <AiExtractionTab
+                    extractionState={extractionState}
+                    view={view}
+                    loadError={loadError}
+                    isLoading={isLoading}
+                    hasCompletedResult={hasCompletedResult}
+                    reviewStatuses={reviewStatuses}
+                    reviewSelections={reviewSelections}
+                    onLoad={onLoad}
+                    onExtract={onExtract}
+                    onReviewRelations={onReviewRelations}
+                    onSelectRelation={onSelectRelation}
+                    onClose={onClose}
+                />}
+        </div>
+    </div>;
+}
+
+function DocumentTagPanel({
+                              document,
+                              spaceId,
+                              onTagsChanged,
+                          }: {
+    document: SourceDocument;
+    spaceId: string;
+    onTagsChanged: () => void;
+}) {
+    const [tags, setTags] = useState<DocumentTag[]>([]);
+    const [latestRun, setLatestRun] = useState<DocumentTaggingRun | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isTagging, setIsTagging] = useState(false);
+    const [isReviewing, setIsReviewing] = useState(false);
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const [actionError, setActionError] = useState<string | null>(null);
+    const [selectedTagIds, setSelectedTagIds] = useState<Record<string, boolean>>({});
+
+    const loadTagOverview = useCallback(async (showLoading: boolean) => {
+        if (showLoading) setIsLoading(true);
+        setLoadError(null);
+        try {
+            const [loadedTags, loadedRun] = await Promise.all([
+                listDocumentTags(spaceId, document.id),
+                getLatestDocumentTaggingRun(spaceId, document.id),
+            ]);
+            setTags(loadedTags);
+            setLatestRun(loadedRun);
+            setSelectedTagIds((current) => loadedTags
+                .filter((tag) => tag.status === 'suggested' && current[tag.id])
+                .reduce((next, tag) => ({...next, [tag.id]: true}), {}));
+        } catch (error) {
+            setLoadError(error instanceof Error ? error.message : '文档标签加载失败');
+        } finally {
+            if (showLoading) setIsLoading(false);
+        }
+    }, [document.id, spaceId]);
+
+    useEffect(() => {
+        void loadTagOverview(true);
+    }, [loadTagOverview]);
+
+    useEffect(() => {
+        if (latestRun?.status !== 'processing' || isTagging) return;
+        const pollingTimer = window.setInterval(() => {
+            void loadTagOverview(false);
+        }, 2000);
+        return () => window.clearInterval(pollingTimer);
+    }, [isTagging, latestRun?.status, loadTagOverview]);
+
+    const startTagging = async () => {
+        setIsTagging(true);
+        setActionError(null);
+        try {
+            const run = await createDocumentTaggingRun(spaceId, document.id);
+            setLatestRun(run);
+            const loadedTags = await listDocumentTags(spaceId, document.id);
+            setTags(loadedTags);
+            setSelectedTagIds({});
+            onTagsChanged();
+        } catch (error) {
+            setActionError(`标签生成请求失败：${error instanceof Error ? error.message : '未知错误'}`);
+            await loadTagOverview(false);
+        } finally {
+            setIsTagging(false);
+        }
+    };
+
+    const submitReviews = async (
+        documentTagIds: string[],
+        action: DocumentTagReviewAction
+    ) => {
+        if (!documentTagIds.length || isReviewing) return;
+        setIsReviewing(true);
+        setActionError(null);
+        try {
+            await reviewDocumentTags(
+                spaceId,
+                document.id,
+                documentTagIds.map((documentTagId) => ({documentTagId, action}))
+            );
+            const loadedTags = await listDocumentTags(spaceId, document.id);
+            setTags(loadedTags);
+            setSelectedTagIds({});
+            onTagsChanged();
+        } catch (error) {
+            setActionError(`标签审核未保存：${error instanceof Error ? error.message : '未知错误'}`);
+            try {
+                const restoredTags = await listDocumentTags(spaceId, document.id);
+                setTags(restoredTags);
+                setSelectedTagIds({});
+                // 同步刷新左侧 confirmed 标签统计，避免并发审核后的面板和导航状态不一致
+                onTagsChanged();
+            } catch (refreshError) {
+                setLoadError(`标签状态刷新失败：${refreshError instanceof Error ? refreshError.message : '未知错误'}`);
+            }
+        } finally {
+            setIsReviewing(false);
+        }
+    };
+
+    const pendingTags = tags.filter((tag) => tag.status === 'suggested');
+    const selectedPendingTagIds = pendingTags
+        .map((tag) => tag.id)
+        .filter((tagId) => selectedTagIds[tagId]);
+    const allPendingTagsSelected = pendingTags.length > 0
+        && selectedPendingTagIds.length === pendingTags.length;
+    const confirmedCount = tags.filter((tag) => tag.status === 'confirmed').length;
+    const rejectedCount = tags.filter((tag) => tag.status === 'rejected').length;
+    const staleCount = tags.filter((tag) => tag.status === 'stale').length;
+    const runIsProcessing = isTagging || latestRun?.status === 'processing';
+
+    const toggleAllPendingTags = () => {
+        setSelectedTagIds((current) => pendingTags.reduce((next, tag) => ({
+            ...next,
+            [tag.id]: !allPendingTagsSelected,
+        }), {...current}));
+    };
+
+    return <div className="document-tag-panel">
+        <header className="document-tag-header">
+            <div><span>可选增强</span><h3>文档标签</h3>
+                <p>标签必须引用当前原文；只有已确认标签进入左侧导航。</p></div>
+            <button className="primary-button" type="button" disabled={runIsProcessing}
+                onClick={() => void startTagging()}>
+                {runIsProcessing ? <LoaderCircle className="spin" size={14}/> : <Sparkles size={14}/>}
+                {runIsProcessing ? '正在生成标签' : latestRun ? '重新生成标签' : '生成候选标签'}
+            </button>
+        </header>
+
+        {loadError && <div className="document-tag-message error"><AlertTriangle size={15}/>
+            <span>标签概览加载失败：{loadError}</span>
+            <button type="button" onClick={() => void loadTagOverview(true)}>重试</button>
+        </div>}
+        {actionError && <div className="document-tag-message error"><AlertTriangle size={15}/>
+            <span>{actionError}</span>
+        </div>}
+        {runIsProcessing && <div className="document-tag-run processing"><LoaderCircle className="spin" size={16}/>
+            <div><strong>标签 Pipeline 正在处理</strong>
+                <span>服务端正在解析、分片、生成候选并校验证据；刷新后会从最近运行恢复。</span></div>
+        </div>}
+        {!runIsProcessing && latestRun?.status === 'failed' && <div className="document-tag-run failed"><AlertTriangle size={16}/>
+            <div><strong>最近一次标签运行失败</strong>
+                <span>{latestRun.errorMessage || '服务端没有保存不完整的标签候选。'}{latestRun.failureStage
+                    ? ` · 阶段 ${latestRun.failureStage}`
+                    : ''}</span></div>
+        </div>}
+        {!runIsProcessing && latestRun?.status === 'completed' && <div className="document-tag-run completed"><Check size={16}/>
+            <div><strong>最近一次标签运行已完成</strong>
+                <span>{latestRun.summary || '模型未返回可展示摘要。'} · 新增 {latestRun.suggestionCount} 个候选</span></div>
+        </div>}
+
+        <div className="document-tag-summary">
+            <div><strong>{pendingTags.length}</strong><span>待审核</span></div>
+            <div><strong>{confirmedCount}</strong><span>已确认</span></div>
+            <div><strong>{rejectedCount}</strong><span>已拒绝</span></div>
+            <div><strong>{staleCount}</strong><span>需重评</span></div>
+        </div>
+
+        {pendingTags.length > 0 && <div className="document-tag-bulk-toolbar">
+            <button className={allPendingTagsSelected ? 'selected' : ''} type="button"
+                aria-pressed={allPendingTagsSelected} onClick={toggleAllPendingTags}>
+                <Check size={14}/> {allPendingTagsSelected ? '取消全选' : '全选待审核标签'}
+            </button>
+            <span>已选择 {selectedPendingTagIds.length} 个</span>
+            <div>
+                <button className="secondary-button" type="button" disabled={!selectedPendingTagIds.length || isReviewing}
+                    onClick={() => void submitReviews(selectedPendingTagIds, 'reject')}><X size={14}/> 批量拒绝</button>
+                <button className="primary-button" type="button" disabled={!selectedPendingTagIds.length || isReviewing}
+                    onClick={() => void submitReviews(selectedPendingTagIds, 'accept')}><Check size={14}/> 批量采纳</button>
+            </div>
+        </div>}
+
+        <div className="document-tag-content">
+            {isLoading
+                ? <div className="document-tag-empty"><LoaderCircle className="spin" size={22}/><span>正在恢复标签和审核状态…</span></div>
+                : tags.length
+                    ? <div className="document-tag-list">{tags.map((tag) => {
+                        const selectable = tag.status === 'suggested';
+                        const selected = Boolean(selectedTagIds[tag.id]);
+                        const latestReview = tag.reviews[tag.reviews.length - 1];
+                        return <article
+                            className={`document-tag-card ${tag.status} ${selected ? 'selected' : ''}`}
+                            key={tag.id}
+                            tabIndex={selectable ? 0 : undefined}
+                            aria-label={selectable ? `${selected ? '取消选择' : '选择'}标签：${tag.name}` : undefined}
+                            onClick={(event) => {
+                                if (!selectable || (event.target as HTMLElement).closest('button')) return;
+                                setSelectedTagIds((current) => ({...current, [tag.id]: !selected}));
+                            }}
+                            onKeyDown={(event) => {
+                                if (!selectable
+                                    || (event.target as HTMLElement).closest('button')
+                                    || (event.key !== 'Enter' && event.key !== ' ')) return;
+                                event.preventDefault();
+                                setSelectedTagIds((current) => ({...current, [tag.id]: !selected}));
+                            }}
+                        >
+                            <div className="document-tag-card-heading">
+                                <div><Tags size={15}/><strong>{tag.name}</strong></div>
+                                <div>{selected && <span className="document-tag-selected"><Check size={12}/></span>}
+                                    {tag.confidence != null && <em>置信度 {Math.round(tag.confidence * 100)}%</em>}
+                                    <span className={`document-tag-status ${tag.status}`}>{formatDocumentTagStatus(tag.status)}</span>
+                                </div>
+                            </div>
+                            {tag.evidences.length
+                                ? <div className="document-tag-evidence">{tag.evidences.map((evidence) => <blockquote
+                                    key={evidence.id ?? `${evidence.chunkId}:${evidence.startOffset ?? evidence.quote}`}>
+                                    “{evidence.quote}”<span>{evidence.sectionPath}</span>
+                                </blockquote>)}</div>
+                                : <p className="ai-review-no-evidence">没有可显示的原文证据</p>}
+                            <div className="document-tag-card-footer">
+                                {selectable
+                                    ? <div className="document-tag-actions">
+                                        <button className="secondary-button" type="button" disabled={isReviewing}
+                                            onClick={() => void submitReviews([tag.id], 'reject')}><X size={13}/> 拒绝</button>
+                                        <button className="primary-button" type="button" disabled={isReviewing}
+                                            onClick={() => void submitReviews([tag.id], 'accept')}><Check size={13}/> 采纳</button>
+                                    </div>
+                                    : <span>{latestReview
+                                        ? `${latestReview.operatorName} · ${latestReview.action === 'accept' ? '已采纳' : '已拒绝'}`
+                                        : tag.sourceType === 'user' ? '用户手工确认' : '当前没有审核历史'}</span>}
+                            </div>
+                        </article>;
+                    })}</div>
+                    : <div className="document-tag-empty"><Tags size={24}/><strong>尚未生成标签</strong>
+                        <span>标签为空不会阻塞默认文档内容关联；需要时再生成并审核。</span></div>}
+        </div>
     </div>;
 }
 
