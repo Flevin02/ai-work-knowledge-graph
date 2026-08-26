@@ -1,7 +1,8 @@
 import GraphWorkspace from '@/components/graph-workspace';
 import type { GraphData } from '@/lib/types';
 
-type HomePageProps = {
+type DocumentDetailPageProps = {
+  params: Promise<{spaceId: string; documentId: string}>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
@@ -15,17 +16,19 @@ function firstValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-export default async function HomePage({searchParams}: HomePageProps) {
+export default async function DocumentDetailPage({params, searchParams}: DocumentDetailPageProps) {
+  const route = await params;
   const query = await searchParams;
-  const graphMode = firstValue(query.graphMode) === 'document' ? 'document' : 'entity';
 
   return <GraphWorkspace
     initialGraph={emptyGraph}
     initialState={{
-      spaceId: firstValue(query.spaceId),
-      graphMode,
-      selectedNodeId: firstValue(query.selectedNodeId),
+      spaceId: route.spaceId,
+      graphMode: 'document',
+      selectedNodeId: route.documentId,
       graphSearch: firstValue(query.graphSearch),
+      documentId: route.documentId,
+      evidenceId: firstValue(query.evidenceId),
     }}
   />;
 }

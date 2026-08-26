@@ -1,6 +1,7 @@
 'use client';
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useRouter} from 'next/navigation';
 import {
     AlertTriangle,
     Archive,
@@ -73,8 +74,19 @@ import {
     type SourceDocumentKind,
 } from '@/lib/types';
 
-type GraphWorkspaceProps = { initialGraph: GraphData };
 type GraphMode = 'entity' | 'document';
+export type GraphWorkspaceInitialState = {
+    spaceId?: string;
+    graphMode?: GraphMode;
+    selectedNodeId?: string;
+    graphSearch?: string;
+    documentId?: string;
+    evidenceId?: string;
+};
+type GraphWorkspaceProps = {
+    initialGraph: GraphData;
+    initialState?: GraphWorkspaceInitialState;
+};
 type View = 'graph' | 'documents' | 'health';
 type NoticeTone = 'success' | 'warning' | 'error' | 'loading';
 type DocumentPreviewTab = 'rendered' | 'source' | 'ai';
@@ -189,15 +201,20 @@ function toExtractionState(document: SourceDocument): DocumentExtractionState | 
     };
 }
 
-export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
+export default function GraphWorkspace({initialGraph, initialState}: GraphWorkspaceProps) {
+    const router = useRouter();
     const [graph, setGraph] = useState(initialGraph);
     const [documentGraph, setDocumentGraph] = useState<DocumentGraphData>({nodes: [], edges: []});
-    const [graphMode, setGraphMode] = useState<GraphMode>('entity');
+    const [loadedDocumentGraphSpaceId, setLoadedDocumentGraphSpaceId] = useState<string | null>(null);
+    const [graphMode, setGraphMode] = useState<GraphMode>(initialState?.graphMode ?? 'entity');
     const [view, setView] = useState<View>('graph');
-    const [selectedNodeId, setSelectedNodeId] = useState<string | null>(initialGraph.nodes[0]?.id ?? null);
-    const [search, setSearch] = useState('');
+    const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
+        initialState?.selectedNodeId ?? initialGraph.nodes[0]?.id ?? null
+    );
+    const [search, setSearch] = useState(initialState?.graphSearch ?? '');
     const [notice, setNotice] = useState('正在连接后端知识空间和图谱服务。');
     const [noticeTone, setNoticeTone] = useState<NoticeTone>('loading');
+    const [routeRecoveryError, setRouteRecoveryError] = useState<string | null>(null);
     const [spaces, setSpaces] = useState<KnowledgeSpace[]>([]);
     const [currentSpaceId, setCurrentSpaceId] = useState<string | null>(null);
     const [persistedDocuments, setPersistedDocuments] = useState<SourceDocument[]>([]);
@@ -238,6 +255,8 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     const documentSearchPendingRef = useRef(false);
     const documentLoadMorePendingRef = useRef(false);
     const queuedBatchExtractionDocumentIdsRef = useRef<Record<string, boolean>>({});
+    const graphModeRef = useRef(graphMode);
+    graphModeRef.current = graphMode;
 
     useEffect(() => {
         // 切换知识空间或筛选条件后清空不可见卡片选择，批量操作只作用于当前列表
@@ -315,9 +334,15 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                     setNoticeTone('warning');
                     return;
                 }
+                const requestedSpace = initialState?.spaceId
+                    ? loadedSpaces.find((space) => space.id === initialState.spaceId)
+                    : undefined;
+                if (initialState?.spaceId && !requestedSpace) {
+                    setRouteRecoveryError('详情链接所属的知识空间不存在或已被移除，已返回当前可用空间。');
+                }
                 setCurrentSpaceId((current) => current && loadedSpaces.some((space) => space.id === current)
                     ? current
-                    : loadedSpaces[0]?.id ?? null);
+                    : requestedSpace?.id ?? loadedSpaces[0]?.id ?? null);
             } catch (error) {
                 if (cancelled) return;
                 setNotice(`后端知识空间服务未连接，当前暂不可用：${error instanceof Error ? error.message : '未知错误'}`);
@@ -517,9 +542,11 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 const loadedGraph = await getGraph(currentSpaceId);
                 if (cancelled) return;
                 setGraph((current) => ({...loadedGraph, documents: current.documents}));
-                setSelectedNodeId((current) => loadedGraph.nodes.some((node) => node.id === current)
-                    ? current
-                    : loadedGraph.nodes[0]?.id ?? null);
+                if (graphModeRef.current === 'entity') {
+                    setSelectedNodeId((current) => loadedGraph.nodes.some((node) => node.id === current)
+                        ? current
+                        : loadedGraph.nodes[0]?.id ?? null);
+                }
             } catch (error) {
                 if (cancelled) return;
                 setNotice(`图谱加载失败，当前暂无法展示图谱：${error instanceof Error ? error.message : '未知错误'}`);
@@ -536,15 +563,24 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
     useEffect(() => {
         if (!currentSpaceId) {
             setDocumentGraph({nodes: [], edges: []});
+            setLoadedDocumentGraphSpaceId(null);
             return;
         }
         let cancelled = false;
+        setLoadedDocumentGraphSpaceId(null);
 
         const loadDocumentGraph = async () => {
             try {
                 // 查询独立文档关系图，节点来自 source_documents，边来自 confirmed document_relations
                 const loadedDocumentGraph = await getDocumentGraph(currentSpaceId);
-                if (!cancelled) setDocumentGraph(loadedDocumentGraph);
+                if (cancelled) return;
+                setDocumentGraph(loadedDocumentGraph);
+                setLoadedDocumentGraphSpaceId(currentSpaceId);
+                if (graphModeRef.current === 'document') {
+                    setSelectedNodeId((current) => loadedDocumentGraph.nodes.some((node) => node.id === current)
+                        ? current
+                        : loadedDocumentGraph.nodes[0]?.id ?? null);
+                }
             } catch (error) {
                 if (cancelled) return;
                 setDocumentGraph({nodes: [], edges: []});
@@ -601,7 +637,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
         : null;
     const selectedEdges = graph.edges.filter((edge) => edge.source === selectedNodeId || edge.target === selectedNodeId);
 
-    const openDocumentGraphDocument = (documentId: string, evidence?: DocumentGraphEvidence) => {
+    const showDocumentGraphDocument = useCallback((documentId: string, evidence?: DocumentGraphEvidence) => {
         const node = documentGraph.nodes.find((item) => item.id === documentId);
         if (!node) return;
         setDocumentPreview({
@@ -619,7 +655,77 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
             initialTab: evidence ? 'source' : 'rendered',
             evidence,
         });
-    };
+    }, [documentGraph.nodes]);
+
+    const openDocumentGraphDocument = useCallback((documentId: string, evidence?: DocumentGraphEvidence) => {
+        if (!currentSpaceId) return;
+        const query = new URLSearchParams();
+        if (search.trim()) query.set('graphSearch', search.trim());
+        if (evidence) query.set('evidenceId', evidence.id);
+        const suffix = query.size ? `?${query.toString()}` : '';
+
+        // 将文档详情写入可复制和可刷新的 URL，路由页继续复用当前工作台与详情弹窗
+        router.push(`/spaces/${encodeURIComponent(currentSpaceId)}/documents/${encodeURIComponent(documentId)}${suffix}`);
+    }, [currentSpaceId, router, search]);
+
+    useEffect(() => {
+        if (
+            !initialState?.documentId
+            || !currentSpaceId
+            || currentSpaceId !== initialState.spaceId
+            || loadedDocumentGraphSpaceId !== currentSpaceId
+        ) {
+            return;
+        }
+        const targetNode = documentGraph.nodes.find((node) => node.id === initialState.documentId);
+        if (!targetNode) {
+            setDocumentPreview(null);
+            setRouteRecoveryError('详情链接指向的来源资料不存在、已失效或不属于当前知识空间。');
+            return;
+        }
+        const targetEvidence = initialState.evidenceId
+            ? documentGraph.edges
+                .flatMap((edge) => edge.evidences)
+                .find((evidence) => evidence.id === initialState.evidenceId
+                    && evidence.sourceDocumentId === initialState.documentId)
+            : undefined;
+        setRouteRecoveryError(null);
+        setView('graph');
+        setGraphMode('document');
+        setSelectedNodeId(initialState.documentId);
+
+        // 从详情路由恢复来源资料弹窗，并在证据仍有效时继续定位原文
+        showDocumentGraphDocument(initialState.documentId, targetEvidence);
+    }, [
+        currentSpaceId,
+        documentGraph.edges,
+        documentGraph.nodes,
+        initialState,
+        loadedDocumentGraphSpaceId,
+        showDocumentGraphDocument,
+    ]);
+
+    const closeDocumentPreview = useCallback(() => {
+        if (initialState?.documentId && currentSpaceId) {
+            const query = new URLSearchParams({
+                spaceId: currentSpaceId,
+                graphMode: 'document',
+                selectedNodeId: initialState.documentId,
+            });
+            if (search.trim()) query.set('graphSearch', search.trim());
+
+            // 关闭可恢复详情时返回文档关系图，并保留当前空间、搜索词和选中节点
+            router.replace(`/?${query.toString()}`);
+            return;
+        }
+        const closingDocumentId = documentPreview?.document.id;
+        setDocumentPreview(null);
+        setExtractionView((current) => current && current.documentId === closingDocumentId
+            && current.status !== 'connecting'
+            && current.status !== 'processing'
+            ? null
+            : current);
+    }, [currentSpaceId, documentPreview?.document.id, initialState?.documentId, router, search]);
 
     const visibleNodes = useMemo(() => {
         const keyword = search.trim().toLowerCase();
@@ -1317,6 +1423,11 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                         <button onClick={() => setNotice('')} aria-label="关闭提示"><X size={15}/></button>
                     </div>}
 
+                    {routeRecoveryError && <div className="notice error" role="alert">
+                        <AlertTriangle size={16}/> {routeRecoveryError}
+                        <button onClick={() => setRouteRecoveryError(null)} aria-label="关闭详情链接错误提示"><X size={15}/></button>
+                    </div>}
+
                     {!currentSpaceId ? <div className="state-card workspace-empty-state">
                         <Archive size={30}/>
                         <h3>尚未创建知识空间</h3>
@@ -1435,15 +1546,7 @@ export default function GraphWorkspace({initialGraph}: GraphWorkspaceProps) {
                 onReviewRelations={reviewAiRelations}
                 onSelectRelation={updateAiRelationReviewSelection}
                 onTagsChanged={() => setTagRefreshKey((current) => current + 1)}
-                onClose={() => {
-                    const closingDocumentId = documentPreview.document.id;
-                    setDocumentPreview(null);
-                    setExtractionView((current) => current?.documentId === closingDocumentId
-                        && current.status !== 'connecting'
-                        && current.status !== 'processing'
-                        ? null
-                        : current);
-                }}
+                onClose={closeDocumentPreview}
             />}
             {isSpaceFormOpen && <KnowledgeSpaceFormModal
                 name={newSpaceName}
