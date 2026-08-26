@@ -29,6 +29,8 @@ export default async function DocumentDetailPage({params, searchParams}: Documen
       graphSearch: firstValue(query.graphSearch),
       documentId: route.documentId,
       evidenceId: firstValue(query.evidenceId),
+      documentType: firstValue(query.documentType),
+      documentRelationType: firstValue(query.documentRelationType),
     }}
   />;
 }

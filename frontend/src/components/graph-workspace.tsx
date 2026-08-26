@@ -10,6 +10,7 @@ import {
     CircleHelp,
     Eye,
     FileText,
+    FilterX,
     FolderPlus,
     GitBranch,
     Inbox,
@@ -80,6 +81,8 @@ export type GraphWorkspaceInitialState = {
     graphMode?: GraphMode;
     selectedNodeId?: string;
     graphSearch?: string;
+    documentType?: string;
+    documentRelationType?: string;
     documentId?: string;
     evidenceId?: string;
 };
@@ -138,6 +141,17 @@ const documentKindLabels: Record<SourceDocumentKind, string> = {
     txt: 'TXT',
     docx: 'DOCX',
     pdf: 'PDF',
+};
+const documentTypeLabels: Record<string, string> = {
+    general: '通用资料',
+    prd: 'PRD',
+};
+const documentRelationTypeLabels: Record<string, string> = {
+    related_to: '相关',
+    references: '引用',
+    supports: '支持',
+    updates: '更新',
+    conflicts_with: '冲突',
 };
 const relationTypeLabels: Record<string, string> = {
     project_contains_feature: '项目包含功能',
@@ -212,6 +226,10 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
         initialState?.selectedNodeId ?? initialGraph.nodes[0]?.id ?? null
     );
     const [search, setSearch] = useState(initialState?.graphSearch ?? '');
+    const [documentTypeFilter, setDocumentTypeFilter] = useState(initialState?.documentType ?? '');
+    const [documentRelationTypeFilter, setDocumentRelationTypeFilter] = useState(
+        initialState?.documentRelationType ?? ''
+    );
     const [notice, setNotice] = useState('正在连接后端知识空间和图谱服务。');
     const [noticeTone, setNoticeTone] = useState<NoticeTone>('loading');
     const [routeRecoveryError, setRouteRecoveryError] = useState<string | null>(null);
@@ -597,8 +615,48 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
 
     const currentSpace = spaces.find((space) => space.id === currentSpaceId) ?? null;
 
+    const documentTypeOptions = useMemo(() => Array.from(new Set(
+        documentGraph.nodes.map((node) => node.documentType)
+    )).sort(), [documentGraph.nodes]);
+    const documentRelationTypeOptions = useMemo(() => Array.from(new Set(
+        documentGraph.edges.map((edge) => edge.relationType)
+    )).sort(), [documentGraph.edges]);
+    const formatDocumentGraphEdgeType = useCallback(
+        (relationType: string) => documentRelationTypeLabels[relationType] ?? relationType,
+        []
+    );
+    const hasDocumentGraphFilters = Boolean(documentTypeFilter || documentRelationTypeFilter);
+    const filteredDocumentGraph = useMemo<DocumentGraphData>(() => {
+        if (!hasDocumentGraphFilters) return documentGraph;
+
+        const documentTypeMatchedNodes = documentGraph.nodes.filter((node) => !documentTypeFilter
+            || node.documentType === documentTypeFilter);
+        const documentTypeMatchedNodeIds = new Set(documentTypeMatchedNodes.map((node) => node.id));
+        const filteredEdges = documentGraph.edges.filter((edge) => (
+            (!documentRelationTypeFilter || edge.relationType === documentRelationTypeFilter)
+            && documentTypeMatchedNodeIds.has(edge.sourceDocumentId)
+            && documentTypeMatchedNodeIds.has(edge.targetDocumentId)
+        ));
+        const connectedNodeIds = new Set(filteredEdges.flatMap((edge) => [
+            edge.sourceDocumentId,
+            edge.targetDocumentId,
+        ]));
+
+        return {
+            nodes: documentTypeMatchedNodes.filter((node) => connectedNodeIds.has(node.id)),
+            edges: filteredEdges,
+        };
+    }, [documentGraph, documentRelationTypeFilter, documentTypeFilter, hasDocumentGraphFilters]);
+
+    useEffect(() => {
+        if (graphMode !== 'document') return;
+        setSelectedNodeId((current) => filteredDocumentGraph.nodes.some((node) => node.id === current)
+            ? current
+            : filteredDocumentGraph.nodes[0]?.id ?? null);
+    }, [filteredDocumentGraph.nodes, graphMode]);
+
     const documentGraphAsGraphData: GraphData = useMemo(() => ({
-        nodes: documentGraph.nodes.map((node) => ({
+        nodes: filteredDocumentGraph.nodes.map((node) => ({
             id: node.id,
             type: 'document',
             label: node.name,
@@ -608,7 +666,7 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
             createdAt: node.updatedAt,
             updatedAt: node.updatedAt,
         })),
-        edges: documentGraph.edges.map((edge) => ({
+        edges: filteredDocumentGraph.edges.map((edge) => ({
             id: edge.id,
             source: edge.sourceDocumentId,
             target: edge.targetDocumentId,
@@ -619,7 +677,7 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
             createdAt: edge.updatedAt,
             updatedAt: edge.updatedAt,
         })),
-        documents: documentGraph.nodes.map((node) => ({
+        documents: filteredDocumentGraph.nodes.map((node) => ({
             id: node.id,
             name: node.name,
             kind: node.kind,
@@ -630,7 +688,7 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
             importedAt: node.updatedAt,
             updatedAt: node.updatedAt,
         })),
-    }), [documentGraph]);
+    }), [filteredDocumentGraph]);
     const activeGraph = graphMode === 'document' ? documentGraphAsGraphData : graph;
     const selectedNode = graphMode === 'entity'
         ? graph.nodes.find((node) => node.id === selectedNodeId) ?? null
@@ -661,12 +719,14 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
         if (!currentSpaceId) return;
         const query = new URLSearchParams();
         if (search.trim()) query.set('graphSearch', search.trim());
+        if (documentTypeFilter) query.set('documentType', documentTypeFilter);
+        if (documentRelationTypeFilter) query.set('documentRelationType', documentRelationTypeFilter);
         if (evidence) query.set('evidenceId', evidence.id);
         const suffix = query.size ? `?${query.toString()}` : '';
 
         // 将文档详情写入可复制和可刷新的 URL，路由页继续复用当前工作台与详情弹窗
         router.push(`/spaces/${encodeURIComponent(currentSpaceId)}/documents/${encodeURIComponent(documentId)}${suffix}`);
-    }, [currentSpaceId, router, search]);
+    }, [currentSpaceId, documentRelationTypeFilter, documentTypeFilter, router, search]);
 
     useEffect(() => {
         if (
@@ -713,6 +773,8 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
                 selectedNodeId: initialState.documentId,
             });
             if (search.trim()) query.set('graphSearch', search.trim());
+            if (documentTypeFilter) query.set('documentType', documentTypeFilter);
+            if (documentRelationTypeFilter) query.set('documentRelationType', documentRelationTypeFilter);
 
             // 关闭可恢复详情时返回文档关系图，并保留当前空间、搜索词和选中节点
             router.replace(`/?${query.toString()}`);
@@ -725,7 +787,15 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
             && current.status !== 'processing'
             ? null
             : current);
-    }, [currentSpaceId, documentPreview?.document.id, initialState?.documentId, router, search]);
+    }, [
+        currentSpaceId,
+        documentPreview?.document.id,
+        documentRelationTypeFilter,
+        documentTypeFilter,
+        initialState?.documentId,
+        router,
+        search,
+    ]);
 
     const visibleNodes = useMemo(() => {
         const keyword = search.trim().toLowerCase();
@@ -1449,6 +1519,29 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
                                         setSelectedNodeId(documentGraph.nodes[0]?.id ?? null);
                                     }}>文档关系图</button>
                             </div>
+                            {graphMode === 'document' && <div className="document-graph-filters" aria-label="文档关系图筛选">
+                                <label className="document-graph-filter">文档类型
+                                    <select value={documentTypeFilter}
+                                        onChange={(event) => setDocumentTypeFilter(event.target.value)}>
+                                        <option value="">全部</option>
+                                        {documentTypeOptions.map((documentType) => <option key={documentType}
+                                            value={documentType}>{documentTypeLabels[documentType] ?? documentType}</option>)}
+                                    </select>
+                                </label>
+                                <label className="document-graph-filter">关系类型
+                                    <select value={documentRelationTypeFilter}
+                                        onChange={(event) => setDocumentRelationTypeFilter(event.target.value)}>
+                                        <option value="">全部</option>
+                                        {documentRelationTypeOptions.map((relationType) => <option key={relationType}
+                                            value={relationType}>{documentRelationTypeLabels[relationType] ?? relationType}</option>)}
+                                    </select>
+                                </label>
+                                {hasDocumentGraphFilters && <button className="document-graph-filter-reset" type="button"
+                                    onClick={() => {
+                                        setDocumentTypeFilter('');
+                                        setDocumentRelationTypeFilter('');
+                                    }} aria-label="清除文档关系图筛选" title="清除筛选"><FilterX size={15}/></button>}
+                            </div>}
                             <div className="search-box"><Search size={17}/><input value={search}
                                 onChange={(event) => setSearch(event.target.value)}
                                 placeholder={graphMode === 'document' ? '搜索来源文档' : '搜索项目、任务、人员或资料'}/></div>
@@ -1457,11 +1550,19 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
                                 : '实线：已采纳　虚线：待审核　红框：需关注'}</span>
                         </div>
                         <div className="graph-card">{graphMode === 'document' && !visibleNodes.length
-                            ? <div className="graph-empty-state"><FileText size={28}/><strong>当前还没有可展示的文档关系图</strong>
-                                <span>需要先导入来源文档，并在文档关联审核后确认关系；待审核关系不会出现在默认图中。</span></div>
+                            ? <div className="graph-empty-state"><FileText size={28}/><strong>{hasDocumentGraphFilters
+                                ? '没有符合当前筛选条件的文档关系'
+                                : '当前还没有可展示的文档关系图'}</strong>
+                                <span>{hasDocumentGraphFilters
+                                    ? '请调整文档类型、关系类型或搜索词；筛选结果只保留仍由确认关系连接的文档。'
+                                    : '需要先导入来源文档，并在文档关联审核后确认关系；待审核关系不会出现在默认图中。'}</span></div>
                             : <GraphCanvas nodes={visibleNodes} edges={visibleEdges}
                                 selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId}
-                                ariaLabel={graphMode === 'document' ? '独立文档关系图' : '工作知识关系图谱'}/>}
+                                ariaLabel={graphMode === 'document' ? '独立文档关系图' : '工作知识关系图谱'}
+                                formatEdgeType={graphMode === 'document'
+                                    ? formatDocumentGraphEdgeType
+                                    : formatRelationType}/>
+                            }
                             <div className="graph-footnote">当前视图 {visibleNodes.length} 个节点
                                 / {visibleEdges.length} 条关系 · 点击节点查看证据
                             </div>
@@ -1520,7 +1621,7 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
                         ? <DocumentSidebar documents={persistedDocuments} space={currentSpace}/>
                         : graphMode === 'document'
                             ? <DocumentGraphSidebar
-                                graph={documentGraph}
+                                graph={filteredDocumentGraph}
                                 selectedNodeId={selectedNodeId}
                                 onOpenDocument={(documentId) => openDocumentGraphDocument(documentId)}
                                 onOpenEvidence={(documentId, evidence) => openDocumentGraphDocument(documentId, evidence)}/>

@@ -26,6 +26,8 @@ export default async function HomePage({searchParams}: HomePageProps) {
       graphMode,
       selectedNodeId: firstValue(query.selectedNodeId),
       graphSearch: firstValue(query.graphSearch),
+      documentType: firstValue(query.documentType),
+      documentRelationType: firstValue(query.documentRelationType),
     }}
   />;
 }
