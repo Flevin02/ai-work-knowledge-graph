@@ -51,7 +51,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * AI 抽取入口集成测试，使用 Fake/Mock 客户端验证编排边界，不调用真实模型。
  */
 @SpringBootTest(properties = {
-        "app.database-path=target/test-data/ai-extraction.sqlite",
         "app.upload-dir=target/test-data/ai-extraction-uploads",
         "spring.datasource.hikari.maximum-pool-size=1",
         "spring.datasource.hikari.minimum-idle=1",
@@ -64,7 +63,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class AiExtractionIntegrationTests {
 
-    private static final String SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
+    private static final Long SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
 
     @Autowired
     private DocumentService documentService;
@@ -83,7 +82,7 @@ class AiExtractionIntegrationTests {
 
     @BeforeEach
     void clearPreviousExtractionData() {
-        // 先清理引用来源资料的抽取、证据、关系和节点，满足 SQLite 外键约束
+        // 先清理引用来源资料的抽取、证据、关系和节点，满足 MySQL 外键约束
         jdbcTemplate.update("DELETE FROM ai_extraction_runs");
         jdbcTemplate.update("DELETE FROM review_actions");
         jdbcTemplate.update("DELETE FROM evidences");
@@ -111,7 +110,7 @@ class AiExtractionIntegrationTests {
                 "prd",
                 List.of(documentFile)
         );
-        String documentId = importResponse.results().getFirst().document().id();
+        Long documentId = importResponse.results().getFirst().document().id();
 
         // 使用固定结构化结果替代真实模型，验证服务端编排和证据校验
         when(aiExtractionClient.extract(
@@ -147,7 +146,9 @@ class AiExtractionIntegrationTests {
 
         // 解析终止事件，验证完整结果仍在服务端校验和持久化后返回
         JsonNode completedEvent = readStreamEvent(extractionStream, "completed");
-        String extractionId = completedEvent.path("extractionRunId").asText();
+        assertThat(completedEvent.path("extractionRunId").isTextual()).isTrue();
+        assertThat(completedEvent.path("documentId").isTextual()).isTrue();
+        Long extractionId = completedEvent.path("extractionRunId").asLong();
         assertThat(completedEvent.path("result").path("documentType").asText()).isEqualTo("prd");
         assertThat(completedEvent.path("result").path("sectionCount").asInt()).isEqualTo(2);
         assertThat(completedEvent.path("result").path("chunkCount").asInt()).isEqualTo(2);
@@ -181,7 +182,7 @@ class AiExtractionIntegrationTests {
                 "SELECT source_ids_json FROM graph_nodes WHERE space_id = ?",
                 String.class,
                 SPACE_ID
-        )).allMatch(sourceIds -> sourceIds.equals("[\"" + documentId + "\"]"));
+        )).allMatch(sourceIds -> sourceIds.equals("[" + documentId + "]"));
 
         // 抽取完成后候选节点、关系和证据已经进入真实图谱，但关系仍待人工审核
         mockMvc.perform(get("/v1/spaces/{spaceId}/graph/summary", SPACE_ID))
@@ -247,7 +248,9 @@ class AiExtractionIntegrationTests {
                 .andExpect(jsonPath("$.data.items[0].excerpt").value("用户中心的登录功能支持手机号验证码。"))
                 .andExpect(jsonPath("$.data.items[0].latestCompletedExtractionId").value(extractionId));
 
-        String failedExtractionId = "failed-after-completed";
+        Long failedExtractionId = com.flevin.knowgraph.server.support.TestIdFixtures.id(
+                "failed-after-completed"
+        );
 
         // 写入一条更新的失败运行，验证最近状态和可查看历史成功结果彼此独立
         jdbcTemplate.update(
@@ -324,9 +327,11 @@ class AiExtractionIntegrationTests {
                 "prd",
                 List.of(documentFile)
         );
-        String documentId = importResponse.results().getFirst().document().id();
+        Long documentId = importResponse.results().getFirst().document().id();
 
-        String historicalExtractionId = "historical-summary-success";
+        Long historicalExtractionId = com.flevin.knowgraph.server.support.TestIdFixtures.id(
+                "historical-summary-success"
+        );
         Instant historicalCreatedAt = Instant.now().minusSeconds(60);
         jdbcTemplate.update(
                 """
@@ -371,7 +376,7 @@ class AiExtractionIntegrationTests {
                 .doesNotContain("event:error");
 
         JsonNode completedEvent = readStreamEvent(extractionStream, "completed");
-        String extractionId = completedEvent.path("extractionRunId").asText();
+        Long extractionId = completedEvent.path("extractionRunId").asLong();
         assertThat(completedEvent.path("result").path("summary").asText()).isEmpty();
         assertThat(completedEvent.path("result").path("chunks").size()).isEqualTo(2);
         assertThat(jdbcTemplate.queryForObject(
@@ -413,7 +418,7 @@ class AiExtractionIntegrationTests {
                 "general",
                 List.of(documentFile)
         );
-        String documentId = importResponse.results().getFirst().document().id();
+        Long documentId = importResponse.results().getFirst().document().id();
 
         when(aiExtractionClient.extract(
                 any(AiExtractionRequest.class),
@@ -447,8 +452,8 @@ class AiExtractionIntegrationTests {
                 "general",
                 List.of(documentFile)
         );
-        String documentId = importResponse.results().getFirst().document().id();
-        String extractionId = "legacy-completed-without-summary";
+        Long documentId = importResponse.results().getFirst().document().id();
+        Long extractionId = com.flevin.knowgraph.server.support.TestIdFixtures.id("legacy-completed-without-summary");
 
         // 模拟升级前已完成但尚未保存 document_summary 的历史抽取运行
         jdbcTemplate.update(
@@ -496,7 +501,7 @@ class AiExtractionIntegrationTests {
                 "general",
                 List.of(extractionFile)
         );
-        String documentId = importResponse.results().getFirst().document().id();
+        Long documentId = importResponse.results().getFirst().document().id();
         CountDownLatch modelCallStarted = new CountDownLatch(1);
         CountDownLatch releaseModelCall = new CountDownLatch(1);
 
@@ -585,7 +590,7 @@ class AiExtractionIntegrationTests {
                 "prd",
                 List.of(firstFile, secondFile)
         );
-        List<String> documentIds = importResponse.results().stream()
+        List<Long> documentIds = importResponse.results().stream()
                 .map(result -> result.document().id())
                 .toList();
         CountDownLatch modelCallsStarted = new CountDownLatch(2);
@@ -607,11 +612,15 @@ class AiExtractionIntegrationTests {
             // 一次请求受理两份资料，前端无需为批量提取维持多条 SSE 连接
             mockMvc.perform(post("/v1/spaces/{spaceId}/documents/extraction-batches", SPACE_ID)
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(java.util.Map.of("documentIds", documentIds))))
+                            .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                    "documentIds",
+                                    documentIds.stream().map(String::valueOf).toList()
+                            ))))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.error").value(false))
                     .andExpect(jsonPath("$.data.requestedCount").value(2))
                     .andExpect(jsonPath("$.data.acceptedCount").value(2))
+                    .andExpect(jsonPath("$.data.documentIds[0]").isString())
                     .andExpect(jsonPath("$.data.documentIds.length()").value(2))
                     .andExpect(jsonPath("$.data.rejectedDocumentIds.length()").value(0));
 
@@ -646,7 +655,7 @@ class AiExtractionIntegrationTests {
                 "prd",
                 List.of(documentFile)
         );
-        String documentId = importResponse.results().getFirst().document().id();
+        Long documentId = importResponse.results().getFirst().document().id();
 
         // Fake 模型先返回真实部分文本，再模拟完整结构校验失败
         when(aiExtractionClient.extract(
@@ -667,7 +676,7 @@ class AiExtractionIntegrationTests {
                 .isLessThan(extractionStream.indexOf("event:error"));
 
         JsonNode errorEvent = readStreamEvent(extractionStream, "error");
-        String extractionId = errorEvent.path("extractionRunId").asText();
+        Long extractionId = errorEvent.path("extractionRunId").asLong();
         assertThat(errorEvent.path("recoverable").asBoolean()).isTrue();
         assertThat(errorEvent.path("message").asText()).isEqualTo("AI 返回的结构化结果未通过业务或证据校验");
 
@@ -707,7 +716,7 @@ class AiExtractionIntegrationTests {
                 "prd",
                 List.of(documentFile)
         );
-        String documentId = importResponse.results().getFirst().document().id();
+        Long documentId = importResponse.results().getFirst().document().id();
 
         // 模拟 LangChain4j 对供应商五百错误归类出的可重试异常
         when(aiExtractionClient.extract(
@@ -718,7 +727,7 @@ class AiExtractionIntegrationTests {
         // 消费完整 SSE 响应，确认前端收到可定位且不泄露供应商正文的失败原因
         String extractionStream = performStreamingExtraction(documentId);
         JsonNode errorEvent = readStreamEvent(extractionStream, "error");
-        String extractionId = errorEvent.path("extractionRunId").asText();
+        Long extractionId = errorEvent.path("extractionRunId").asLong();
         assertThat(errorEvent.path("recoverable").asBoolean()).isTrue();
         assertThat(errorEvent.path("message").asText()).isEqualTo("AI 上游服务暂时不可用，请稍后重试");
         assertThat(extractionStream).doesNotContain("Upstream service temporarily unavailable");
@@ -765,7 +774,7 @@ class AiExtractionIntegrationTests {
                 return;
             }
 
-            // 短暂等待后台线程完成模型返回后的 SQLite 写入收口
+            // 短暂等待后台线程完成模型返回后的 MySQL 写入收口
             Thread.sleep(50);
         }
 
@@ -776,7 +785,7 @@ class AiExtractionIntegrationTests {
         assertThat(completedCount).isGreaterThanOrEqualTo(expectedCompletedCount);
     }
 
-    private String performStreamingExtraction(String documentId) throws Exception {
+    private String performStreamingExtraction(Long documentId) throws Exception {
         // 发起 SSE 请求并确认 Spring MVC 已切换到异步响应
         MvcResult streamStarted = mockMvc.perform(post(
                         "/v1/spaces/{spaceId}/documents/{documentId}/extractions",

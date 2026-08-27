@@ -31,7 +31,7 @@ public interface KnowledgeSpaceService {
      *
      * @param spaceId 待删除知识空间标识
      */
-    void deleteSpace(String spaceId);
+    void deleteSpace(Long spaceId);
 
     /**
      * 获取有效知识空间，不存在或已删除时返回业务提示。
@@ -39,5 +39,5 @@ public interface KnowledgeSpaceService {
      * @param spaceId 知识空间标识
      * @return 有效知识空间模型
      */
-    KnowledgeSpace requireActive(String spaceId);
+    KnowledgeSpace requireActive(Long spaceId);
 }

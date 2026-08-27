@@ -30,8 +30,8 @@ public interface DocumentCandidateRecallService {
      * @return 无 Embedding 候选召回结果；没有命中时返回空候选列表
      */
     DocumentCandidateRecall recall(
-            String spaceId,
-            String sourceDocumentId
+            Long spaceId,
+            Long sourceDocumentId
     );
 
     /**
@@ -43,8 +43,8 @@ public interface DocumentCandidateRecallService {
      * @return 无 Embedding 候选召回结果；没有命中时返回空候选列表
      */
     DocumentCandidateRecall recall(
-            String spaceId,
-            String sourceDocumentId,
+            Long spaceId,
+            Long sourceDocumentId,
             int topK
     );
 
@@ -58,8 +58,8 @@ public interface DocumentCandidateRecallService {
      * @return 无 Embedding 候选召回结果
      */
     DocumentCandidateRecall recall(
-            String spaceId,
-            String sourceDocumentId,
+            Long spaceId,
+            Long sourceDocumentId,
             int topK,
             boolean includeConfirmedTags
     );

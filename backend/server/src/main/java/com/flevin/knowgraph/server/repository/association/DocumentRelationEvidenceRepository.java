@@ -38,8 +38,8 @@ public class DocumentRelationEvidenceRepository {
      * @return 按创建时间和标识稳定排序的证据列表
      */
     public List<DocumentRelationEvidence> findAllByRelation(
-            String spaceId,
-            String relationId
+            Long spaceId,
+            Long relationId
     ) {
         // 按空间和关系边界查询，避免跨空间读取证据
         return mapper.selectList(
@@ -61,8 +61,8 @@ public class DocumentRelationEvidenceRepository {
      * @return 按关系、创建时间和证据标识稳定排序的证据列表
      */
     public List<DocumentRelationEvidence> findAllByRelations(
-            String spaceId,
-            List<String> relationIds
+            Long spaceId,
+            List<Long> relationIds
     ) {
         if (relationIds.isEmpty()) {
             return List.of();

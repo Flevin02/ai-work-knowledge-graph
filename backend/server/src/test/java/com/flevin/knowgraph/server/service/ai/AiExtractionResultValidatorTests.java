@@ -149,7 +149,7 @@ class AiExtractionResultValidatorTests {
     @Test
     void rejectsBlankRequestBeforeRemoteModelCanBeCalled() {
         AiExtractionRequest invalidRequest = new AiExtractionRequest(
-                "document-1",
+                1L,
                 "用户中心 PRD.md",
                 "prd",
                 "section-1-chunk-1",
@@ -279,7 +279,7 @@ class AiExtractionResultValidatorTests {
 
     private AiExtractionRequest request() {
         return new AiExtractionRequest(
-                "document-1",
+                1L,
                 "用户中心 PRD.md",
                 "prd",
                 "section-1-chunk-1",
@@ -292,7 +292,7 @@ class AiExtractionResultValidatorTests {
         String entitySummary = "用户中心包含登录功能，登录功能支持手机号验证码登录。".repeat(4);
         AiEvidenceCandidate evidence = new AiEvidenceCandidate(
                 "evidence-1",
-                "document-1",
+                1L,
                 "section-1-chunk-1",
                 "用户中心 > 登录功能",
                 quote

@@ -2,7 +2,7 @@
 
 - 基础资料集：document-association-eval-v1
 - 标签阈值补充资料：document-association-tag-threshold-eval-v2
-- 运行方式：Java 21 + SQLite + 冻结 expectedTags/补充标签作为 confirmed user 标签
+- 运行方式：Java 21 + MySQL + 冻结 expectedTags/补充标签作为 confirmed user 标签
 - 候选策略：关闭标签使用 document-candidate-recall-v1；开启标签使用 document-candidate-recall-v3
 - 单变量策略：内容通道未命中且共同 confirmed 标签数量至少为 2 个时才补充候选，并排在内容候选之后
 - 对照：includeConfirmedTags=false/true，TopK 固定为 8

@@ -43,7 +43,7 @@ class OpenAiCompatibleAiExtractionClientTests {
                   "evidences": [
                     {
                       "evidenceId": "evidence-1",
-                      "sourceDocumentId": "document-1",
+                      "sourceDocumentId": 1,
                       "chunkId": "chunk-1",
                       "sectionPath": "用户中心 / 登录功能",
                       "quote": "登录功能支持手机号验证码。"
@@ -87,7 +87,7 @@ class OpenAiCompatibleAiExtractionClientTests {
                     false
             );
             AiExtractionRequest request = new AiExtractionRequest(
-                    "document-1",
+                    1L,
                     "登录功能.md",
                     "prd",
                     "chunk-1",
@@ -136,7 +136,7 @@ class OpenAiCompatibleAiExtractionClientTests {
 
             // 只把分片摘要按原文顺序交给全文汇总客户端
             String summary = client.summarize(new AiDocumentSummaryRequest(
-                    "document-1",
+                    1L,
                     "用户中心.md",
                     "prd",
                     List.of(

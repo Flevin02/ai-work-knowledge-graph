@@ -16,10 +16,10 @@ import lombok.NoArgsConstructor;
 public class GraphNodeEntity {
 
     @TableId(value = "id", type = IdType.INPUT)
-    private String id;
+    private Long id;
 
     @TableField("space_id")
-    private String spaceId;
+    private Long spaceId;
 
     @TableField("node_type")
     private String nodeType;

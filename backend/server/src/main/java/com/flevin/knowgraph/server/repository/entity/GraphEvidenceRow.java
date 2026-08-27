@@ -10,10 +10,10 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class GraphEvidenceRow {
 
-    private String id;
-    private String spaceId;
-    private String edgeId;
-    private String sourceDocumentId;
+    private Long id;
+    private Long spaceId;
+    private Long edgeId;
+    private Long sourceDocumentId;
     private String sourceDocumentName;
     private String quote;
     private String locator;

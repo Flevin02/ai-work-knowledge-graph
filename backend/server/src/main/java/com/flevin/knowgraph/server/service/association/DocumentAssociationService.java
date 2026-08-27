@@ -20,8 +20,8 @@ public interface DocumentAssociationService {
      * @return 运行状态和通过服务端校验的新建议
      */
     DocumentAssociationRunResponse createRun(
-            String spaceId,
-            String sourceDocumentId
+            Long spaceId,
+            Long sourceDocumentId
     );
 
     /**
@@ -33,8 +33,8 @@ public interface DocumentAssociationService {
      * @return 运行状态和通过服务端校验的新建议
      */
     DocumentAssociationRunResponse createRun(
-            String spaceId,
-            String sourceDocumentId,
+            Long spaceId,
+            Long sourceDocumentId,
             boolean includeConfirmedTags
     );
 
@@ -47,9 +47,9 @@ public interface DocumentAssociationService {
      * @return 运行状态和新保存的建议
      */
     DocumentAssociationRunResponse getRun(
-            String spaceId,
-            String sourceDocumentId,
-            String runId
+            Long spaceId,
+            Long sourceDocumentId,
+            Long runId
     );
 
     /**
@@ -60,8 +60,8 @@ public interface DocumentAssociationService {
      * @return 文档关系及已校验证据
      */
     List<DocumentRelationResponse> listRelations(
-            String spaceId,
-            String documentId
+            Long spaceId,
+            Long documentId
     );
 
     /**
@@ -73,8 +73,8 @@ public interface DocumentAssociationService {
      * @return 审核统计和最新关系状态
      */
     DocumentRelationReviewBatchResponse reviewRelations(
-            String spaceId,
-            String documentId,
+            Long spaceId,
+            Long documentId,
             DocumentRelationReviewBatchRequest request
     );
 }

@@ -16,16 +16,16 @@ import lombok.NoArgsConstructor;
 public class DocumentRelationEvidenceEntity {
 
     @TableId(value = "id", type = IdType.INPUT)
-    private String id;
+    private Long id;
 
     @TableField("space_id")
-    private String spaceId;
+    private Long spaceId;
 
     @TableField("document_relation_id")
-    private String documentRelationId;
+    private Long documentRelationId;
 
     @TableField("source_document_id")
-    private String sourceDocumentId;
+    private Long sourceDocumentId;
 
     @TableField("chunk_id")
     private String chunkId;

@@ -29,7 +29,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 文档关联运行、关系查询和审核 REST 契约集成测试。
  */
 @SpringBootTest(properties = {
-        "app.database-path=target/test-data/document-association-controller.sqlite",
         "app.upload-dir=target/test-data/document-association-controller-uploads",
         "test.document-association-client=service"
 })
@@ -37,7 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(DocumentAssociationServiceIntegrationTests.FakeAssociationConfiguration.class)
 class DocumentAssociationControllerIntegrationTests {
 
-    private static final String SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
+    private static final Long SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
 
     @Autowired
     private MockMvc mockMvc;
@@ -89,7 +88,7 @@ class DocumentAssociationControllerIntegrationTests {
                 .getResponse()
                 .getContentAsString(StandardCharsets.UTF_8);
         JsonNode run = objectMapper.readTree(runJson).path("data");
-        String relationId = run.path("relations").get(0).path("id").asText();
+        Long relationId = run.path("relations").get(0).path("id").asLong();
 
         mockMvc.perform(get(
                         "/v1/spaces/{spaceId}/documents/{documentId}/relations",
@@ -105,8 +104,8 @@ class DocumentAssociationControllerIntegrationTests {
                         SPACE_ID,
                         source.id()
                 ).contentType("application/json")
-                .content("{\"reviews\":[{\"relationId\":\"" + relationId
-                        + "\",\"action\":\"accept\",\"reason\":\"HTTP审核通过\"}]}") )
+                .content("{\"reviews\":[{\"relationId\":" + relationId
+                        + ",\"action\":\"accept\",\"reason\":\"HTTP审核通过\"}]}") )
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.acceptedCount").value(1))
                 .andExpect(jsonPath("$.data.relations[0].status").value("confirmed"));

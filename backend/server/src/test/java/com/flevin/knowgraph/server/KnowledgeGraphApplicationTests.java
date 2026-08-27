@@ -12,7 +12,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
-        "app.database-path=target/test-data/application.sqlite",
         "app.upload-dir=target/test-data/application-uploads"
 })
 @AutoConfigureMockMvc

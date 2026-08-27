@@ -15,6 +15,7 @@ import com.flevin.knowgraph.server.service.association.DocumentAssociationPersis
 import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
 import com.flevin.knowgraph.server.support.TestKnowledgeSpaceFixtures;
+import com.flevin.knowgraph.server.support.TestIdFixtures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,12 +38,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * 文档关联阶段 1 持久化基础集成测试。
  */
 @SpringBootTest(properties = {
-        "app.database-path=target/test-data/document-association.sqlite",
         "app.upload-dir=target/test-data/document-association-uploads"
 })
 class DocumentAssociationPersistenceIntegrationTests {
 
-    private static final String DEFAULT_SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
+    private static final Long DEFAULT_SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
     private static final Instant TEST_TIME = Instant.parse("2026-08-24T01:00:00Z");
     private static final String POLICY_VERSION = "document-association-policy-v1";
 
@@ -87,9 +87,9 @@ class DocumentAssociationPersistenceIntegrationTests {
 
     @Test
     void createsAssociationTablesAndPersistsRunRelationEvidenceAndReviewHistory() {
-        // 查询当前 SQLite 中的文档关联表，确认数据库初始化已经承接阶段 1 领域
+        // 查询当前 MySQL 中的文档关联表，确认数据库初始化已经承接阶段 1 领域
         Set<String> tableNames = Set.copyOf(jdbcTemplate.queryForList(
-                "SELECT name FROM sqlite_master WHERE type = 'table'",
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()",
                 String.class
         ));
         assertThat(tableNames).contains(
@@ -125,7 +125,7 @@ class DocumentAssociationPersistenceIntegrationTests {
                 POLICY_VERSION
         );
         DocumentRelation relation = new DocumentRelation(
-                "relation-reference-1",
+                TestIdFixtures.id("relation-reference-1"),
                 DEFAULT_SPACE_ID,
                 sourceDocument.id(),
                 targetDocument.id(),
@@ -153,7 +153,7 @@ class DocumentAssociationPersistenceIntegrationTests {
 
         // 保存主体文档证据，验证原文逐字反查和偏移边界
         persistenceService.saveEvidence(new DocumentRelationEvidence(
-                "evidence-reference-source",
+                TestIdFixtures.id("evidence-reference-source"),
                 DEFAULT_SPACE_ID,
                 savedRelation.id(),
                 sourceDocument.id(),
@@ -168,7 +168,7 @@ class DocumentAssociationPersistenceIntegrationTests {
 
         // 保存客体文档证据，验证关系两端证据都能恢复
         persistenceService.saveEvidence(new DocumentRelationEvidence(
-                "evidence-reference-target",
+                TestIdFixtures.id("evidence-reference-target"),
                 DEFAULT_SPACE_ID,
                 savedRelation.id(),
                 targetDocument.id(),
@@ -211,7 +211,7 @@ class DocumentAssociationPersistenceIntegrationTests {
                 POLICY_VERSION
         );
         DocumentRelation rejectedRelation = persistenceService.saveRelation(new DocumentRelation(
-                "relation-supports-1",
+                TestIdFixtures.id("relation-supports-1"),
                 DEFAULT_SPACE_ID,
                 sourceDocument.id(),
                 targetDocument.id(),
@@ -272,7 +272,7 @@ class DocumentAssociationPersistenceIntegrationTests {
                 POLICY_VERSION
         );
         DocumentRelation reversedRelation = new DocumentRelation(
-                "relation-related-1",
+                TestIdFixtures.id("relation-related-1"),
                 DEFAULT_SPACE_ID,
                 secondDocument.id(),
                 firstDocument.id(),
@@ -301,7 +301,7 @@ class DocumentAssociationPersistenceIntegrationTests {
                         : secondDocument.contentHash());
 
         DocumentRelation duplicateRelation = new DocumentRelation(
-                "relation-related-2",
+                TestIdFixtures.id("relation-related-2"),
                 DEFAULT_SPACE_ID,
                 firstDocument.id(),
                 secondDocument.id(),
@@ -346,7 +346,7 @@ class DocumentAssociationPersistenceIntegrationTests {
         persistenceService.saveRun(targetRun);
 
         DocumentRelation firstSuggestion = new DocumentRelation(
-                "relation-directed-forward",
+                TestIdFixtures.id("relation-directed-forward"),
                 DEFAULT_SPACE_ID,
                 sourceDocument.id(),
                 targetDocument.id(),
@@ -369,7 +369,7 @@ class DocumentAssociationPersistenceIntegrationTests {
         persistenceService.saveRelation(firstSuggestion);
 
         DocumentRelation reverseRunSuggestion = new DocumentRelation(
-                "relation-directed-reverse-run",
+                TestIdFixtures.id("relation-directed-reverse-run"),
                 DEFAULT_SPACE_ID,
                 sourceDocument.id(),
                 targetDocument.id(),
@@ -427,7 +427,7 @@ class DocumentAssociationPersistenceIntegrationTests {
                 POLICY_VERSION
         );
         DocumentRelation crossSpaceRelation = new DocumentRelation(
-                "relation-cross-space",
+                TestIdFixtures.id("relation-cross-space"),
                 DEFAULT_SPACE_ID,
                 sourceDocument.id(),
                 otherDocument.id(),
@@ -461,7 +461,7 @@ class DocumentAssociationPersistenceIntegrationTests {
                 POLICY_VERSION
         );
         DocumentRelation selfRelation = new DocumentRelation(
-                "relation-self",
+                TestIdFixtures.id("relation-self"),
                 DEFAULT_SPACE_ID,
                 sourceDocument.id(),
                 sourceDocument.id(),
@@ -495,10 +495,10 @@ class DocumentAssociationPersistenceIntegrationTests {
                 POLICY_VERSION
         );
         DocumentRelation invalidDirection = new DocumentRelation(
-                "relation-invalid-direction",
+                TestIdFixtures.id("relation-invalid-direction"),
                 DEFAULT_SPACE_ID,
                 sourceDocument.id(),
-                sourceDocument.id() + "-other",
+                TestIdFixtures.id("relation-invalid-direction-target"),
                 "related_to",
                 "current_to_candidate",
                 "suggested",
@@ -529,7 +529,7 @@ class DocumentAssociationPersistenceIntegrationTests {
                 POLICY_VERSION
         );
         DocumentRelation validRelation = new DocumentRelation(
-                "relation-evidence-validation",
+                TestIdFixtures.id("relation-evidence-validation"),
                 DEFAULT_SPACE_ID,
                 sourceDocument.id(),
                 targetDocument.id(),
@@ -553,7 +553,7 @@ class DocumentAssociationPersistenceIntegrationTests {
 
         // 证据原文不在来源资料中时必须被拒绝，不能只依赖模型返回的 quote
         assertThatThrownBy(() -> persistenceService.saveEvidence(new DocumentRelationEvidence(
-                "evidence-invalid-quote",
+                TestIdFixtures.id("evidence-invalid-quote"),
                 DEFAULT_SPACE_ID,
                 validRelation.id(),
                 sourceDocument.id(),
@@ -593,7 +593,7 @@ class DocumentAssociationPersistenceIntegrationTests {
                 POLICY_VERSION
         );
         DocumentRelation relation = persistenceService.saveRelation(new DocumentRelation(
-                "relation-role-validation",
+                TestIdFixtures.id("relation-role-validation"),
                 DEFAULT_SPACE_ID,
                 sourceDocument.id(),
                 targetDocument.id(),
@@ -615,7 +615,7 @@ class DocumentAssociationPersistenceIntegrationTests {
 
         // target 角色不能指向主体文档，避免 UI 将证据方向解释反
         assertThatThrownBy(() -> persistenceService.saveEvidence(new DocumentRelationEvidence(
-                "evidence-role-mismatch",
+                TestIdFixtures.id("evidence-role-mismatch"),
                 DEFAULT_SPACE_ID,
                 relation.id(),
                 sourceDocument.id(),
@@ -633,7 +633,7 @@ class DocumentAssociationPersistenceIntegrationTests {
         // cross_reference 可以来自关系任一端，只要求原文逐字存在
         DocumentRelationEvidence crossReference = persistenceService.saveEvidence(
                 new DocumentRelationEvidence(
-                        "evidence-cross-reference",
+                        TestIdFixtures.id("evidence-cross-reference"),
                         DEFAULT_SPACE_ID,
                         relation.id(),
                         targetDocument.id(),
@@ -650,7 +650,7 @@ class DocumentAssociationPersistenceIntegrationTests {
     }
 
     private SourceDocument importDocument(
-            String spaceId,
+            Long spaceId,
             String fileName,
             String content
     ) {
@@ -663,7 +663,7 @@ class DocumentAssociationPersistenceIntegrationTests {
 
         // 通过现有来源资料导入链路创建真实文档和内容指纹
         DocumentImportResponse response = documentService.importDocuments(spaceId, List.of(file));
-        String documentId = response.results().getFirst().document().id();
+        Long documentId = response.results().getFirst().document().id();
 
         // 读取完整来源资料，供阶段 1 证据逐字反查使用
         return sourceDocumentRepository.findById(spaceId, documentId).orElseThrow();
@@ -671,7 +671,7 @@ class DocumentAssociationPersistenceIntegrationTests {
 
     private DocumentAssociationRun newRun(SourceDocument sourceDocument) {
         return new DocumentAssociationRun(
-                "run-" + sourceDocument.id(),
+                TestIdFixtures.id("run-" + sourceDocument.id()),
                 DEFAULT_SPACE_ID,
                 sourceDocument.id(),
                 sourceDocument.contentHash(),
@@ -702,16 +702,16 @@ class DocumentAssociationPersistenceIntegrationTests {
     }
 
     private String relationKey(
-            String sourceDocumentId,
-            String targetDocumentId,
+            Long sourceDocumentId,
+            Long targetDocumentId,
             String relationType,
             String direction,
             String sourceContentHash,
             String targetContentHash,
             String policyVersion
     ) {
-        String leftDocumentId = sourceDocumentId;
-        String rightDocumentId = targetDocumentId;
+        Long leftDocumentId = sourceDocumentId;
+        Long rightDocumentId = targetDocumentId;
         String leftHash = sourceContentHash;
         String rightHash = targetContentHash;
         if ("symmetric".equals(direction) && leftDocumentId.compareTo(rightDocumentId) > 0) {
@@ -722,9 +722,9 @@ class DocumentAssociationPersistenceIntegrationTests {
         }
         String rawKey = String.join(
                 "|",
-                leftDocumentId,
+                String.valueOf(leftDocumentId),
                 relationType,
-                rightDocumentId,
+                String.valueOf(rightDocumentId),
                 leftHash,
                 rightHash,
                 policyVersion

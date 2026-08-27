@@ -38,8 +38,8 @@ public class DocumentRelationReviewRepository {
      * @return 按时间倒序返回审核历史
      */
     public List<DocumentRelationReview> findAllByRelation(
-            String spaceId,
-            String relationId
+            Long spaceId,
+            Long relationId
     ) {
         // 按空间和关系边界读取不可变审核动作
         return mapper.selectList(

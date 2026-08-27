@@ -47,7 +47,7 @@ public class KnowledgeSpaceRepository {
      * @param spaceId 知识空间标识
      * @return 有效知识空间；不存在或已删除时返回空
      */
-    public Optional<KnowledgeSpace> findActiveById(String spaceId) {
+    public Optional<KnowledgeSpace> findActiveById(Long spaceId) {
         // 使用空间标识和 active 状态查询单条有效记录
         KnowledgeSpaceEntity entity = knowledgeSpaceMapper.selectOne(
                 Wrappers.<KnowledgeSpaceEntity>lambdaQuery()
@@ -95,7 +95,7 @@ public class KnowledgeSpaceRepository {
      * @return 实际更新记录数
      */
     public int softDelete(
-            String spaceId,
+            Long spaceId,
             Instant updatedAt
     ) {
         KnowledgeSpaceEntity updateEntity = new KnowledgeSpaceEntity();

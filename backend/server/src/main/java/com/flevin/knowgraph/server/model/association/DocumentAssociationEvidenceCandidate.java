@@ -16,7 +16,7 @@ import jakarta.validation.constraints.NotNull;
 @Description("文档关系判断引用的可定位原文证据")
 public record DocumentAssociationEvidenceCandidate(
         @NotBlank String evidenceId,
-        @NotBlank String sourceDocumentId,
+        @NotNull Long sourceDocumentId,
         @NotBlank String chunkId,
         @NotNull String sectionPath,
         @NotBlank String quote

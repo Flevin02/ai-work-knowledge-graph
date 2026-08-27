@@ -26,6 +26,7 @@ import com.flevin.knowgraph.server.service.ai.rag.SectionAwareDocumentChunker;
 import com.flevin.knowgraph.server.service.tag.DocumentTagPersistenceService;
 import com.flevin.knowgraph.server.service.tag.DocumentTaggingClient;
 import com.flevin.knowgraph.server.service.tag.DocumentTaggingService;
+import com.flevin.knowgraph.server.util.SnowflakeIdGenerator;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
@@ -41,7 +42,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -87,8 +87,8 @@ public class DocumentTaggingServiceImpl implements DocumentTaggingService {
      */
     @Override
     public DocumentTaggingRunResponse createRun(
-            String spaceId,
-            String sourceDocumentId
+            Long spaceId,
+            Long sourceDocumentId
     ) {
         // 查询当前有效来源资料并冻结本次运行的内容指纹
         SourceDocument sourceDocument = requireDocument(spaceId, sourceDocumentId);
@@ -278,9 +278,9 @@ public class DocumentTaggingServiceImpl implements DocumentTaggingService {
      */
     @Override
     public DocumentTaggingRunResponse getRun(
-            String spaceId,
-            String sourceDocumentId,
-            String runId
+            Long spaceId,
+            Long sourceDocumentId,
+            Long runId
     ) {
         // 校验知识空间仍有效，防止跨空间恢复运行
         knowledgeSpaceRepository.findActiveById(spaceId)
@@ -303,8 +303,8 @@ public class DocumentTaggingServiceImpl implements DocumentTaggingService {
      */
     @Override
     public DocumentTaggingRunResponse getLatestRun(
-            String spaceId,
-            String sourceDocumentId
+            Long spaceId,
+            Long sourceDocumentId
     ) {
         // 校验知识空间仍有效，防止跨空间恢复运行
         knowledgeSpaceRepository.findActiveById(spaceId)
@@ -330,7 +330,7 @@ public class DocumentTaggingServiceImpl implements DocumentTaggingService {
             Instant createdAt
     ) {
         return new DocumentTaggingRun(
-                UUID.randomUUID().toString(),
+                SnowflakeIdGenerator.nextId(),
                 sourceDocument.spaceId(),
                 sourceDocument.id(),
                 sourceDocument.contentHash(),
@@ -518,8 +518,8 @@ public class DocumentTaggingServiceImpl implements DocumentTaggingService {
             Map<String, DocumentTagEvidenceCandidate> evidenceById
     ) {
         Instant createdAt = Instant.now();
-        String tagId = UUID.randomUUID().toString();
-        String documentTagId = UUID.randomUUID().toString();
+        Long tagId = SnowflakeIdGenerator.nextId();
+        Long documentTagId = SnowflakeIdGenerator.nextId();
         KnowledgeTag tag = new KnowledgeTag(
                 tagId,
                 run.spaceId(),
@@ -570,8 +570,8 @@ public class DocumentTaggingServiceImpl implements DocumentTaggingService {
      * @return 服务端生成标识的逐字证据
      */
     private DocumentTagEvidence toEvidence(
-            String spaceId,
-            String documentTagId,
+            Long spaceId,
+            Long documentTagId,
             DocumentTaggingDocumentContext document,
             DocumentTagEvidenceCandidate evidence,
             Instant createdAt
@@ -583,7 +583,7 @@ public class DocumentTaggingServiceImpl implements DocumentTaggingService {
         int relativeOffset = chunk.contentText().indexOf(evidence.quote());
         int startOffset = chunk.startOffset() + relativeOffset;
         return new DocumentTagEvidence(
-                UUID.randomUUID().toString(),
+                SnowflakeIdGenerator.nextId(),
                 spaceId,
                 documentTagId,
                 document.documentId(),
@@ -668,18 +668,18 @@ public class DocumentTaggingServiceImpl implements DocumentTaggingService {
                 run.spaceId(),
                 run.id()
         );
-        List<String> tagIds = documentTags.stream().map(DocumentTag::tagId).distinct().toList();
-        List<String> documentTagIds = documentTags.stream().map(DocumentTag::id).toList();
+        List<Long> tagIds = documentTags.stream().map(DocumentTag::tagId).distinct().toList();
+        List<Long> documentTagIds = documentTags.stream().map(DocumentTag::id).toList();
 
         // 批量读取标签定义并建立标识索引，避免逐候选查询数据库
-        Map<String, KnowledgeTag> tagById = documentTagRepository.findTagsByIds(
+        Map<Long, KnowledgeTag> tagById = documentTagRepository.findTagsByIds(
                         run.spaceId(),
                         tagIds
                 ).stream()
                 .collect(Collectors.toMap(KnowledgeTag::id, Function.identity()));
 
         // 批量读取全部候选证据并按文档标签关系分组
-        Map<String, List<DocumentTagEvidence>> evidenceByDocumentTag = documentTagRepository
+        Map<Long, List<DocumentTagEvidence>> evidenceByDocumentTag = documentTagRepository
                 .findEvidenceByDocumentTags(run.spaceId(), documentTagIds)
                 .stream()
                 .collect(Collectors.groupingBy(
@@ -759,8 +759,8 @@ public class DocumentTaggingServiceImpl implements DocumentTaggingService {
      * @return 当前有效来源资料
      */
     private SourceDocument requireDocument(
-            String spaceId,
-            String sourceDocumentId
+            Long spaceId,
+            Long sourceDocumentId
     ) {
         // 校验知识空间有效，避免已删除空间创建标签运行
         knowledgeSpaceRepository.findActiveById(spaceId)

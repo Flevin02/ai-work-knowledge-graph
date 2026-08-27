@@ -21,7 +21,7 @@ import java.util.List;
 @Schema(description = "带来源证据的知识图谱关系")
 public record GraphEdgeResponse(
         @Schema(description = "关系标识")
-        String id,
+        Long id,
         @Schema(description = "主体节点标识")
         String source,
         @Schema(description = "客体节点标识")

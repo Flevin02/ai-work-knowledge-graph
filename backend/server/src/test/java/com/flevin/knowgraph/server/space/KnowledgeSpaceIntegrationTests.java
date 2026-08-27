@@ -28,13 +28,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 
 @SpringBootTest(properties = {
-        "app.database-path=target/test-data/knowledge-space.sqlite",
         "app.upload-dir=target/test-data/knowledge-space-uploads"
 })
 @AutoConfigureMockMvc
 class KnowledgeSpaceIntegrationTests {
 
-    private static final String DEFAULT_SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
+    private static final Long DEFAULT_SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
 
     @Autowired
     private KnowledgeSpaceService knowledgeSpaceService;
@@ -78,7 +77,7 @@ class KnowledgeSpaceIntegrationTests {
 
         assertThat(createdSpace.name()).isEqualTo("项目助理工作台");
         assertThat(Path.of("target/test-data/knowledge-space-uploads")
-                .resolve(createdSpace.id())
+                .resolve(String.valueOf(createdSpace.id()))
                 .resolve("documents"))
                 .isDirectory();
     }
@@ -136,6 +135,8 @@ class KnowledgeSpaceIntegrationTests {
                         .content("{\"name\":\"Controller 创建空间\",\"description\":\"用于接口验收\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.error").value(false))
+                .andExpect(jsonPath("$.timestamp").isNumber())
+                .andExpect(jsonPath("$.data.id").isString())
                 .andExpect(jsonPath("$.data.name").value("Controller 创建空间"))
                 .andExpect(jsonPath("$.data.status").value("active"));
 

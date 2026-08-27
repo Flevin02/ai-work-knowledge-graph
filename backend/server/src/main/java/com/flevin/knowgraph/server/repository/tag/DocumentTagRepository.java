@@ -41,7 +41,7 @@ public class DocumentTagRepository {
      * @return 有效标签定义；不存在时返回空
      */
     public Optional<KnowledgeTag> findTagByNormalizedKey(
-            String spaceId,
+            Long spaceId,
             String normalizedKey
     ) {
         // 限定知识空间、规范化键和有效状态查询唯一标签定义
@@ -64,8 +64,8 @@ public class DocumentTagRepository {
      * @return 标签定义；不存在时返回空
      */
     public Optional<KnowledgeTag> findTagById(
-            String spaceId,
-            String tagId
+            Long spaceId,
+            Long tagId
     ) {
         // 限定知识空间和主键查询标签，阻断跨空间读取
         KnowledgeTagEntity entity = knowledgeTagMapper.selectOne(
@@ -96,7 +96,7 @@ public class DocumentTagRepository {
      * @return 已存在的文档标签关系；不存在时返回空
      */
     public Optional<DocumentTag> findDocumentTagByKey(
-            String spaceId,
+            Long spaceId,
             String documentTagKey
     ) {
         // 使用空间和稳定键查询重复运行已经物化的文档标签
@@ -118,8 +118,8 @@ public class DocumentTagRepository {
      * @return 文档标签关系；不存在时返回空
      */
     public Optional<DocumentTag> findDocumentTagById(
-            String spaceId,
-            String documentTagId
+            Long spaceId,
+            Long documentTagId
     ) {
         // 限定知识空间和主键查询文档标签关系
         DocumentTagEntity entity = documentTagMapper.selectOne(
@@ -140,8 +140,8 @@ public class DocumentTagRepository {
      * @return 按更新时间和标识倒序排列的文档标签关系
      */
     public List<DocumentTag> findAllByDocument(
-            String spaceId,
-            String sourceDocumentId
+            Long spaceId,
+            Long sourceDocumentId
     ) {
         // 按空间和来源资料批量读取全部状态，供后续审核恢复使用
         return documentTagMapper.selectList(
@@ -162,9 +162,9 @@ public class DocumentTagRepository {
      * @param sourceDocumentIds 来源资料标识列表
      * @return 来源资料标识到已确认标签展示名的映射
      */
-    public Map<String, List<String>> findConfirmedTagNamesByDocuments(
-            String spaceId,
-            List<String> sourceDocumentIds
+    public Map<Long, List<String>> findConfirmedTagNamesByDocuments(
+            Long spaceId,
+            List<Long> sourceDocumentIds
     ) {
         if (sourceDocumentIds.isEmpty()) {
             return Map.of();
@@ -177,17 +177,17 @@ public class DocumentTagRepository {
                         .in(DocumentTagEntity::getSourceDocumentId, sourceDocumentIds)
                         .eq(DocumentTagEntity::getStatus, "confirmed")
         );
-        List<String> tagIds = relations.stream()
+        List<Long> tagIds = relations.stream()
                 .map(DocumentTagEntity::getTagId)
                 .distinct()
                 .toList();
-        Map<String, String> tagNamesById = findTagsByIds(spaceId, tagIds).stream()
+        Map<Long, String> tagNamesById = findTagsByIds(spaceId, tagIds).stream()
                 .collect(java.util.stream.Collectors.toMap(
                         KnowledgeTag::id,
                         KnowledgeTag::name,
                         (left, right) -> left
                 ));
-        Map<String, List<String>> namesByDocument = new LinkedHashMap<>();
+        Map<Long, List<String>> namesByDocument = new LinkedHashMap<>();
         relations.forEach(relation -> {
             String tagName = tagNamesById.get(relation.getTagId());
             if (tagName != null && !tagName.isBlank()) {
@@ -212,8 +212,8 @@ public class DocumentTagRepository {
      * @return 按创建时间和标识排序的文档标签关系
      */
     public List<DocumentTag> findAllByExtractionRun(
-            String spaceId,
-            String runId
+            Long spaceId,
+            Long runId
     ) {
         // 按空间和运行标识批量读取本次新保存候选，幂等复用的旧候选不属于新运行
         return documentTagMapper.selectList(
@@ -235,8 +235,8 @@ public class DocumentTagRepository {
      * @return 标签定义列表
      */
     public List<KnowledgeTag> findTagsByIds(
-            String spaceId,
-            List<String> tagIds
+            Long spaceId,
+            List<Long> tagIds
     ) {
         if (tagIds.isEmpty()) {
             return List.of();
@@ -258,7 +258,7 @@ public class DocumentTagRepository {
      * @param spaceId 知识空间标识
      * @return 已确认标签统计投影
      */
-    public List<KnowledgeTagSummaryProjection> findConfirmedSummaries(String spaceId) {
+    public List<KnowledgeTagSummaryProjection> findConfirmedSummaries(Long spaceId) {
         // 使用自定义 Join 聚合一次计算标签下的有效确认文档数
         return knowledgeTagMapper.findConfirmedSummaries(spaceId);
     }
@@ -283,8 +283,8 @@ public class DocumentTagRepository {
      * @return 实际更新行数；并发或重复审核时为 0
      */
     public int updateSuggestedStatus(
-            String spaceId,
-            String documentTagId,
+            Long spaceId,
+            Long documentTagId,
             String nextStatus,
             Instant updatedAt
     ) {
@@ -320,8 +320,8 @@ public class DocumentTagRepository {
      * @return 按创建时间和标识排序的证据列表
      */
     public List<DocumentTagEvidence> findEvidenceByDocumentTag(
-            String spaceId,
-            String documentTagId
+            Long spaceId,
+            Long documentTagId
     ) {
         // 限定空间和文档标签关系批量读取证据
         return evidenceMapper.selectList(
@@ -343,8 +343,8 @@ public class DocumentTagRepository {
      * @return 按关系、创建时间和标识排序的证据列表
      */
     public List<DocumentTagEvidence> findEvidenceByDocumentTags(
-            String spaceId,
-            List<String> documentTagIds
+            Long spaceId,
+            List<Long> documentTagIds
     ) {
         if (documentTagIds.isEmpty()) {
             return List.of();

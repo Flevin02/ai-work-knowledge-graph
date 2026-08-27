@@ -10,7 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * 本地运行目录初始化器，在数据源首次连接和文件导入前准备数据库及上传目录。
+ * 本地运行目录初始化器，在数据源首次连接和文件导入前准备来源资料上传目录。
  */
 @Component("localStorageInitializer")
 @RequiredArgsConstructor
@@ -19,16 +19,10 @@ public class LocalStorageInitializer {
     private final AppStorageProperties storageProperties;
 
     /**
-     * 创建 SQLite 数据库父目录和来源资料上传目录。
+     * 创建来源资料上传目录。
      */
     @PostConstruct
     public void initialize() {
-        // 解析并规范化数据库文件路径，避免运行目录差异导致路径含义不清
-        Path databasePath = Path.of(storageProperties.getDatabasePath()).toAbsolutePath().normalize();
-
-        // 创建数据库父目录，确保 Spring Boot 数据源首次连接时可以生成文件
-        createDirectory(databasePath.getParent(), "SQLite 数据目录");
-
         // 解析并规范化来源资料保存目录
         Path uploadDirectory = Path.of(storageProperties.getUploadDir()).toAbsolutePath().normalize();
 

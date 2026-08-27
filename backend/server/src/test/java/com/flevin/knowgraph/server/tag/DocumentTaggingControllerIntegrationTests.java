@@ -29,7 +29,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 标签运行创建、恢复和 OpenAPI REST 契约集成测试。
  */
 @SpringBootTest(properties = {
-        "app.database-path=target/test-data/document-tagging-controller.sqlite",
         "app.upload-dir=target/test-data/document-tagging-controller-uploads",
         "test.document-tagging-client=service"
 })
@@ -37,7 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(DocumentTaggingServiceIntegrationTests.FakeTaggingConfiguration.class)
 class DocumentTaggingControllerIntegrationTests {
 
-    private static final String SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
+    private static final Long SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
 
     @Autowired
     private MockMvc mockMvc;

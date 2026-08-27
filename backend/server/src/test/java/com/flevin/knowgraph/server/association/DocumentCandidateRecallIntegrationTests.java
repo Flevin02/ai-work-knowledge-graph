@@ -7,6 +7,7 @@ import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
 import com.flevin.knowgraph.server.service.association.DocumentCandidateRecallService;
 import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.flevin.knowgraph.server.support.TestKnowledgeSpaceFixtures;
+import com.flevin.knowgraph.server.support.TestIdFixtures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,12 +31,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 文档关联第一版无 Embedding 候选召回集成测试。
  */
 @SpringBootTest(properties = {
-        "app.database-path=target/test-data/document-candidate-recall.sqlite",
         "app.upload-dir=target/test-data/document-candidate-recall-uploads"
 })
 class DocumentCandidateRecallIntegrationTests {
 
-    private static final String DEFAULT_SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
+    private static final Long DEFAULT_SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
 
     @Autowired
     private DocumentCandidateRecallService candidateRecallService;
@@ -155,7 +155,7 @@ class DocumentCandidateRecallIntegrationTests {
                             created_at, completed_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                "candidate-summary-run",
+                TestIdFixtures.id("candidate-summary-run"),
                 DEFAULT_SPACE_ID,
                 candidateDocument.id(),
                 "fake",
@@ -218,7 +218,7 @@ class DocumentCandidateRecallIntegrationTests {
                     DEFAULT_SPACE_ID,
                     List.of(file)
             );
-            String documentId = response.results().getFirst().document().id();
+            Long documentId = response.results().getFirst().document().id();
 
             // 读取完整领域模型，供候选服务和断言使用
             documents.put(
@@ -247,7 +247,7 @@ class DocumentCandidateRecallIntegrationTests {
 
     private String fixtureIdByDocumentId(
             Map<String, SourceDocument> documents,
-            String documentId
+            Long documentId
     ) {
         return documents.entrySet().stream()
                 .filter(entry -> entry.getValue().id().equals(documentId))

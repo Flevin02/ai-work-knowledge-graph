@@ -7,7 +7,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  */
 public final class TestKnowledgeSpaceFixtures {
 
-    public static final String DEFAULT_SPACE_ID = "default-space";
+    public static final Long DEFAULT_SPACE_ID = 1_000_000_000_001L;
 
     private TestKnowledgeSpaceFixtures() {
     }
@@ -20,7 +20,7 @@ public final class TestKnowledgeSpaceFixtures {
     public static void ensureDefaultSpace(JdbcTemplate jdbcTemplate) {
         // 为依赖固定标识的测试插入独立空间，不影响生产首次启动空态
         jdbcTemplate.update("""
-                INSERT OR IGNORE INTO knowledge_spaces (
+                INSERT IGNORE INTO knowledge_spaces (
                     id, name, description, status, created_at, updated_at
                 ) VALUES (?, ?, ?, 'active', ?, ?)
                 """,

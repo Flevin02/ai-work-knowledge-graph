@@ -16,6 +16,7 @@ import com.flevin.knowgraph.server.repository.mapping.GraphEntityMapper;
 import com.flevin.knowgraph.server.repository.mapping.PersistenceMappingSupport;
 import com.flevin.knowgraph.server.repository.mapping.SourceDocumentEntityMapper;
 import com.flevin.knowgraph.server.service.association.DocumentAssociationResponseMapper;
+import com.flevin.knowgraph.server.support.TestIdFixtures;
 import org.junit.jupiter.api.Test;
 import org.mapstruct.factory.Mappers;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -102,7 +103,7 @@ class MapStructMappingTests {
         // 设置图谱节点类型，验证字段改名映射
         entity.setNodeType("requirement");
         // 设置来源资料标识 JSON，验证列表解析
-        entity.setSourceIdsJson("[\"document-a\",\"document-b\"]");
+        entity.setSourceIdsJson("[101,102]");
         // 设置图谱节点创建时间
         entity.setCreatedAt(CREATED_AT.toString());
         // 设置图谱节点更新时间
@@ -113,7 +114,7 @@ class MapStructMappingTests {
 
         // 验证节点类型、来源列表和时间转换结果
         assertThat(node.type()).isEqualTo("requirement");
-        assertThat(node.sourceIds()).containsExactly("document-a", "document-b");
+        assertThat(node.sourceIds()).containsExactly(101L, 102L);
         assertThat(node.createdAt()).isEqualTo(CREATED_AT);
         assertThat(node.updatedAt()).isEqualTo(UPDATED_AT);
 
@@ -122,7 +123,7 @@ class MapStructMappingTests {
 
         // 验证改名字段和来源资料 JSON 按统一格式写回
         assertThat(roundTripEntity.getNodeType()).isEqualTo("requirement");
-        assertThat(roundTripEntity.getSourceIdsJson()).isEqualTo("[\"document-a\",\"document-b\"]");
+        assertThat(roundTripEntity.getSourceIdsJson()).isEqualTo("[101,102]");
 
         GraphNodeEntity invalidEntity = new GraphNodeEntity();
         // 设置非法来源资料 JSON，验证持久化数据损坏时明确失败
@@ -138,9 +139,9 @@ class MapStructMappingTests {
     void mapsNullableAssociationRunStatisticsAndCompletedTime() {
         DocumentAssociationRunEntity entity = new DocumentAssociationRunEntity();
         // 设置文档关联运行标识
-        entity.setId("run-1");
+        entity.setId(TestIdFixtures.id("run-1"));
         // 设置文档关联主体资料标识
-        entity.setSourceDocumentId("document-a");
+        entity.setSourceDocumentId(TestIdFixtures.id("document-a"));
         // 设置文档关联运行状态
         entity.setStatus("completed");
         // 设置运行创建时间，完成时间保持为空
@@ -165,17 +166,17 @@ class MapStructMappingTests {
         DocumentAssociationRunResponse response = associationResponseMapper.toRunResponse(run, List.of());
 
         // 验证领域标识按接口契约改名为 runId
-        assertThat(response.runId()).isEqualTo("run-1");
+        assertThat(response.runId()).isEqualTo(TestIdFixtures.id("run-1"));
         assertThat(response.relations()).isEmpty();
     }
 
     @Test
     void mapsDocumentRelationEvidenceToSafeNestedResponse() {
         DocumentRelationEvidence evidence = new DocumentRelationEvidence(
-                "evidence-1",
-                "space-1",
-                "relation-1",
-                "document-a",
+                TestIdFixtures.id("evidence-1"),
+                TestIdFixtures.id("space-1"),
+                TestIdFixtures.id("relation-1"),
+                TestIdFixtures.id("document-a"),
                 "chunk-1",
                 "需求 > 验收标准",
                 "必须支持原文证据反查",
@@ -189,8 +190,8 @@ class MapStructMappingTests {
         DocumentRelationResponse.Evidence response = associationResponseMapper.toEvidenceResponse(evidence);
 
         // 验证接口所需的可定位证据字段完整保留
-        assertThat(response.id()).isEqualTo("evidence-1");
-        assertThat(response.sourceDocumentId()).isEqualTo("document-a");
+        assertThat(response.id()).isEqualTo(TestIdFixtures.id("evidence-1"));
+        assertThat(response.sourceDocumentId()).isEqualTo(TestIdFixtures.id("document-a"));
         assertThat(response.chunkId()).isEqualTo("chunk-1");
         assertThat(response.sectionPath()).isEqualTo("需求 > 验收标准");
         assertThat(response.quote()).isEqualTo("必须支持原文证据反查");

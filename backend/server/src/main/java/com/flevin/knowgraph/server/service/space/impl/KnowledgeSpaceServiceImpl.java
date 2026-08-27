@@ -10,12 +10,12 @@ import com.flevin.knowgraph.server.repository.space.KnowledgeSpaceRepository;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceResponseMapper;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
 import com.flevin.knowgraph.server.storage.LocalFileStorage;
+import com.flevin.knowgraph.server.util.SnowflakeIdGenerator;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
-import java.util.UUID;
 
 /**
  * 知识空间服务实现，使用软删除保护空间下的来源资料和图谱事实。
@@ -69,8 +69,8 @@ public class KnowledgeSpaceServiceImpl implements KnowledgeSpaceService {
         // 清理可选说明两侧空白，空白说明按空值保存
         String normalizedDescription = normalizeDescription(request.description());
 
-        // 创建知识空间唯一标识
-        String spaceId = UUID.randomUUID().toString();
+        // 创建知识空间 Long 唯一标识，供后续资料、关系和审核记录复用
+        Long spaceId = SnowflakeIdGenerator.nextId();
 
         // 获取知识空间统一创建和更新时间
         Instant createdAt = Instant.now();
@@ -107,7 +107,7 @@ public class KnowledgeSpaceServiceImpl implements KnowledgeSpaceService {
      * @param spaceId 待删除知识空间标识
      */
     @Override
-    public void deleteSpace(String spaceId) {
+    public void deleteSpace(Long spaceId) {
         // 校验待删除空间当前仍然有效
         requireActive(spaceId);
 
@@ -125,8 +125,8 @@ public class KnowledgeSpaceServiceImpl implements KnowledgeSpaceService {
      * @return 有效知识空间模型
      */
     @Override
-    public KnowledgeSpace requireActive(String spaceId) {
-        if (spaceId == null || spaceId.isBlank()) {
+    public KnowledgeSpace requireActive(Long spaceId) {
+        if (spaceId == null || spaceId <= 0) {
             throw new TipsException(ErrorCode.PARAM_ERROR, "请选择知识空间");
         }
 

@@ -24,6 +24,7 @@ import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.flevin.knowgraph.server.service.document.SourceDocumentResponseMapper;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
 import com.flevin.knowgraph.server.storage.LocalFileStorage;
+import com.flevin.knowgraph.server.util.SnowflakeIdGenerator;
 import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.apache.pdfbox.Loader;
@@ -49,7 +50,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -83,7 +83,7 @@ public class DocumentServiceImpl implements DocumentService {
      */
     @Override
     public DocumentImportResponse importDocuments(
-            String spaceId,
+            Long spaceId,
             String documentType,
             List<MultipartFile> files
     ) {
@@ -97,8 +97,8 @@ public class DocumentServiceImpl implements DocumentService {
             throw new TipsException(ErrorCode.PARAM_ERROR, "请选择需要导入的 Markdown、TXT 或文本型 PDF 文件");
         }
 
-        // 创建本次 multipart 请求的导入批次标识
-        String batchId = UUID.randomUUID().toString();
+        // 创建本次 multipart 请求的 Long 导入批次标识
+        Long batchId = SnowflakeIdGenerator.nextId();
 
         // 获取批次创建时间，供批次和来源记录统一使用 UTC 时间
         Instant createdAt = Instant.now();
@@ -173,7 +173,7 @@ public class DocumentServiceImpl implements DocumentService {
      */
     @Override
     public SourceDocumentPageResponse listDocuments(
-            String spaceId,
+            Long spaceId,
             String name,
             int page,
             int pageSize
@@ -190,12 +190,12 @@ public class DocumentServiceImpl implements DocumentService {
         );
 
         // 提取当前页文档标识，限定最近抽取摘要的批量查询范围
-        List<String> documentIds = documentPage.items().stream()
+        List<Long> documentIds = documentPage.items().stream()
                 .map(SourceDocument::id)
                 .toList();
 
         // 一次批量查询当前页全部文档的最近运行和最近成功结果
-        Map<String, DocumentExtractionOverview> extractionOverviews = aiExtractionRunRepository
+        Map<Long, DocumentExtractionOverview> extractionOverviews = aiExtractionRunRepository
                 .findLatestByDocuments(spaceId, documentIds)
                 .stream()
                 .collect(Collectors.toMap(DocumentExtractionOverview::documentId, Function.identity()));
@@ -223,8 +223,8 @@ public class DocumentServiceImpl implements DocumentService {
      */
     @Override
     public SourceDocumentContentResponse getDocumentContent(
-            String spaceId,
-            String documentId
+            Long spaceId,
+            Long documentId
     ) {
         // 校验来源资料所属知识空间当前有效
         knowledgeSpaceService.requireActive(spaceId);
@@ -256,8 +256,8 @@ public class DocumentServiceImpl implements DocumentService {
     @Override
     @Transactional
     public void deleteDocument(
-            String spaceId,
-            String documentId
+            Long spaceId,
+            Long documentId
     ) {
         // 校验来源资料所属知识空间当前有效
         knowledgeSpaceService.requireActive(spaceId);
@@ -289,15 +289,13 @@ public class DocumentServiceImpl implements DocumentService {
     @Override
     @Transactional
     public DocumentBatchDeleteResponse deleteDocuments(
-            String spaceId,
-            List<String> documentIds
+            Long spaceId,
+            List<Long> documentIds
     ) {
         // 校验当前知识空间仍有效，避免向已删除空间写入批量删除结果
         knowledgeSpaceService.requireActive(spaceId);
 
-        List<String> normalizedDocumentIds = documentIds.stream()
-                .map(String::strip)
-                .toList();
+        List<Long> normalizedDocumentIds = documentIds.stream().toList();
         if (new LinkedHashSet<>(normalizedDocumentIds).size() != normalizedDocumentIds.size()) {
             throw new TipsException(ErrorCode.PARAM_ERROR, "批量操作中不能重复选择同一份来源资料");
         }
@@ -338,8 +336,8 @@ public class DocumentServiceImpl implements DocumentService {
      * @return 单文件导入结果
      */
     private DocumentImportFileResult importFile(
-            String spaceId,
-            String batchId,
+            Long spaceId,
+            Long batchId,
             SourceDocumentType documentType,
             MultipartFile file
     ) {
@@ -404,7 +402,7 @@ public class DocumentServiceImpl implements DocumentService {
             Instant importedAt = Instant.now();
 
             SourceDocument document = new SourceDocument(
-                    UUID.randomUUID().toString(),
+                    SnowflakeIdGenerator.nextId(),
                     spaceId,
                     batchId,
                     originalName,

@@ -18,11 +18,11 @@ import com.flevin.knowgraph.server.model.graph.GraphNode;
 import com.flevin.knowgraph.server.repository.graph.GraphRepository;
 import com.flevin.knowgraph.server.repository.graph.ReviewActionRepository;
 import com.flevin.knowgraph.server.repository.entity.ReviewActionEntity;
+import com.flevin.knowgraph.server.util.SnowflakeIdGenerator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -30,7 +30,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * 将已经通过结构和证据校验的 AI 候选结果物化为可审核的图谱事实。
@@ -54,7 +53,7 @@ public class AiExtractionGraphMaterializer {
      */
     @Transactional
     public void materialize(
-            String spaceId,
+            Long spaceId,
             SourceDocument document,
             AiDocumentExtractionResponse extraction
     ) {
@@ -82,7 +81,7 @@ public class AiExtractionGraphMaterializer {
      */
     @Transactional
     public AiRelationReviewResponse reviewRelations(
-            String spaceId,
+            Long spaceId,
             SourceDocument document,
             AiDocumentExtractionResponse extraction,
             AiRelationReviewRequest request
@@ -142,7 +141,7 @@ public class AiExtractionGraphMaterializer {
      */
     @Transactional(readOnly = true)
     public List<AiRelationReviewState> listReviewStates(
-            String spaceId,
+            Long spaceId,
             AiDocumentExtractionResponse extraction
     ) {
         Map<String, AiEntityCandidate> candidatesByKey = collectEntityCandidates(extraction);
@@ -179,7 +178,7 @@ public class AiExtractionGraphMaterializer {
     }
 
     private Map<String, GraphNode> loadOrCreateNodes(
-            String spaceId,
+            Long spaceId,
             SourceDocument document,
             Map<String, AiEntityCandidate> candidatesByKey
     ) {
@@ -212,7 +211,7 @@ public class AiExtractionGraphMaterializer {
     }
 
     private GraphNode createNode(
-            String spaceId,
+            Long spaceId,
             SourceDocument document,
             AiEntityCandidate candidate,
             String normalizedKey
@@ -236,10 +235,10 @@ public class AiExtractionGraphMaterializer {
 
     private GraphNode mergeNodeSource(
             GraphNode existingNode,
-            String documentId,
+            Long documentId,
             AiEntityCandidate candidate
     ) {
-        List<String> sourceIds = new ArrayList<>(existingNode.sourceIds());
+        List<Long> sourceIds = new ArrayList<>(existingNode.sourceIds());
         if (!sourceIds.contains(documentId)) {
             sourceIds.add(documentId);
         }
@@ -267,9 +266,9 @@ public class AiExtractionGraphMaterializer {
     }
 
     private void materializeChunk(
-            String spaceId,
+            Long spaceId,
             SourceDocument document,
-            String extractionId,
+            Long extractionId,
             AiChunkExtractionResult chunk,
             Map<String, GraphNode> nodesByKey
     ) {
@@ -295,7 +294,7 @@ public class AiExtractionGraphMaterializer {
                 continue;
             }
 
-            String edgeId = deterministicId(
+            Long edgeId = deterministicId(
                     "edge",
                     spaceId,
                     sourceNode.id(),
@@ -333,7 +332,7 @@ public class AiExtractionGraphMaterializer {
                 if (evidence == null || !document.id().equals(evidence.sourceDocumentId())) {
                     return;
                 }
-                String graphEvidenceId = deterministicId(
+                Long graphEvidenceId = deterministicId(
                         "evidence",
                         edge.id(),
                         evidence.sourceDocumentId(),
@@ -393,7 +392,7 @@ public class AiExtractionGraphMaterializer {
     }
 
     private int countPendingRelations(
-            String spaceId,
+            Long spaceId,
             AiDocumentExtractionResponse extraction,
             Map<String, GraphNode> nodesByKey
     ) {
@@ -422,14 +421,14 @@ public class AiExtractionGraphMaterializer {
     }
 
     private ReviewActionEntity toReviewAction(
-            String spaceId,
-            String edgeId,
+            Long spaceId,
+            Long edgeId,
             String action,
             String operatorName,
             String reason
     ) {
         ReviewActionEntity entity = new ReviewActionEntity();
-        entity.setId(UUID.randomUUID().toString());
+        entity.setId(SnowflakeIdGenerator.nextId());
         entity.setSpaceId(spaceId);
         entity.setEdgeId(edgeId);
         entity.setAction(action);
@@ -461,8 +460,10 @@ public class AiExtractionGraphMaterializer {
         return name.replaceAll("\\s+", " ").strip().toLowerCase(Locale.ROOT);
     }
 
-    private String deterministicId(String prefix, String... parts) {
-        String source = prefix + ":" + String.join("|", parts);
-        return prefix + "-" + UUID.nameUUIDFromBytes(source.getBytes(StandardCharsets.UTF_8));
+    private Long deterministicId(String prefix, Object... parts) {
+        String source = prefix + ":" + java.util.Arrays.stream(parts)
+                .map(String::valueOf)
+                .collect(java.util.stream.Collectors.joining("|"));
+        return SnowflakeIdGenerator.stableId(source);
     }
 }

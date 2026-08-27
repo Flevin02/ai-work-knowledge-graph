@@ -24,17 +24,17 @@ import java.time.Instant;
  * @param updatedAt 最近更新时间
  */
 public record DocumentRelation(
-        String id,
-        String spaceId,
-        String sourceDocumentId,
-        String targetDocumentId,
+        Long id,
+        Long spaceId,
+        Long sourceDocumentId,
+        Long targetDocumentId,
         String relationType,
         String direction,
         String status,
         String generationMode,
         double confidence,
         String reason,
-        String associationRunId,
+        Long associationRunId,
         String sourceContentHash,
         String targetContentHash,
         String associationPolicyVersion,

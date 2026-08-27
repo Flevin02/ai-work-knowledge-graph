@@ -72,9 +72,9 @@ public class DocumentAssociationRunRepository {
      * @return 匹配的运行记录；不存在时返回空
      */
     public Optional<DocumentAssociationRun> findById(
-            String spaceId,
-            String sourceDocumentId,
-            String runId
+            Long spaceId,
+            Long sourceDocumentId,
+            Long runId
     ) {
         // 使用三重边界查询，防止通过运行标识跨空间或跨文档读取
         DocumentAssociationRunEntity entity = mapper.selectOne(
@@ -94,8 +94,8 @@ public class DocumentAssociationRunRepository {
      * @return 匹配的运行记录；不存在时返回空
      */
     public Optional<DocumentAssociationRun> findById(
-            String spaceId,
-            String runId
+            Long spaceId,
+            Long runId
     ) {
         // 使用知识空间和运行标识读取运行快照，后续由 Service 校验主体文档关系
         DocumentAssociationRunEntity entity = mapper.selectOne(

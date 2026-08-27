@@ -30,7 +30,7 @@ public interface GraphEntityMapper {
      * @return 图谱节点领域模型
      */
     @Mapping(target = "type", source = "nodeType")
-    @Mapping(target = "sourceIds", source = "sourceIdsJson", qualifiedByName = "jsonToStringList")
+    @Mapping(target = "sourceIds", source = "sourceIdsJson", qualifiedByName = "jsonToLongList")
     @Mapping(target = "createdAt", source = "createdAt", qualifiedByName = "stringToInstant")
     @Mapping(target = "updatedAt", source = "updatedAt", qualifiedByName = "stringToInstant")
     GraphNode toDomain(GraphNodeEntity entity);
@@ -42,7 +42,7 @@ public interface GraphEntityMapper {
      * @return 图谱节点实体
      */
     @Mapping(target = "nodeType", source = "type")
-    @Mapping(target = "sourceIdsJson", source = "sourceIds", qualifiedByName = "stringListToJson")
+    @Mapping(target = "sourceIdsJson", source = "sourceIds", qualifiedByName = "longListToJson")
     @Mapping(target = "createdAt", source = "createdAt", qualifiedByName = "instantToString")
     @Mapping(target = "updatedAt", source = "updatedAt", qualifiedByName = "instantToString")
     GraphNodeEntity toEntity(GraphNode node);

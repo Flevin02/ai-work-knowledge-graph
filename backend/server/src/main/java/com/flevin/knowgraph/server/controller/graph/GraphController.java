@@ -25,7 +25,7 @@ public class GraphController {
     @Operation(summary = "查询知识图谱摘要", description = "返回当前知识图谱节点数、关系数和待审核关系数。")
     public ApiResponse<GraphSummaryResponse> summary(
             @Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
-            @PathVariable String spaceId
+            @PathVariable Long spaceId
     ) {
         // 获取指定知识空间图谱节点、关系和待审核数量
         GraphSummaryResponse response = graphService.getSummary(spaceId);
@@ -38,7 +38,7 @@ public class GraphController {
     @Operation(summary = "查询知识图谱数据", description = "返回指定知识空间的节点、关系及对应来源证据。")
     public ApiResponse<GraphDataResponse> graph(
             @Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
-            @PathVariable String spaceId
+            @PathVariable Long spaceId
     ) {
         // 查询指定知识空间的图谱节点、关系和证据
         GraphDataResponse response = graphService.getGraph(spaceId);

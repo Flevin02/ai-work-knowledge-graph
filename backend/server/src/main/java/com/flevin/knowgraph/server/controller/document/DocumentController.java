@@ -54,7 +54,7 @@ public class DocumentController {
 	@Operation(summary = "查询来源资料列表", description = "分页返回来源资料及最近一次 AI 抽取摘要，默认每页 12 条。")
 	public ApiResponse<SourceDocumentPageResponse> listDocuments(
 			@Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
-			@PathVariable String spaceId,
+			@PathVariable Long spaceId,
 			@Parameter(description = "按原始文件名模糊查询；为空时返回当前空间全部资料", example = "会议")
 			@RequestParam(required = false) String name,
 			@Parameter(description = "页码，从 1 开始", example = "1")
@@ -81,9 +81,9 @@ public class DocumentController {
 	@Operation(summary = "预览来源资料原文", description = "返回当前知识空间内来源资料的解析文本，不暴露服务端存储路径。")
 	public ApiResponse<SourceDocumentContentResponse> getDocumentContent(
 			@Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
-			@PathVariable String spaceId,
+			@PathVariable Long spaceId,
 			@Parameter(description = "来源资料标识")
-			@PathVariable String documentId
+			@PathVariable Long documentId
 	) {
 		// 查询指定知识空间内来源资料的安全原文预览
 		SourceDocumentContentResponse response = documentService.getDocumentContent(spaceId, documentId);
@@ -103,9 +103,9 @@ public class DocumentController {
 	)
 	public ResponseEntity<StreamingResponseBody> extractDocument(
 				@Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
-				@PathVariable String spaceId,
+				@PathVariable Long spaceId,
 				@Parameter(description = "来源资料标识")
-				@PathVariable String documentId
+				@PathVariable Long documentId
 		) {
 			StreamingResponseBody responseBody = outputStream -> {
 				// 为当前 HTTP 输出流创建断线安全的 SSE 事件发布器
@@ -134,7 +134,7 @@ public class DocumentController {
     )
     public ApiResponse<AiExtractionBatchResponse> submitBatchExtraction(
             @Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
-            @PathVariable String spaceId,
+            @PathVariable Long spaceId,
             @jakarta.validation.Valid @RequestBody DocumentBatchRequest request
     ) {
         // 将多个来源资料提交到受控后台线程池，避免浏览器维持多条 SSE 连接
@@ -151,9 +151,9 @@ public class DocumentController {
     @Operation(summary = "查询来源资料 AI 抽取记录", description = "返回指定来源资料历史抽取记录摘要，最新记录优先。")
     public ApiResponse<List<AiExtractionRunSummary>> listExtractions(
             @Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
-            @PathVariable String spaceId,
+            @PathVariable Long spaceId,
             @Parameter(description = "来源资料标识")
-            @PathVariable String documentId
+            @PathVariable Long documentId
     ) {
         // 查询指定来源资料的历史 AI 抽取记录
         List<AiExtractionRunSummary> responses = aiExtractionService.listExtractions(
@@ -169,11 +169,11 @@ public class DocumentController {
     @Operation(summary = "查询来源资料 AI 抽取结果", description = "返回指定抽取记录的状态、错误摘要和完整候选结果。")
     public ApiResponse<AiExtractionRunDetail> getExtraction(
             @Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
-            @PathVariable String spaceId,
+            @PathVariable Long spaceId,
             @Parameter(description = "来源资料标识")
-            @PathVariable String documentId,
+            @PathVariable Long documentId,
             @Parameter(description = "AI 抽取记录标识")
-            @PathVariable String extractionId
+            @PathVariable Long extractionId
     ) {
         // 查询指定历史抽取记录及其完整候选结果
         AiExtractionRunDetail response = aiExtractionService.getExtraction(
@@ -193,11 +193,11 @@ public class DocumentController {
     )
     public ApiResponse<AiRelationReviewResponse> reviewExtractionRelations(
             @Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
-            @PathVariable String spaceId,
+            @PathVariable Long spaceId,
             @Parameter(description = "来源资料标识")
-            @PathVariable String documentId,
+            @PathVariable Long documentId,
             @Parameter(description = "AI 抽取运行标识")
-            @PathVariable String extractionId,
+            @PathVariable Long extractionId,
             @RequestBody @jakarta.validation.Valid AiRelationReviewRequest request
     ) {
         // 按抽取运行的服务端候选结果执行单条或批量关系审核
@@ -219,11 +219,11 @@ public class DocumentController {
     )
     public ApiResponse<List<AiRelationReviewState>> listReviewStates(
             @Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
-            @PathVariable String spaceId,
+            @PathVariable Long spaceId,
             @Parameter(description = "来源资料标识")
-            @PathVariable String documentId,
+            @PathVariable Long documentId,
             @Parameter(description = "AI 抽取运行标识")
-            @PathVariable String extractionId
+            @PathVariable Long extractionId
     ) {
         // 查询服务端已保存的候选关系审核状态
         List<AiRelationReviewState> response = aiExtractionService.listReviewStates(
@@ -247,7 +247,7 @@ public class DocumentController {
 	)
 	public ApiResponse<DocumentImportResponse> importDocuments(
 			@Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
-			@PathVariable String spaceId,
+			@PathVariable Long spaceId,
 			@Parameter(description = "文档业务类型；未提供时按 general 处理", example = "prd")
 			@RequestPart(value = "documentType", required = false) String documentType,
 			@Parameter(description = "待导入的 Markdown、TXT 或文本型 PDF 文件，可一次选择多份")
@@ -267,7 +267,7 @@ public class DocumentController {
     )
     public ApiResponse<DocumentBatchDeleteResponse> deleteDocuments(
             @Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
-            @PathVariable String spaceId,
+            @PathVariable Long spaceId,
             @jakarta.validation.Valid @RequestBody DocumentBatchRequest request
     ) {
         // 批量软删除当前空间中已选择的来源资料，并同步图谱来源贡献
@@ -287,9 +287,9 @@ public class DocumentController {
 	)
 	public ApiResponse<Void> deleteDocument(
 			@Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
-			@PathVariable String spaceId,
+			@PathVariable Long spaceId,
 			@Parameter(description = "来源资料标识")
-			@PathVariable String documentId
+			@PathVariable Long documentId
 	) {
 		// 软删除来源资料并同步处理图谱来源贡献
 		documentService.deleteDocument(spaceId, documentId);

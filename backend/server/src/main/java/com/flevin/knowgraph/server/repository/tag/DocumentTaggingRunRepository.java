@@ -71,9 +71,9 @@ public class DocumentTaggingRunRepository {
      * @return 匹配运行；不存在时返回空
      */
     public Optional<DocumentTaggingRun> findById(
-            String spaceId,
-            String sourceDocumentId,
-            String runId
+            Long spaceId,
+            Long sourceDocumentId,
+            Long runId
     ) {
         // 使用三重隔离条件防止跨空间或跨文档恢复运行
         DocumentTaggingRunEntity entity = mapper.selectOne(
@@ -95,8 +95,8 @@ public class DocumentTaggingRunRepository {
      * @return 最近一次运行；从未运行时返回空
      */
     public Optional<DocumentTaggingRun> findLatest(
-            String spaceId,
-            String sourceDocumentId
+            Long spaceId,
+            Long sourceDocumentId
     ) {
         // 按创建时间倒序读取一条运行，供桌面 Web 刷新后恢复处理结果
         DocumentTaggingRunEntity entity = mapper.selectOne(

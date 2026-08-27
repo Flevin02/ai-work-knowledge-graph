@@ -26,9 +26,9 @@ import java.time.Instant;
  * @param completedAt 完成或失败时间
  */
 public record DocumentTaggingRun(
-        String id,
-        String spaceId,
-        String sourceDocumentId,
+        Long id,
+        Long spaceId,
+        Long sourceDocumentId,
         String sourceContentHash,
         String status,
         String failureStage,

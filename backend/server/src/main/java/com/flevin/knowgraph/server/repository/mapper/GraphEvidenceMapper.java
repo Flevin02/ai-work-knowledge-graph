@@ -21,7 +21,7 @@ public interface GraphEvidenceMapper extends BaseMapper<GraphEvidenceEntity> {
      * @return 带来源资料名称的证据行
      */
     List<GraphEvidenceRow> findRowsBySpaceIdAndEdgeIds(
-            String spaceId,
-            List<String> edgeIds
+            Long spaceId,
+            List<Long> edgeIds
     );
 }

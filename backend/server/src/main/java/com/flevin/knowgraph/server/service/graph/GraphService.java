@@ -14,7 +14,7 @@ public interface GraphService {
      * @param spaceId 知识空间标识
      * @return 图谱摘要
      */
-    GraphSummaryResponse getSummary(String spaceId);
+    GraphSummaryResponse getSummary(Long spaceId);
 
     /**
      * 查询指定知识空间的图谱节点、关系和证据。
@@ -22,5 +22,5 @@ public interface GraphService {
      * @param spaceId 知识空间标识
      * @return 图谱基础数据
      */
-    GraphDataResponse getGraph(String spaceId);
+    GraphDataResponse getGraph(Long spaceId);
 }

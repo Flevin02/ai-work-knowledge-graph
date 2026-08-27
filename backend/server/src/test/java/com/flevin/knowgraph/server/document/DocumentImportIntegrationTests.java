@@ -51,13 +51,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
-        "app.database-path=target/test-data/document-import.sqlite",
         "app.upload-dir=target/test-data/document-uploads"
 })
 @AutoConfigureMockMvc
 class DocumentImportIntegrationTests {
 
-    private static final String DEFAULT_SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
+    private static final Long DEFAULT_SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
 
     @Autowired
     private DocumentService documentService;
@@ -95,7 +94,7 @@ class DocumentImportIntegrationTests {
         jdbcTemplate.update("DELETE FROM graph_edges");
         jdbcTemplate.update("DELETE FROM graph_nodes");
 
-        // 再删除来源资料，满足 SQLite 外键约束
+        // 再删除来源资料，满足 MySQL 外键约束
         jdbcTemplate.update("DELETE FROM source_documents");
 
         // 再删除已失去引用的导入批次
@@ -324,7 +323,7 @@ class DocumentImportIntegrationTests {
                 "spaceId",
                 "",
                 "text/plain",
-                DEFAULT_SPACE_ID.getBytes(StandardCharsets.UTF_8)
+                String.valueOf(DEFAULT_SPACE_ID).getBytes(StandardCharsets.UTF_8)
         );
 
         MockMultipartFile documentType = new MockMultipartFile(
@@ -438,7 +437,7 @@ class DocumentImportIntegrationTests {
         );
         documentService.importDocuments(otherSpace.id(), List.of(otherSpaceDocument));
 
-        // 使用小写英文查询，验证 SQLite 名称匹配保持大小写不敏感
+        // 使用小写英文查询，验证 MySQL 名称匹配保持大小写不敏感
         mockMvc.perform(get("/v1/spaces/{spaceId}/documents", DEFAULT_SPACE_ID)
                         .queryParam("name", "alpha"))
                 .andExpect(status().isOk())
@@ -551,7 +550,7 @@ class DocumentImportIntegrationTests {
                 "spaceId",
                 "",
                 "text/plain",
-                DEFAULT_SPACE_ID.getBytes(StandardCharsets.UTF_8)
+                String.valueOf(DEFAULT_SPACE_ID).getBytes(StandardCharsets.UTF_8)
         );
 
         MockMultipartFile documentType = new MockMultipartFile(
@@ -587,7 +586,7 @@ class DocumentImportIntegrationTests {
                 "spaceId",
                 "",
                 "text/plain",
-                DEFAULT_SPACE_ID.getBytes(StandardCharsets.UTF_8)
+                String.valueOf(DEFAULT_SPACE_ID).getBytes(StandardCharsets.UTF_8)
         );
 
         // 导入包含非法 UTF-8 字节的 TXT 文件
@@ -619,7 +618,7 @@ class DocumentImportIntegrationTests {
                 "prd",
                 List.of(markdownFile)
         );
-        String documentId = importResponse.results().getFirst().document().id();
+        Long documentId = importResponse.results().getFirst().document().id();
 
         // 通过原文预览接口读取服务端保存的 Markdown 解析文本
         mockMvc.perform(get(
@@ -651,14 +650,14 @@ class DocumentImportIntegrationTests {
                 "prd",
                 List.of(documentFile)
         );
-        String documentId = importResponse.results().getFirst().document().id();
+        Long documentId = importResponse.results().getFirst().document().id();
         SourceDocument savedDocument = sourceDocumentRepository.findById(DEFAULT_SPACE_ID, documentId)
                 .orElseThrow();
         Instant createdAt = Instant.now();
 
         // 创建一个仅由待删除资料支撑的节点
         graphRepository.saveNode(new GraphNode(
-                "delete-exclusive-node",
+                com.flevin.knowgraph.server.support.TestIdFixtures.id("delete-exclusive-node"),
                 DEFAULT_SPACE_ID,
                 "document",
                 "删除测试节点",
@@ -672,24 +671,24 @@ class DocumentImportIntegrationTests {
 
         // 创建一个由其他来源保留的稳定节点
         graphRepository.saveNode(new GraphNode(
-                "delete-stable-node",
+                com.flevin.knowgraph.server.support.TestIdFixtures.id("delete-stable-node"),
                 DEFAULT_SPACE_ID,
                 "project",
                 "稳定项目节点",
                 "删除资料后仍保留",
                 "active",
                 "project:delete-stable-node",
-                List.of("other-source"),
+                List.of(com.flevin.knowgraph.server.support.TestIdFixtures.id("other-source")),
                 createdAt,
                 createdAt
         ));
 
         // 创建连接两个节点且证据仅来自待删除资料的关系
         graphRepository.saveEdge(new GraphEdge(
-                "delete-test-edge",
+                com.flevin.knowgraph.server.support.TestIdFixtures.id("delete-test-edge"),
                 DEFAULT_SPACE_ID,
-                "delete-exclusive-node",
-                "delete-stable-node",
+                com.flevin.knowgraph.server.support.TestIdFixtures.id("delete-exclusive-node"),
+                com.flevin.knowgraph.server.support.TestIdFixtures.id("delete-stable-node"),
                 "属于项目",
                 "confirmed",
                 1.0D,
@@ -697,9 +696,9 @@ class DocumentImportIntegrationTests {
                 createdAt
         ));
         graphRepository.saveEvidence(new GraphEvidence(
-                "delete-test-evidence",
+                com.flevin.knowgraph.server.support.TestIdFixtures.id("delete-test-evidence"),
                 DEFAULT_SPACE_ID,
-                "delete-test-edge",
+                com.flevin.knowgraph.server.support.TestIdFixtures.id("delete-test-edge"),
                 documentId,
                 "删除测试.md",
                 "该资料独立支撑一个图谱节点和关系。",
@@ -735,7 +734,9 @@ class DocumentImportIntegrationTests {
         mockMvc.perform(get("/v1/spaces/{spaceId}/graph", DEFAULT_SPACE_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.nodes.length()").value(1))
-                .andExpect(jsonPath("$.data.nodes[0].id").value("delete-stable-node"))
+                .andExpect(jsonPath("$.data.nodes[0].id").value(
+                        com.flevin.knowgraph.server.support.TestIdFixtures.id("delete-stable-node")
+                ))
                 .andExpect(jsonPath("$.data.edges.length()").value(0));
 
         // 物理原始文件和数据库事实记录继续保留
@@ -756,7 +757,7 @@ class DocumentImportIntegrationTests {
         assertThat(restoredResponse.results().getFirst().document().id()).isEqualTo(documentId);
         assertThat(graphRepository.findNodes(DEFAULT_SPACE_ID))
                 .extracting(GraphNode::id)
-                .containsExactly("delete-stable-node");
+                .containsExactly(com.flevin.knowgraph.server.support.TestIdFixtures.id("delete-stable-node"));
     }
 
     @Test
@@ -780,14 +781,14 @@ class DocumentImportIntegrationTests {
                 "general",
                 List.of(firstFile, secondFile)
         );
-        List<String> documentIds = importResponse.results().stream()
+        List<Long> documentIds = importResponse.results().stream()
                 .map(result -> result.document().id())
                 .toList();
 
         // 通过批量资源一次提交两份资料，验证服务端事务性软删除能力
         mockMvc.perform(post("/v1/spaces/{spaceId}/documents/deletion-batches", DEFAULT_SPACE_ID)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"documentIds\":[\"" + documentIds.get(0) + "\",\"" + documentIds.get(1) + "\"]}"))
+                        .content("{\"documentIds\":[" + documentIds.get(0) + "," + documentIds.get(1) + "]}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.error").value(false))
                 .andExpect(jsonPath("$.data.deletedCount").value(2))
@@ -812,7 +813,7 @@ class DocumentImportIntegrationTests {
                 "spaceId",
                 "",
                 "text/plain",
-                DEFAULT_SPACE_ID.getBytes(StandardCharsets.UTF_8)
+                String.valueOf(DEFAULT_SPACE_ID).getBytes(StandardCharsets.UTF_8)
         );
 
         // 提交不包含 files 部件的 multipart 请求

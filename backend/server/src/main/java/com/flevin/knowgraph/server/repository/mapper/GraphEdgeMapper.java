@@ -20,7 +20,7 @@ public interface GraphEdgeMapper extends BaseMapper<GraphEdgeEntity> {
      * @param spaceId 知识空间标识
      * @return 未失效关系
      */
-    List<GraphEdgeEntity> findActiveBySpaceId(String spaceId);
+    List<GraphEdgeEntity> findActiveBySpaceId(Long spaceId);
 
     /**
      * 按主键查询关系，供候选物化和审核状态更新复用。
@@ -28,7 +28,7 @@ public interface GraphEdgeMapper extends BaseMapper<GraphEdgeEntity> {
      * @param edgeId 关系标识
      * @return 关系实体；不存在时为空
      */
-    default Optional<GraphEdgeEntity> findById(String edgeId) {
+    default Optional<GraphEdgeEntity> findById(Long edgeId) {
         return Optional.ofNullable(selectById(edgeId));
     }
 
@@ -41,8 +41,8 @@ public interface GraphEdgeMapper extends BaseMapper<GraphEdgeEntity> {
      * @return 实际更新关系数
      */
     int markStaleByNodeIds(
-            @Param("spaceId") String spaceId,
-            @Param("nodeIds") List<String> nodeIds,
+            @Param("spaceId") Long spaceId,
+            @Param("nodeIds") List<Long> nodeIds,
             @Param("updatedAt") String updatedAt
     );
 
@@ -55,8 +55,8 @@ public interface GraphEdgeMapper extends BaseMapper<GraphEdgeEntity> {
      * @return 实际更新关系数
      */
     int markStaleWithoutActiveEvidence(
-            @Param("spaceId") String spaceId,
-            @Param("documentId") String documentId,
+            @Param("spaceId") Long spaceId,
+            @Param("documentId") Long documentId,
             @Param("updatedAt") String updatedAt
     );
 }

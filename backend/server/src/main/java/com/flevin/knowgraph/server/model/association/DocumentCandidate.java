@@ -21,7 +21,7 @@ import java.util.List;
  * @param rank 在本次召回结果中的 1-based 排名
  */
 public record DocumentCandidate(
-        String documentId,
+        Long documentId,
         String name,
         String kind,
         SourceDocumentType documentType,

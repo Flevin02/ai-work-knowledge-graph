@@ -15,6 +15,6 @@ public record DocumentBatchDeleteResponse(
         @Schema(description = "已软删除的资料数量", example = "2")
         int deletedCount,
         @Schema(description = "已软删除的来源资料标识")
-        List<String> documentIds
+        List<Long> documentIds
 ) {
 }

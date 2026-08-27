@@ -16,13 +16,13 @@ import lombok.NoArgsConstructor;
 public class ReviewActionEntity {
 
     @TableId(value = "id", type = IdType.INPUT)
-    private String id;
+    private Long id;
 
     @TableField("space_id")
-    private String spaceId;
+    private Long spaceId;
 
     @TableField("edge_id")
-    private String edgeId;
+    private Long edgeId;
 
     private String action;
 

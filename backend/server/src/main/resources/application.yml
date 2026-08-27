@@ -7,19 +7,17 @@ spring:
   application:
     name: ai-work-knowledge-graph-backend
   datasource:
-    url: jdbc:sqlite:${app.database-path}
-    driver-class-name: org.sqlite.JDBC
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:knowledge_graph}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
-      # 本地 SQLite 仍保持单写；连接池只限制资源并支持并发读取。
-      pool-name: knowledge-graph-sqlite
-      maximum-pool-size: ${SQLITE_POOL_MAX_SIZE:4}
-      minimum-idle: ${SQLITE_POOL_MIN_IDLE:1}
-      connection-timeout: ${SQLITE_POOL_CONNECTION_TIMEOUT_MS:3000}
-      initialization-fail-timeout: ${SQLITE_POOL_CONNECTION_TIMEOUT_MS:3000}
-      data-source-properties:
-        "[journal_mode]": WAL
-        "[foreign_keys]": true
-        "[busy_timeout]": ${SQLITE_BUSY_TIMEOUT_MS:5000}
+      # MySQL 使用服务端并发控制；连接池只限制应用侧资源占用。
+      pool-name: knowledge-graph-mysql
+      maximum-pool-size: ${MYSQL_POOL_MAX_SIZE:10}
+      minimum-idle: ${MYSQL_POOL_MIN_IDLE:2}
+      connection-timeout: ${MYSQL_POOL_CONNECTION_TIMEOUT_MS:3000}
+      initialization-fail-timeout: ${MYSQL_POOL_INITIALIZATION_FAIL_TIMEOUT_MS:3000}
   profiles:
     active: @profile.active@
   servlet:
@@ -35,19 +33,17 @@ spring:
 
 app:
   frontend-origin: ${FRONTEND_ORIGIN:http://localhost:3010}
-  # 约定从仓库根目录启动后端，默认运行数据统一落在 backend/server/data。
-  data-dir: ${DATA_DIR:./backend/server/data}
-  database-path: ${DATABASE_PATH:${app.data-dir}/knowledge-graph.sqlite}
-  upload-dir: ${UPLOAD_DIR:${app.data-dir}/uploads}
+  # 原始文件仍落在本地目录，事实元数据和审核记录统一保存到 MySQL。
+  upload-dir: ${UPLOAD_DIR:./backend/server/data/uploads}
 
 ai:
-  enabled: ${AI_ENABLED:true}
+  enabled: ${AI_ENABLED:false}
   provider: ${AI_PROVIDER:openai-compatible}
   model: ${AI_MODEL:gpt-5.5}
   api-key: ${AI_API_KEY:}
   base-url: ${AI_BASE_URL:https://api.psydo.top/v1}
-  json-schema-enabled: ${AI_JSON_SCHEMA_ENABLED:true}
-  embedding-enabled: ${AI_EMBEDDING_ENABLED:true}
+  json-schema-enabled: ${AI_JSON_SCHEMA_ENABLED:false}
+  embedding-enabled: ${AI_EMBEDDING_ENABLED:false}
   embedding-model: ${AI_EMBEDDING_MODEL:text-embedding-3-small}
   prompt-version: ${AI_PROMPT_VERSION:prd-extraction-v3}
   summary-prompt-version: ${AI_SUMMARY_PROMPT_VERSION:document-summary-v1}
@@ -57,7 +53,7 @@ ai:
   max-retries: ${AI_MAX_RETRIES:0}
   timeout-seconds: ${AI_TIMEOUT_SECONDS:60}
   batch-extraction:
-    # 多选提取在后端使用有界线程池执行，避免同时占满模型请求和 SQLite 写入资源。
+    # 多选提取在后端使用有界线程池执行，避免同时占满模型请求和 MySQL 写入资源。
     max-concurrency: ${AI_BATCH_EXTRACTION_MAX_CONCURRENCY:2}
     queue-capacity: ${AI_BATCH_EXTRACTION_QUEUE_CAPACITY:12}
   rag:

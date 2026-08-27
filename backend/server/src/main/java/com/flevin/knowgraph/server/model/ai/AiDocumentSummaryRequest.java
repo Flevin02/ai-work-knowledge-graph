@@ -11,7 +11,7 @@ import java.util.List;
  * @param chunks 按原文顺序排列的分片摘要
  */
 public record AiDocumentSummaryRequest(
-        String sourceDocumentId,
+        Long sourceDocumentId,
         String documentName,
         String documentType,
         List<ChunkSummary> chunks

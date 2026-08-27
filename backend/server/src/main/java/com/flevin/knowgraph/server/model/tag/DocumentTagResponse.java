@@ -23,14 +23,14 @@ import java.util.List;
  */
 @Schema(description = "可审核文档标签及其证据和历史")
 public record DocumentTagResponse(
-        @Schema(description = "文档标签关系标识") String id,
-        @Schema(description = "标签定义标识") String tagId,
+        @Schema(description = "文档标签关系标识") Long id,
+        @Schema(description = "标签定义标识") Long tagId,
         @Schema(description = "标签展示名称", example = "年会筹备") String name,
         @Schema(description = "标签规范化键", example = "年会筹备") String normalizedKey,
         @Schema(description = "标签来源", example = "ai") String sourceType,
         @Schema(description = "审核状态", example = "suggested") String status,
         @Schema(description = "模型或规则置信度", example = "0.9") Double confidence,
-        @Schema(description = "标签运行标识") String extractionRunId,
+        @Schema(description = "标签运行标识") Long extractionRunId,
         @Schema(description = "已完成逐字反查的证据") List<Evidence> evidences,
         @Schema(description = "不可变审核历史") List<Review> reviews,
         @Schema(description = "创建时间") Instant createdAt,
@@ -55,8 +55,8 @@ public record DocumentTagResponse(
      */
     @Schema(description = "文档标签的可定位原文证据")
     public record Evidence(
-            @Schema(description = "证据标识") String id,
-            @Schema(description = "证据所在来源资料标识") String sourceDocumentId,
+            @Schema(description = "证据标识") Long id,
+            @Schema(description = "证据所在来源资料标识") Long sourceDocumentId,
             @Schema(description = "分片标识") String chunkId,
             @Schema(description = "章节路径") String sectionPath,
             @Schema(description = "逐字原文") String quote,
@@ -76,7 +76,7 @@ public record DocumentTagResponse(
      */
     @Schema(description = "文档标签不可变审核历史")
     public record Review(
-            @Schema(description = "审核记录标识") String id,
+            @Schema(description = "审核记录标识") Long id,
             @Schema(description = "审核动作", example = "accept") String action,
             @Schema(description = "审核说明") String reason,
             @Schema(description = "操作者展示名称", example = "local-user") String operatorName,

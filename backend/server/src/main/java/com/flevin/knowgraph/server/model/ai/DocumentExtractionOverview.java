@@ -15,8 +15,8 @@ import java.time.Instant;
  * @param latestCompletedSummary 最近一次成功抽取生成的文档摘要；旧版成功记录可能为空
  */
 public record DocumentExtractionOverview(
-        String documentId,
-        String extractionId,
+        Long documentId,
+        Long extractionId,
         String status,
         Instant startedAt,
         Instant completedAt,

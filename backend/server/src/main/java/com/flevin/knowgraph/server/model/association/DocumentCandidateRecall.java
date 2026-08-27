@@ -16,8 +16,8 @@ import java.util.List;
  * @param keywordCandidateCount 由默认内容通道命中的候选数量
  */
 public record DocumentCandidateRecall(
-        String spaceId,
-        String sourceDocumentId,
+        Long spaceId,
+        Long sourceDocumentId,
         String sourceContentHash,
         String candidateRecallPolicyVersion,
         int topK,

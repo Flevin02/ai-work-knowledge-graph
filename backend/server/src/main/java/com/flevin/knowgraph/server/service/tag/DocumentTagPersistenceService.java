@@ -61,8 +61,8 @@ public interface DocumentTagPersistenceService {
      * @return 已保存的不可变审核历史
      */
     DocumentTagReview reviewDocumentTag(
-            String spaceId,
-            String documentTagId,
+            Long spaceId,
+            Long documentTagId,
             String action,
             String reason,
             String operatorName
@@ -76,8 +76,8 @@ public interface DocumentTagPersistenceService {
      * @return 文档标签关系列表
      */
     List<DocumentTag> listDocumentTags(
-            String spaceId,
-            String sourceDocumentId
+            Long spaceId,
+            Long sourceDocumentId
     );
 
     /**
@@ -88,7 +88,7 @@ public interface DocumentTagPersistenceService {
      * @return 标签证据列表
      */
     List<DocumentTagEvidence> listEvidence(
-            String spaceId,
-            String documentTagId
+            Long spaceId,
+            Long documentTagId
     );
 }

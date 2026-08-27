@@ -28,6 +28,7 @@ import com.flevin.knowgraph.server.service.association.DocumentAssociationClient
 import com.flevin.knowgraph.server.service.association.DocumentAssociationPersistenceService;
 import com.flevin.knowgraph.server.service.association.DocumentAssociationResponseMapper;
 import com.flevin.knowgraph.server.service.association.DocumentAssociationService;
+import com.flevin.knowgraph.server.util.SnowflakeIdGenerator;
 import com.flevin.knowgraph.server.service.association.DocumentCandidateRecallService;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
@@ -48,7 +49,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -109,8 +109,8 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
      */
     @Override
     public DocumentAssociationRunResponse createRun(
-            String spaceId,
-            String sourceDocumentId
+            Long spaceId,
+            Long sourceDocumentId
     ) {
         return createRun(spaceId, sourceDocumentId, false);
     }
@@ -125,8 +125,8 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
      */
     @Override
     public DocumentAssociationRunResponse createRun(
-            String spaceId,
-            String sourceDocumentId,
+            Long spaceId,
+            Long sourceDocumentId,
             boolean includeConfirmedTags
     ) {
         // 查询当前有效来源资料，冻结本次运行的内容指纹
@@ -270,7 +270,7 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
                         (left, right) -> left,
                         LinkedHashMap::new
                 ));
-        Map<String, DocumentAssociationCandidateContext> candidateById = request.candidates().stream()
+        Map<Long, DocumentAssociationCandidateContext> candidateById = request.candidates().stream()
                 .collect(Collectors.toMap(
                         candidate -> candidate.document().documentId(),
                         Function.identity(),
@@ -378,9 +378,9 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
      */
     @Override
     public DocumentAssociationRunResponse getRun(
-            String spaceId,
-            String sourceDocumentId,
-            String runId
+            Long spaceId,
+            Long sourceDocumentId,
+            Long runId
     ) {
         // 恢复空间和文档双重隔离的一次关联运行
         DocumentAssociationRun run = persistenceService.getRun(spaceId, sourceDocumentId, runId);
@@ -398,8 +398,8 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
      */
     @Override
     public List<DocumentRelationResponse> listRelations(
-            String spaceId,
-            String documentId
+            Long spaceId,
+            Long documentId
     ) {
         // 查询当前来源资料作为主体或客体的全部关系
         List<DocumentRelation> relations = persistenceService.listRelationsByDocument(spaceId, documentId);
@@ -419,11 +419,11 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
     @Override
     @Transactional
     public DocumentRelationReviewBatchResponse reviewRelations(
-            String spaceId,
-            String documentId,
+            Long spaceId,
+            Long documentId,
             DocumentRelationReviewBatchRequest request
     ) {
-        Set<String> relationIds = request.reviews().stream()
+        Set<Long> relationIds = request.reviews().stream()
                 .map(DocumentRelationReviewBatchRequest.Item::relationId)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         if (relationIds.size() != request.reviews().size()) {
@@ -431,7 +431,7 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
         }
 
         // 一次查询当前资料的全部关系，验证客户端不能跨文档提交关系标识
-        Map<String, DocumentRelation> relationById = persistenceService
+        Map<Long, DocumentRelation> relationById = persistenceService
                 .listRelationsByDocument(spaceId, documentId)
                 .stream()
                 .collect(Collectors.toMap(DocumentRelation::id, Function.identity()));
@@ -485,7 +485,7 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
             boolean includeConfirmedTags
     ) {
         return new DocumentAssociationRun(
-                UUID.randomUUID().toString(),
+                SnowflakeIdGenerator.nextId(),
                 sourceDocument.spaceId(),
                 sourceDocument.id(),
                 sourceDocument.contentHash(),
@@ -616,7 +616,7 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
      * @return 候选模型上下文
      */
     private DocumentAssociationCandidateContext toCandidateContext(
-            String spaceId,
+            Long spaceId,
             DocumentCandidate candidate
     ) {
         // 按服务端候选标识重新读取有效来源资料并校验内容指纹未变化
@@ -769,10 +769,10 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
             throw structuredOutputInvalid();
         }
 
-        Set<String> candidateIds = request.candidates().stream()
+        Set<Long> candidateIds = request.candidates().stream()
                 .map(candidate -> candidate.document().documentId())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        List<String> decisionCandidateIds = result.decisions().stream()
+        List<Long> decisionCandidateIds = result.decisions().stream()
                 .map(DocumentAssociationDecision::candidateDocumentId)
                 .toList();
         if (new HashSet<>(decisionCandidateIds).size() != decisionCandidateIds.size()
@@ -855,7 +855,7 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
                 evidence
         ));
         if (SYMMETRIC_RELATION_TYPES.contains(decision.relationType())) {
-            Set<String> evidenceDocumentIds = selectedEvidence.stream()
+            Set<Long> evidenceDocumentIds = selectedEvidence.stream()
                     .map(DocumentAssociationEvidenceCandidate::sourceDocumentId)
                     .collect(Collectors.toSet());
             if (!evidenceDocumentIds.contains(currentDocument.documentId())
@@ -869,7 +869,7 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
 
         Instant createdAt = Instant.now();
         RelationEndpoints endpoints = resolveEndpoints(currentDocument, candidate.document(), decision.direction());
-        String relationId = UUID.randomUUID().toString();
+        Long relationId = SnowflakeIdGenerator.nextId();
         DocumentRelation relation = new DocumentRelation(
                 relationId,
                 run.spaceId(),
@@ -1014,7 +1014,7 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
      * @return 可原子保存的文档关系证据
      */
     private DocumentRelationEvidence toRelationEvidence(
-            String spaceId,
+            Long spaceId,
             DocumentRelation relation,
             DocumentAssociationDocumentContext currentDocument,
             DocumentAssociationDocumentContext candidateDocument,
@@ -1036,7 +1036,7 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
                 : "target";
 
         return new DocumentRelationEvidence(
-                UUID.randomUUID().toString(),
+                SnowflakeIdGenerator.nextId(),
                 spaceId,
                 relation.id(),
                 evidence.sourceDocumentId(),
@@ -1149,13 +1149,13 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
      * @return API 关系响应
      */
     private List<DocumentRelationResponse> toRelationResponses(
-            String spaceId,
+            Long spaceId,
             List<DocumentRelation> relations
     ) {
-        List<String> relationIds = relations.stream().map(DocumentRelation::id).toList();
+        List<Long> relationIds = relations.stream().map(DocumentRelation::id).toList();
 
         // 一次批量读取全部关系证据并按关系标识分组
-        Map<String, List<DocumentRelationEvidence>> evidenceByRelation = persistenceService
+        Map<Long, List<DocumentRelationEvidence>> evidenceByRelation = persistenceService
                 .listEvidence(spaceId, relationIds)
                 .stream()
                 .collect(Collectors.groupingBy(
@@ -1198,8 +1198,8 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
      * @return 有效来源资料
      */
     private SourceDocument requireDocument(
-            String spaceId,
-            String documentId
+            Long spaceId,
+            Long documentId
     ) {
         // 使用空间和资料标识双重边界读取来源资料
         return sourceDocumentRepository.findById(spaceId, documentId)

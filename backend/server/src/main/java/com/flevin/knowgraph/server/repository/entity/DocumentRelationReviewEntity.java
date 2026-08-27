@@ -16,13 +16,13 @@ import lombok.NoArgsConstructor;
 public class DocumentRelationReviewEntity {
 
     @TableId(value = "id", type = IdType.INPUT)
-    private String id;
+    private Long id;
 
     @TableField("space_id")
-    private String spaceId;
+    private Long spaceId;
 
     @TableField("document_relation_id")
-    private String documentRelationId;
+    private Long documentRelationId;
 
     private String action;
 

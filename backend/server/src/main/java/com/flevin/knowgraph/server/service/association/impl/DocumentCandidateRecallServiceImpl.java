@@ -153,8 +153,8 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
     @Override
     @Transactional(readOnly = true)
     public DocumentCandidateRecall recall(
-            String spaceId,
-            String sourceDocumentId
+            Long spaceId,
+            Long sourceDocumentId
     ) {
         // 使用冻结的候选上限，避免默认调用悄然改变评估基线
         return recall(spaceId, sourceDocumentId, DEFAULT_TOP_K);
@@ -171,8 +171,8 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
     @Override
     @Transactional(readOnly = true)
     public DocumentCandidateRecall recall(
-            String spaceId,
-            String sourceDocumentId,
+            Long spaceId,
+            Long sourceDocumentId,
             int topK
     ) {
         return recall(spaceId, sourceDocumentId, topK, false);
@@ -190,8 +190,8 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
     @Override
     @Transactional(readOnly = true)
     public DocumentCandidateRecall recall(
-            String spaceId,
-            String sourceDocumentId,
+            Long spaceId,
+            Long sourceDocumentId,
             int topK,
             boolean includeConfirmedTags
     ) {
@@ -212,14 +212,14 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
                 .toList();
 
         // 批量读取全部有效资料的最近成功自然摘要，避免逐文档查询形成 N+1
-        List<String> documentIds = activeDocuments.stream().map(SourceDocument::id).toList();
-        Map<String, DocumentExtractionOverview> extractionOverviews = aiExtractionRunRepository
+        List<Long> documentIds = activeDocuments.stream().map(SourceDocument::id).toList();
+        Map<Long, DocumentExtractionOverview> extractionOverviews = aiExtractionRunRepository
                 .findLatestByDocuments(spaceId, documentIds)
                 .stream()
                 .collect(Collectors.toMap(DocumentExtractionOverview::documentId, Function.identity()));
 
         // 用户显式开启后一次读取当前空间所有有效文档的 confirmed 标签，默认路径不访问标签表
-        Map<String, List<String>> confirmedTagNamesByDocument = includeConfirmedTags
+        Map<Long, List<String>> confirmedTagNamesByDocument = includeConfirmedTags
                 ? documentTagRepository.findConfirmedTagNamesByDocuments(spaceId, documentIds)
                 : Map.of();
 
@@ -289,7 +289,7 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
      *
      * @param spaceId 知识空间标识
      */
-    private void requireActiveSpace(String spaceId) {
+    private void requireActiveSpace(Long spaceId) {
         // 通过有效空间查询阻断跨空间或已删除空间的候选召回
         knowledgeSpaceRepository.findActiveById(spaceId)
                 .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "知识空间不存在"));
@@ -762,7 +762,7 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
      */
     private String resolveSummary(
             SourceDocument document,
-            Map<String, DocumentExtractionOverview> extractionOverviews
+            Map<Long, DocumentExtractionOverview> extractionOverviews
     ) {
         DocumentExtractionOverview overview = extractionOverviews.get(document.id());
         return overview == null || overview.latestCompletedSummary() == null

@@ -16,10 +16,10 @@ import lombok.NoArgsConstructor;
 public class ImportBatchEntity {
 
     @TableId(value = "id", type = IdType.INPUT)
-    private String id;
+    private Long id;
 
     @TableField("space_id")
-    private String spaceId;
+    private Long spaceId;
 
     private String status;
 

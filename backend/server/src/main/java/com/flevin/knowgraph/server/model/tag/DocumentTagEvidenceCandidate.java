@@ -16,7 +16,7 @@ import jakarta.validation.constraints.NotNull;
 @Description("文档标签引用的可定位原文证据")
 public record DocumentTagEvidenceCandidate(
         @NotBlank String evidenceId,
-        @NotBlank String sourceDocumentId,
+        @NotNull Long sourceDocumentId,
         @NotBlank String chunkId,
         @NotNull String sectionPath,
         @NotBlank String quote

@@ -14,8 +14,8 @@ import java.time.Instant;
  * @param updatedAt 最近更新时间
  */
 public record KnowledgeTag(
-        String id,
-        String spaceId,
+        Long id,
+        Long spaceId,
         String name,
         String normalizedKey,
         String status,

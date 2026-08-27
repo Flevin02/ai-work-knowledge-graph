@@ -30,6 +30,7 @@ import com.flevin.knowgraph.server.service.ai.AiExtractionValidationException;
 import com.flevin.knowgraph.server.service.ai.rag.PrdMarkdownSectionParser;
 import com.flevin.knowgraph.server.service.ai.rag.SectionAwareDocumentChunker;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
+import com.flevin.knowgraph.server.util.SnowflakeIdGenerator;
 import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -45,7 +46,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.UUID;
 
 /**
  * 来源资料 AI 抽取编排实现，负责保存候选结果并将其物化为待审核图谱事实。
@@ -79,8 +79,8 @@ public class AiExtractionServiceImpl implements AiExtractionService {
      */
     @Override
     public AiDocumentExtractionResponse extractDocument(
-            String spaceId,
-            String documentId
+            Long spaceId,
+            Long documentId
     ) {
         // 使用空事件发布器复用同一编排逻辑，保持同步服务调用兼容
         return executeExtraction(spaceId, documentId, (eventName, payload) -> {
@@ -96,8 +96,8 @@ public class AiExtractionServiceImpl implements AiExtractionService {
      */
     @Override
     public void streamDocument(
-            String spaceId,
-            String documentId,
+            Long spaceId,
+            Long documentId,
             AiExtractionEventPublisher eventPublisher
     ) {
         try {
@@ -122,15 +122,13 @@ public class AiExtractionServiceImpl implements AiExtractionService {
      */
     @Override
     public AiExtractionBatchResponse submitBatchExtraction(
-            String spaceId,
-            List<String> documentIds
+            Long spaceId,
+            List<Long> documentIds
     ) {
         // 校验当前知识空间有效，避免把后台任务提交到已删除空间
         knowledgeSpaceService.requireActive(spaceId);
 
-        List<String> normalizedDocumentIds = documentIds.stream()
-                .map(String::strip)
-                .toList();
+        List<Long> normalizedDocumentIds = documentIds.stream().toList();
         if (new LinkedHashSet<>(normalizedDocumentIds).size() != normalizedDocumentIds.size()) {
             throw new TipsException(ErrorCode.PARAM_ERROR, "批量操作中不能重复选择同一份来源资料");
         }
@@ -139,8 +137,8 @@ public class AiExtractionServiceImpl implements AiExtractionService {
         List<SourceDocument> documents = normalizedDocumentIds.stream()
                 .map(documentId -> requireDocument(spaceId, documentId))
                 .toList();
-        List<String> acceptedDocumentIds = new ArrayList<>(documents.size());
-        List<String> rejectedDocumentIds = new ArrayList<>();
+        List<Long> acceptedDocumentIds = new ArrayList<>(documents.size());
+        List<Long> rejectedDocumentIds = new ArrayList<>();
 
         for (SourceDocument document : documents) {
             try {
@@ -172,7 +170,7 @@ public class AiExtractionServiceImpl implements AiExtractionService {
      * @param document 已完成前置校验的来源资料
      */
     private void runBatchExtraction(
-            String spaceId,
+            Long spaceId,
             SourceDocument document
     ) {
         try {
@@ -197,11 +195,11 @@ public class AiExtractionServiceImpl implements AiExtractionService {
      * @return 完整结构化抽取结果
      */
     private AiDocumentExtractionResponse executeExtraction(
-            String spaceId,
-            String documentId,
+            Long spaceId,
+            Long documentId,
             AiExtractionEventPublisher eventPublisher
     ) {
-        String extractionId = UUID.randomUUID().toString();
+        Long extractionId = SnowflakeIdGenerator.nextId();
         SourceDocument document = null;
         DocumentChunk currentChunk = null;
         boolean runSaved = false;
@@ -414,7 +412,7 @@ public class AiExtractionServiceImpl implements AiExtractionService {
      * @return 抽取运行摘要
      */
     @Override
-    public List<AiExtractionRunSummary> listExtractions(String spaceId, String documentId) {
+    public List<AiExtractionRunSummary> listExtractions(Long spaceId, Long documentId) {
         // 校验来源资料所属知识空间当前有效
         knowledgeSpaceService.requireActive(spaceId);
 
@@ -437,9 +435,9 @@ public class AiExtractionServiceImpl implements AiExtractionService {
      */
     @Override
     public AiExtractionRunDetail getExtraction(
-            String spaceId,
-            String documentId,
-            String extractionId
+            Long spaceId,
+            Long documentId,
+            Long extractionId
     ) {
         // 校验来源资料所属知识空间当前有效
         knowledgeSpaceService.requireActive(spaceId);
@@ -471,9 +469,9 @@ public class AiExtractionServiceImpl implements AiExtractionService {
      */
     @Override
     public AiRelationReviewResponse reviewRelations(
-            String spaceId,
-            String documentId,
-            String extractionId,
+            Long spaceId,
+            Long documentId,
+            Long extractionId,
             AiRelationReviewRequest request
     ) {
         // 校验知识空间和来源资料边界，防止跨空间审核抽取结果
@@ -506,9 +504,9 @@ public class AiExtractionServiceImpl implements AiExtractionService {
      */
     @Override
     public List<AiRelationReviewState> listReviewStates(
-            String spaceId,
-            String documentId,
-            String extractionId
+            Long spaceId,
+            Long documentId,
+            Long extractionId
     ) {
         // 校验知识空间和来源资料边界，防止跨空间恢复审核状态
         knowledgeSpaceService.requireActive(spaceId);
@@ -528,8 +526,8 @@ public class AiExtractionServiceImpl implements AiExtractionService {
     }
 
     private AiExtractionRunEntity createProcessingRun(
-            String extractionId,
-            String spaceId,
+            Long extractionId,
+            Long spaceId,
             SourceDocument document,
             Instant createdAt
     ) {
@@ -550,7 +548,7 @@ public class AiExtractionServiceImpl implements AiExtractionService {
         return entity;
     }
 
-    private SourceDocument requireDocument(String spaceId, String documentId) {
+    private SourceDocument requireDocument(Long spaceId, Long documentId) {
         return sourceDocumentRepository.findById(spaceId, documentId)
                 .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "来源资料不存在"));
     }
@@ -646,8 +644,8 @@ public class AiExtractionServiceImpl implements AiExtractionService {
      */
     private void publishFailureEvent(
             AiExtractionEventPublisher eventPublisher,
-            String extractionId,
-            String documentId,
+            Long extractionId,
+            Long documentId,
             String chunkId,
             String errorMessage,
             boolean recoverable
@@ -686,7 +684,7 @@ public class AiExtractionServiceImpl implements AiExtractionService {
      * @return 当前分片结构化候选结果
      */
     private AiChunkExtractionResult extractChunk(
-            String extractionId,
+            Long extractionId,
             SourceDocument document,
             DocumentChunk chunk,
             AiExtractionClient extractionClient,

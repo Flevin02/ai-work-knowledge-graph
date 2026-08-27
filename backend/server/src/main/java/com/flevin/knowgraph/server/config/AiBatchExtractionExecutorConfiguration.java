@@ -7,7 +7,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 /**
- * 批量 AI 抽取任务执行器配置，避免一次多选提取无限并发占满模型和 SQLite 资源。
+ * 批量 AI 抽取任务执行器配置，避免一次多选提取无限并发占满模型和 MySQL 资源。
  */
 @Configuration
 @RequiredArgsConstructor

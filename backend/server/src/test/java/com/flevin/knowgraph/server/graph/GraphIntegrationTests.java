@@ -10,6 +10,7 @@ import com.flevin.knowgraph.server.repository.graph.GraphRepository;
 import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
 import com.flevin.knowgraph.server.support.TestKnowledgeSpaceFixtures;
+import com.flevin.knowgraph.server.support.TestIdFixtures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,13 +31,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
-        "app.database-path=target/test-data/graph.sqlite",
         "app.upload-dir=target/test-data/graph-uploads"
 })
 @AutoConfigureMockMvc
 class GraphIntegrationTests {
 
-    private static final String DEFAULT_SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
+    private static final Long DEFAULT_SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
     private static final Instant TEST_TIME = Instant.parse("2026-08-17T09:00:00Z");
 
     @Autowired
@@ -73,9 +73,9 @@ class GraphIntegrationTests {
 
     @Test
     void createsAllStageTablesAndReturnsGraphWithEvidence() throws Exception {
-        // 查询当前 SQLite 中的基础数据表名称
+        // 查询当前 MySQL 中的基础数据表名称
         Set<String> tableNames = Set.copyOf(jdbcTemplate.queryForList(
-                "SELECT name FROM sqlite_master WHERE type = 'table'",
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()",
                 String.class
         ));
 
@@ -101,10 +101,10 @@ class GraphIntegrationTests {
                 DEFAULT_SPACE_ID,
                 List.of(sourceFile)
         );
-        String sourceDocumentId = importResponse.results().getFirst().document().id();
+        Long sourceDocumentId = importResponse.results().getFirst().document().id();
 
         GraphNode projectNode = new GraphNode(
-                "node-project",
+                TestIdFixtures.id("node-project"),
                 DEFAULT_SPACE_ID,
                 "project",
                 "2026 年公司年会",
@@ -116,7 +116,7 @@ class GraphIntegrationTests {
                 TEST_TIME
         );
         GraphNode personNode = new GraphNode(
-                "node-person",
+                TestIdFixtures.id("node-person"),
                 DEFAULT_SPACE_ID,
                 "person",
                 "张三",
@@ -133,7 +133,7 @@ class GraphIntegrationTests {
         graphRepository.saveNode(personNode);
 
         GraphEdge confirmedEdge = new GraphEdge(
-                "edge-person-project",
+                TestIdFixtures.id("edge-person-project"),
                 DEFAULT_SPACE_ID,
                 personNode.id(),
                 projectNode.id(),
@@ -144,7 +144,7 @@ class GraphIntegrationTests {
                 TEST_TIME
         );
         GraphEdge suggestedEdge = new GraphEdge(
-                "edge-project-review",
+                TestIdFixtures.id("edge-project-review"),
                 DEFAULT_SPACE_ID,
                 projectNode.id(),
                 personNode.id(),
@@ -161,7 +161,7 @@ class GraphIntegrationTests {
 
         // 保存已确认关系的来源证据
         graphRepository.saveEvidence(new GraphEvidence(
-                "evidence-person-project",
+                TestIdFixtures.id("evidence-person-project"),
                 DEFAULT_SPACE_ID,
                 confirmedEdge.id(),
                 sourceDocumentId,
@@ -179,7 +179,7 @@ class GraphIntegrationTests {
                             id, space_id, edge_id, action, reason, operator_name, created_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
-                "review-1",
+                TestIdFixtures.id("review-1"),
                 DEFAULT_SPACE_ID,
                 suggestedEdge.id(),
                 "reject",
@@ -188,7 +188,7 @@ class GraphIntegrationTests {
                 TEST_TIME.toString()
         );
 
-        // 查询图谱摘要，验证节点、已确认关系和待审核关系来自 SQLite 真实统计
+        // 查询图谱摘要，验证节点、已确认关系和待审核关系来自 MySQL 真实统计
         mockMvc.perform(get("/v1/spaces/{spaceId}/graph/summary", DEFAULT_SPACE_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.nodes").value(2))
@@ -213,7 +213,7 @@ class GraphIntegrationTests {
 
         // 在默认空间写入一个节点
         graphRepository.saveNode(new GraphNode(
-                "default-only-node",
+                TestIdFixtures.id("default-only-node"),
                 DEFAULT_SPACE_ID,
                 "project",
                 "默认空间节点",

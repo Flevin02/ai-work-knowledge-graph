@@ -20,7 +20,7 @@ import java.util.List;
 @Schema(description = "知识图谱节点")
 public record GraphNodeResponse(
         @Schema(description = "节点标识")
-        String id,
+        Long id,
         @Schema(description = "节点类型", example = "project")
         String type,
         @Schema(description = "节点名称", example = "2026 年公司年会")

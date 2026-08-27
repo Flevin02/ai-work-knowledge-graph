@@ -14,9 +14,9 @@ import java.time.Instant;
  * @param createdAt 审核时间
  */
 public record DocumentRelationReview(
-        String id,
-        String spaceId,
-        String documentRelationId,
+        Long id,
+        Long spaceId,
+        Long documentRelationId,
         String action,
         String reason,
         String operatorName,

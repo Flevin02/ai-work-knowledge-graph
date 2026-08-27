@@ -18,6 +18,7 @@ import com.flevin.knowgraph.server.service.association.DocumentAssociationClient
 import com.flevin.knowgraph.server.service.association.DocumentCandidateRecallService;
 import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.flevin.knowgraph.server.support.TestKnowledgeSpaceFixtures;
+import com.flevin.knowgraph.server.support.TestIdFixtures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,14 +41,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 文档关联 Fake AI、证据校验、幂等保存和审核 API 前的服务集成测试。
  */
 @SpringBootTest(classes = KnowledgeGraphApplication.class, properties = {
-        "app.database-path=target/test-data/document-association-service.sqlite",
         "app.upload-dir=target/test-data/document-association-service-uploads",
         "test.document-association-client=service"
 })
 @Import(DocumentAssociationServiceIntegrationTests.FakeAssociationConfiguration.class)
 class DocumentAssociationServiceIntegrationTests {
 
-    private static final String SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
+    private static final Long SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
 
     @Autowired
     private DocumentAssociationService associationService;
@@ -109,7 +109,7 @@ class DocumentAssociationServiceIntegrationTests {
         });
         assertThat(fakeAssociationClient.invocationCount).hasValue(1);
 
-        String relationId = run.relations().getFirst().id();
+        Long relationId = run.relations().getFirst().id();
         DocumentRelationReviewBatchResponse reviewed = associationService.reviewRelations(
                 SPACE_ID,
                 source.id(),
@@ -224,14 +224,14 @@ class DocumentAssociationServiceIntegrationTests {
     }
 
     private void insertConfirmedUserTag(
-            String documentId,
+            Long documentId,
             String suffix,
             String tagName
     ) {
         String now = java.time.Instant.now().toString();
-        String tagId = "tag-definition-" + tagName;
+        Long tagId = TestIdFixtures.id("tag-definition-" + tagName);
         jdbcTemplate.update(
-                "INSERT OR IGNORE INTO tags(id, space_id, name, normalized_key, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, ?)",
+                "INSERT IGNORE INTO tags(id, space_id, name, normalized_key, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, ?)",
                 tagId,
                 SPACE_ID,
                 tagName,
@@ -241,7 +241,7 @@ class DocumentAssociationServiceIntegrationTests {
         );
         jdbcTemplate.update(
                 "INSERT INTO document_tags(id, space_id, source_document_id, tag_id, source_type, status, confidence, extraction_run_id, content_hash, prompt_version, schema_version, document_tag_key, created_at, updated_at) VALUES (?, ?, ?, ?, 'user', 'confirmed', NULL, NULL, ?, NULL, NULL, ?, ?, ?)",
-                suffix + "-relation",
+                TestIdFixtures.id(suffix + "-relation"),
                 SPACE_ID,
                 documentId,
                 tagId,

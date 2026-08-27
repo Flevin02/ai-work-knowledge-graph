@@ -19,8 +19,8 @@ public record AiExtractionBatchResponse(
         @Schema(description = "已受理的资料数量", example = "2")
         int acceptedCount,
         @Schema(description = "已受理的来源资料标识")
-        List<String> documentIds,
+        List<Long> documentIds,
         @Schema(description = "因后台队列繁忙而未受理的来源资料标识")
-        List<String> rejectedDocumentIds
+        List<Long> rejectedDocumentIds
 ) {
 }

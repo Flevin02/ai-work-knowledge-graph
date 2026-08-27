@@ -22,7 +22,7 @@ public interface DocumentService {
      * @return 带批次统计和逐文件结果的导入响应
      */
     default DocumentImportResponse importDocuments(
-            String spaceId,
+            Long spaceId,
             List<MultipartFile> files
     ) {
         // 使用稳定的 general 类型保持现有调用方兼容
@@ -38,7 +38,7 @@ public interface DocumentService {
      * @return 带批次统计和逐文件结果的导入响应
      */
     DocumentImportResponse importDocuments(
-            String spaceId,
+            Long spaceId,
             String documentType,
             List<MultipartFile> files
     );
@@ -53,7 +53,7 @@ public interface DocumentService {
      * @return 按最近更新时间倒序排列的来源资料分页结果
      */
     SourceDocumentPageResponse listDocuments(
-            String spaceId,
+            Long spaceId,
             String name,
             int page,
             int pageSize
@@ -67,8 +67,8 @@ public interface DocumentService {
      * @return 不暴露服务端路径的原文预览响应
      */
     SourceDocumentContentResponse getDocumentContent(
-            String spaceId,
-            String documentId
+            Long spaceId,
+            Long documentId
     );
 
     /**
@@ -78,8 +78,8 @@ public interface DocumentService {
      * @param documentId 来源资料标识
      */
     void deleteDocument(
-            String spaceId,
-            String documentId
+            Long spaceId,
+            Long documentId
     );
 
     /**
@@ -90,7 +90,7 @@ public interface DocumentService {
      * @return 已删除资料数量和资料标识
      */
     DocumentBatchDeleteResponse deleteDocuments(
-            String spaceId,
-            List<String> documentIds
+            Long spaceId,
+            List<Long> documentIds
     );
 }

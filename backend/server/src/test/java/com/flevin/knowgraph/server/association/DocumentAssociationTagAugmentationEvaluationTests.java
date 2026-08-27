@@ -42,12 +42,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 同时验证达到最小共同标签数量的相关文档和不同项目负例。</p>
  */
 @SpringBootTest(classes = KnowledgeGraphApplication.class, properties = {
-        "app.database-path=target/test-data/document-association-tag-augmentation-evaluation.sqlite",
         "app.upload-dir=target/test-data/document-association-tag-augmentation-evaluation-uploads"
 })
 class DocumentAssociationTagAugmentationEvaluationTests {
 
-    private static final String SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
+    private static final Long SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
     private static final String BASE_DATASET_VERSION = "document-association-eval-v1";
     private static final String TAG_THRESHOLD_DATASET_VERSION = "document-association-tag-threshold-eval-v2";
     private static final String REPORT_FILE =
@@ -225,21 +224,26 @@ class DocumentAssociationTagAugmentationEvaluationTests {
 
     /** @param fixture 固定标签标注 @param documents fixture ID 到来源资料的映射 */
     private void materializeConfirmedFixtureTags(FixtureData fixture, Map<String, SourceDocument> documents) {
-        Map<String, String> tagIds = new HashMap<>();
+        Map<String, Long> tagIds = new HashMap<>();
         for (Map.Entry<String, FixtureDocument> entry : fixture.documents().entrySet()) {
             SourceDocument document = documents.get(entry.getKey());
             for (String tagName : entry.getValue().expectedTags()) {
                 String normalizedKey = normalizeTagKey(tagName);
-                String tagId = tagIds.computeIfAbsent(normalizedKey, ignored -> "fixture-tag-" + tagIds.size());
+                Long tagId = tagIds.computeIfAbsent(
+                        normalizedKey,
+                        ignored -> com.flevin.knowgraph.server.support.TestIdFixtures.id("fixture-tag-" + tagIds.size())
+                );
                 String now = Instant.now().toString();
                 // 标签字典按空间和规范化键复用，避免不同文档重复创建同一标签定义
                 jdbcTemplate.update(
-                        "INSERT OR IGNORE INTO tags(id, space_id, name, normalized_key, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, ?)",
+                        "INSERT IGNORE INTO tags(id, space_id, name, normalized_key, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, ?)",
                         tagId, SPACE_ID, tagName, normalizedKey, now, now
                 );
                 jdbcTemplate.update(
                         "INSERT INTO document_tags(id, space_id, source_document_id, tag_id, source_type, status, confidence, extraction_run_id, content_hash, prompt_version, schema_version, document_tag_key, created_at, updated_at) VALUES (?, ?, ?, ?, 'user', 'confirmed', NULL, NULL, ?, NULL, NULL, ?, ?, ?)",
-                        "fixture-document-tag-" + entry.getKey() + "-" + normalizedKey,
+                        com.flevin.knowgraph.server.support.TestIdFixtures.id(
+                                "fixture-document-tag-" + entry.getKey() + "-" + normalizedKey
+                        ),
                         SPACE_ID, document.id(), tagId, document.contentHash(), entry.getKey() + "|" + normalizedKey, now, now
                 );
             }
@@ -307,7 +311,7 @@ class DocumentAssociationTagAugmentationEvaluationTests {
 
     /** @param documents 当前空间来源资料 @param recall 候选召回结果 @return 跨空间候选数量 */
     private int countCrossSpaceCandidates(Map<String, SourceDocument> documents, DocumentCandidateRecall recall) {
-        Set<String> ids = documents.values().stream().map(SourceDocument::id).collect(Collectors.toSet());
+        Set<Long> ids = documents.values().stream().map(SourceDocument::id).collect(Collectors.toSet());
         return (int) recall.candidates().stream().filter(candidate -> !ids.contains(candidate.documentId())).count();
     }
 
@@ -318,7 +322,7 @@ class DocumentAssociationTagAugmentationEvaluationTests {
         content.append("# 文档关联 confirmed 标签共同数量分层阈值评估 v2\n\n")
                 .append("- 基础资料集：").append(BASE_DATASET_VERSION).append("\n")
                 .append("- 标签阈值补充资料：").append(TAG_THRESHOLD_DATASET_VERSION).append("\n")
-                .append("- 运行方式：Java 21 + SQLite + 冻结 expectedTags/补充标签作为 confirmed user 标签\n")
+                .append("- 运行方式：Java 21 + MySQL + 冻结 expectedTags/补充标签作为 confirmed user 标签\n")
                 .append("- 候选策略：关闭标签使用 ").append(String.join(", ", result.defaultCandidateRecallPolicyVersions()))
                 .append("；开启标签使用 ").append(String.join(", ", result.augmentedCandidateRecallPolicyVersions())).append("\n")
                 .append("- 单变量策略：内容通道未命中且共同 confirmed 标签数量至少为 ")

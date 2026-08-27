@@ -24,16 +24,16 @@ import java.util.List;
  */
 @Schema(description = "可审核文档关系及其证据")
 public record DocumentRelationResponse(
-        @Schema(description = "文档关系标识") String id,
-        @Schema(description = "关系主体文档标识") String sourceDocumentId,
-        @Schema(description = "关系客体文档标识") String targetDocumentId,
+        @Schema(description = "文档关系标识") Long id,
+        @Schema(description = "关系主体文档标识") Long sourceDocumentId,
+        @Schema(description = "关系客体文档标识") Long targetDocumentId,
         @Schema(description = "关系类型", example = "updates") String relationType,
         @Schema(description = "关系方向", example = "current_to_candidate") String direction,
         @Schema(description = "审核状态", example = "suggested") String status,
         @Schema(description = "生成方式", example = "explicit_reference") String generationMode,
         @Schema(description = "模型置信度", example = "0.86") double confidence,
         @Schema(description = "关系判断原因") String reason,
-        @Schema(description = "文档关联运行标识") String associationRunId,
+        @Schema(description = "文档关联运行标识") Long associationRunId,
         @Schema(description = "已完成逐字反查的证据") List<Evidence> evidences,
         @Schema(description = "创建时间") Instant createdAt,
         @Schema(description = "最近更新时间") Instant updatedAt
@@ -57,8 +57,8 @@ public record DocumentRelationResponse(
      */
     @Schema(description = "文档关系的可定位原文证据")
     public record Evidence(
-            @Schema(description = "证据标识") String id,
-            @Schema(description = "证据所在文档标识") String sourceDocumentId,
+            @Schema(description = "证据标识") Long id,
+            @Schema(description = "证据所在文档标识") Long sourceDocumentId,
             @Schema(description = "分片标识") String chunkId,
             @Schema(description = "章节路径") String sectionPath,
             @Schema(description = "逐字原文") String quote,

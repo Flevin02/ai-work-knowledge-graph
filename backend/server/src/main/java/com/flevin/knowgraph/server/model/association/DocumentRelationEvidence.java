@@ -18,10 +18,10 @@ import java.time.Instant;
  * @param createdAt 创建时间
  */
 public record DocumentRelationEvidence(
-        String id,
-        String spaceId,
-        String documentRelationId,
-        String sourceDocumentId,
+        Long id,
+        Long spaceId,
+        Long documentRelationId,
+        Long sourceDocumentId,
         String chunkId,
         String sectionPath,
         String quote,

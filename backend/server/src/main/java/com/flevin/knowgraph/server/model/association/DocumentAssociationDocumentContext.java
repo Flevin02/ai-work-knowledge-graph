@@ -17,7 +17,7 @@ import java.util.List;
  * @param chunks 允许模型引用的可追溯原文分片
  */
 public record DocumentAssociationDocumentContext(
-        String documentId,
+        Long documentId,
         String name,
         String kind,
         String documentType,

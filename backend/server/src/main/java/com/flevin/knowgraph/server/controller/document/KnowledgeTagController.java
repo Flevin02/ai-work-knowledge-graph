@@ -28,7 +28,7 @@ public class KnowledgeTagController {
             description = "只返回至少关联一份有效来源资料的 confirmed 标签及文档数量，不暴露 suggested 或 rejected 候选。"
     )
     public ApiResponse<List<KnowledgeTagSummaryResponse>> listConfirmedTags(
-            @Parameter(description = "知识空间标识") @PathVariable String spaceId
+            @Parameter(description = "知识空间标识") @PathVariable Long spaceId
     ) {
         // 聚合当前空间 confirmed 标签及其有效来源资料数量
         List<KnowledgeTagSummaryResponse> response = documentTagService.listConfirmedTags(spaceId);

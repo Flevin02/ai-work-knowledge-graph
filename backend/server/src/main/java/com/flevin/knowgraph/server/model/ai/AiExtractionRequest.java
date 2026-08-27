@@ -1,6 +1,7 @@
 package com.flevin.knowgraph.server.model.ai;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 /**
  * 单个来源分片的结构化抽取请求。
@@ -13,7 +14,7 @@ import jakarta.validation.constraints.NotBlank;
  * @param content 当前可引用的原文内容
  */
 public record AiExtractionRequest(
-        @NotBlank String sourceDocumentId,
+        @NotNull Long sourceDocumentId,
         @NotBlank String documentName,
         @NotBlank String documentType,
         @NotBlank String chunkId,

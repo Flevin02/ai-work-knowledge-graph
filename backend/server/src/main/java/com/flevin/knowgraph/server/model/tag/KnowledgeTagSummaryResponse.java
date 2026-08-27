@@ -15,7 +15,7 @@ import java.time.Instant;
  */
 @Schema(description = "知识空间已确认标签摘要")
 public record KnowledgeTagSummaryResponse(
-        @Schema(description = "标签定义标识") String tagId,
+        @Schema(description = "标签定义标识") Long tagId,
         @Schema(description = "标签展示名称", example = "年会筹备") String name,
         @Schema(description = "标签规范化键", example = "年会筹备") String normalizedKey,
         @Schema(description = "当前有效文档数量", example = "3") long documentCount,

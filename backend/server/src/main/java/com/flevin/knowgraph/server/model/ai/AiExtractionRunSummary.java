@@ -21,7 +21,7 @@ import java.time.Instant;
  */
 @Schema(description = "AI 抽取记录摘要")
 public record AiExtractionRunSummary(
-        String extractionId,
+        Long extractionId,
         String status,
         String provider,
         String model,

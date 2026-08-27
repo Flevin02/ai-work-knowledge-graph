@@ -40,9 +40,9 @@ public interface DocumentAssociationPersistenceService {
      * @return 文档关联运行
      */
     DocumentAssociationRun getRun(
-            String spaceId,
-            String sourceDocumentId,
-            String runId
+            Long spaceId,
+            Long sourceDocumentId,
+            Long runId
     );
 
     /**
@@ -86,8 +86,8 @@ public interface DocumentAssociationPersistenceService {
      * @return 已保存的审核历史记录
      */
     DocumentRelationReview reviewRelation(
-            String spaceId,
-            String relationId,
+            Long spaceId,
+            Long relationId,
             String action,
             String reason,
             String operatorName
@@ -101,8 +101,8 @@ public interface DocumentAssociationPersistenceService {
      * @return 文档关系证据列表
      */
     List<DocumentRelationEvidence> listEvidence(
-            String spaceId,
-            String relationId
+            Long spaceId,
+            Long relationId
     );
 
     /**
@@ -113,8 +113,8 @@ public interface DocumentAssociationPersistenceService {
      * @return 审核历史列表
      */
     List<DocumentRelationReview> listReviews(
-            String spaceId,
-            String relationId
+            Long spaceId,
+            Long relationId
     );
 
     /**
@@ -125,8 +125,8 @@ public interface DocumentAssociationPersistenceService {
      * @return 文档关系
      */
     DocumentRelation getRelation(
-            String spaceId,
-            String relationId
+            Long spaceId,
+            Long relationId
     );
 
     /**
@@ -137,8 +137,8 @@ public interface DocumentAssociationPersistenceService {
      * @return 运行关系列表
      */
     List<DocumentRelation> listRelationsByRun(
-            String spaceId,
-            String runId
+            Long spaceId,
+            Long runId
     );
 
     /**
@@ -149,8 +149,8 @@ public interface DocumentAssociationPersistenceService {
      * @return 当前资料相关的关系列表
      */
     List<DocumentRelation> listRelationsByDocument(
-            String spaceId,
-            String documentId
+            Long spaceId,
+            Long documentId
     );
 
     /**
@@ -161,7 +161,7 @@ public interface DocumentAssociationPersistenceService {
      * @return 所有匹配关系的证据
      */
     List<DocumentRelationEvidence> listEvidence(
-            String spaceId,
-            List<String> relationIds
+            Long spaceId,
+            List<Long> relationIds
     );
 }

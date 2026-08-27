@@ -53,19 +53,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 文档关联固定资料端到端 Fake 评估。
  *
- * <p>该测试使用真实候选召回、文档关联 Service、章节分片和 SQLite 持久化，
+ * <p>该测试使用真实候选召回、文档关联 Service、章节分片和 MySQL 持久化，
  * Fake 客户端只根据冻结标注生成可追溯的关系判断。指标报告由测试按固定资料
  * 重新生成，避免把一次手工观察写成评估结论。</p>
  */
 @SpringBootTest(classes = KnowledgeGraphApplication.class, properties = {
-        "app.database-path=target/test-data/document-association-evaluation.sqlite",
         "app.upload-dir=target/test-data/document-association-evaluation-uploads",
         "test.document-association-client=evaluation"
 })
 @Import(DocumentAssociationFixtureEvaluationTests.FakeAssociationConfiguration.class)
 class DocumentAssociationFixtureEvaluationTests {
 
-    private static final String SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
+    private static final Long SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
     private static final String DATASET_VERSION = "document-association-eval-v1";
     private static final String REPORT_FILE = "docs/tests/document-association-evaluation-report-v1.md";
 
@@ -275,7 +274,7 @@ class DocumentAssociationFixtureEvaluationTests {
         }
 
         // 从所有文档端点查询已通过校验的关系，并按服务端关系标识去重
-        Map<String, DocumentRelationResponse> persistedRelations = new LinkedHashMap<>();
+        Map<Long, DocumentRelationResponse> persistedRelations = new LinkedHashMap<>();
         for (FixtureDocument fixtureDocument : fixture.documents()) {
             associationService.listRelations(SPACE_ID, documents.get(fixtureDocument.fixtureId()).id())
                     .forEach(relation -> persistedRelations.put(relation.id(), relation));
@@ -320,7 +319,7 @@ class DocumentAssociationFixtureEvaluationTests {
                 .count();
 
         // 依据关系创建运行的主体文档，校验相对方向而不是假设统一为 current_to_candidate
-        Map<String, String> runSourceFixtureIdByRunId = runs.entrySet().stream()
+        Map<Long, String> runSourceFixtureIdByRunId = runs.entrySet().stream()
                 .collect(Collectors.toMap(
                         entry -> entry.getValue().runId(),
                         Map.Entry::getKey,
@@ -358,7 +357,7 @@ class DocumentAssociationFixtureEvaluationTests {
         int duplicateSuggestionCount = persistedRelations.size()
                 - normalizedRelationKeys(persistedRelations.values(), documents).size();
 
-        // 直接检查 SQLite 两端文档归属，防止响应层字段缺失掩盖跨空间关系
+        // 直接检查 MySQL 两端文档归属，防止响应层字段缺失掩盖跨空间关系
         int selfRelationCount = queryRelationCount(
                 "SELECT COUNT(*) FROM document_relations WHERE source_document_id = target_document_id"
         );
@@ -430,7 +429,7 @@ class DocumentAssociationFixtureEvaluationTests {
                 .append("- Schema：document-association-v1\n")
                 .append("- 候选召回：document-candidate-recall-v1，TopK=8\n")
                 .append("- 关联策略：document-association-policy-v1\n")
-                .append("- 运行方式：Java 21 + SQLite + 固定 Fake Association Client\n")
+                .append("- 运行方式：Java 21 + MySQL + 固定 Fake Association Client\n")
                 .append("- 计分范围：7 条正例、5 组明确负例、7 个召回用例；未标注文档对忽略\n\n")
                 .append("## 指标\n\n")
                 .append("| 指标 | 结果 | 门槛 |\n| --- | ---: | ---: |\n")
@@ -480,7 +479,7 @@ class DocumentAssociationFixtureEvaluationTests {
                 .append(format(result.precisionAt8()))
                 .append("，说明无 Embedding 规则召回优先保证了覆盖，但仍有明显上下文噪声；该指标作为阶段 2 可选标签候选补充和后续混合召回的对照基线，不通过扩大 TopK 掩盖。下一开发切片进入可选标签的持久化基础、候选生成与审核后端，不在本报告中混入真实模型或前端结论。\n");
         content.append("\n## 解释与边界\n\n")
-                .append("本报告是固定资料上的 Fake 基线，不代表真实模型正确率。Fake 客户端只根据冻结标注选择关系类型、方向和精确 quote；真实候选召回、有限分片上下文、候选集合校验、逐字证据反查、SQLite 幂等和关系查询均由服务端执行。Precision@8 为 7 个召回用例的微平均，负例结果区分召回前过滤、模型明确 none 和误报。真实模型接入后必须在相同版本和计分范围下重新评估，并记录模型、供应商、参数、Token、耗时和失败样例。浏览器、真实模型与生产环境均不在本报告验证范围内。\n");
+                .append("本报告是固定资料上的 Fake 基线，不代表真实模型正确率。Fake 客户端只根据冻结标注选择关系类型、方向和精确 quote；真实候选召回、有限分片上下文、候选集合校验、逐字证据反查、MySQL 幂等和关系查询均由服务端执行。Precision@8 为 7 个召回用例的微平均，负例结果区分召回前过滤、模型明确 none 和误报。真实模型接入后必须在相同版本和计分范围下重新评估，并记录模型、供应商、参数、Token、耗时和失败样例。浏览器、真实模型与生产环境均不在本报告验证范围内。\n");
         Files.writeString(report, content.toString(), StandardCharsets.UTF_8);
     }
 
@@ -502,7 +501,7 @@ class DocumentAssociationFixtureEvaluationTests {
             Iterable<DocumentRelationResponse> relations,
             ExpectedRelation expected,
             Map<String, SourceDocument> documents,
-            Map<String, String> runSourceFixtureIdByRunId
+            Map<Long, String> runSourceFixtureIdByRunId
     ) {
         return java.util.stream.StreamSupport.stream(relations.spliterator(), false).anyMatch(actual ->
                 matches(actual, expected, documents)
@@ -513,7 +512,7 @@ class DocumentAssociationFixtureEvaluationTests {
     private boolean directionMatchesRun(
             DocumentRelationResponse actual,
             ExpectedRelation expected,
-            Map<String, String> runSourceFixtureIdByRunId
+            Map<Long, String> runSourceFixtureIdByRunId
     ) {
         String runSourceFixtureId = runSourceFixtureIdByRunId.get(actual.associationRunId());
         String expectedDirection;
@@ -638,7 +637,7 @@ class DocumentAssociationFixtureEvaluationTests {
 
     private String fixtureIdByDocumentId(
             Map<String, SourceDocument> documents,
-            String documentId
+            Long documentId
     ) {
         return documents.entrySet().stream()
                 .filter(entry -> entry.getValue().id().equals(documentId))
@@ -671,7 +670,7 @@ class DocumentAssociationFixtureEvaluationTests {
 
     static class EvaluationAssociationClient implements DocumentAssociationClient {
 
-        private Map<String, String> fixtureIdByDocumentId = Map.of();
+        private Map<Long, String> fixtureIdByDocumentId = Map.of();
         private List<ExpectedRelation> expectedRelations = List.of();
         private List<NegativePair> negativePairs = List.of();
         private final Map<String, String> decisionByPair = new LinkedHashMap<>();

@@ -16,16 +16,16 @@ import lombok.NoArgsConstructor;
 public class DocumentRelationEntity {
 
     @TableId(value = "id", type = IdType.INPUT)
-    private String id;
+    private Long id;
 
     @TableField("space_id")
-    private String spaceId;
+    private Long spaceId;
 
     @TableField("source_document_id")
-    private String sourceDocumentId;
+    private Long sourceDocumentId;
 
     @TableField("target_document_id")
-    private String targetDocumentId;
+    private Long targetDocumentId;
 
     @TableField("relation_type")
     private String relationType;
@@ -42,7 +42,7 @@ public class DocumentRelationEntity {
     private String reason;
 
     @TableField("association_run_id")
-    private String associationRunId;
+    private Long associationRunId;
 
     @TableField("source_content_hash")
     private String sourceContentHash;

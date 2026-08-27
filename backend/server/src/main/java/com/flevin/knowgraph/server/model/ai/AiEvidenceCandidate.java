@@ -2,6 +2,7 @@ package com.flevin.knowgraph.server.model.ai;
 
 import dev.langchain4j.model.output.structured.Description;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -18,7 +19,7 @@ public record AiEvidenceCandidate(
         @Description("本次输出内唯一的证据标识，例如 evidence-1")
         @NotBlank String evidenceId,
         @Description("用户输入中提供的来源资料标识")
-        @NotBlank String sourceDocumentId,
+        @NotNull Long sourceDocumentId,
         @Description("用户输入中提供的文本分片标识")
         @NotBlank String chunkId,
         @Description("用户输入中提供的章节路径")

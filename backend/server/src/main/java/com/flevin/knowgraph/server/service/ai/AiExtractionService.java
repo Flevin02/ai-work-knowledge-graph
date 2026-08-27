@@ -23,8 +23,8 @@ public interface AiExtractionService {
      * @return 按来源分片组织的结构化候选结果
      */
     AiDocumentExtractionResponse extractDocument(
-            String spaceId,
-            String documentId
+            Long spaceId,
+            Long documentId
     );
 
     /**
@@ -37,8 +37,8 @@ public interface AiExtractionService {
      * @param eventPublisher 抽取运行事件发布器
      */
     void streamDocument(
-            String spaceId,
-            String documentId,
+            Long spaceId,
+            Long documentId,
             AiExtractionEventPublisher eventPublisher
     );
 
@@ -53,8 +53,8 @@ public interface AiExtractionService {
      * @return 已由后台线程池受理的资料数量和资料标识
      */
     AiExtractionBatchResponse submitBatchExtraction(
-            String spaceId,
-            List<String> documentIds
+            Long spaceId,
+            List<Long> documentIds
     );
 
     /**
@@ -65,8 +65,8 @@ public interface AiExtractionService {
      * @return 最新记录优先的抽取运行摘要
      */
     List<AiExtractionRunSummary> listExtractions(
-            String spaceId,
-            String documentId
+            Long spaceId,
+            Long documentId
     );
 
     /**
@@ -78,9 +78,9 @@ public interface AiExtractionService {
      * @return 抽取运行摘要和完整结果
      */
     AiExtractionRunDetail getExtraction(
-            String spaceId,
-            String documentId,
-            String extractionId
+            Long spaceId,
+            Long documentId,
+            Long extractionId
     );
 
     /**
@@ -93,9 +93,9 @@ public interface AiExtractionService {
      * @return 本次审核统计和当前剩余待审核数量
      */
     AiRelationReviewResponse reviewRelations(
-            String spaceId,
-            String documentId,
-            String extractionId,
+            Long spaceId,
+            Long documentId,
+            Long extractionId,
             AiRelationReviewRequest request
     );
 
@@ -108,8 +108,8 @@ public interface AiExtractionService {
      * @return 已审核候选关系状态
      */
     List<AiRelationReviewState> listReviewStates(
-            String spaceId,
-            String documentId,
-            String extractionId
+            Long spaceId,
+            Long documentId,
+            Long extractionId
     );
 }

@@ -16,13 +16,13 @@ import lombok.NoArgsConstructor;
 public class DocumentAssociationRunEntity {
 
     @TableId(value = "id", type = IdType.INPUT)
-    private String id;
+    private Long id;
 
     @TableField("space_id")
-    private String spaceId;
+    private Long spaceId;
 
     @TableField("source_document_id")
-    private String sourceDocumentId;
+    private Long sourceDocumentId;
 
     @TableField("source_content_hash")
     private String sourceContentHash;

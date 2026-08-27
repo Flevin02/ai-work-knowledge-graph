@@ -17,7 +17,7 @@ import java.time.Instant;
  */
 @Schema(description = "文档关系图中的来源文档节点")
 public record DocumentGraphNodeResponse(
-        @Schema(description = "来源资料标识") String id,
+        @Schema(description = "来源资料标识") Long id,
         @Schema(description = "原始文件名") String name,
         @Schema(description = "文件格式", example = "markdown") String kind,
         @Schema(description = "文档业务类型", example = "general") String documentType,

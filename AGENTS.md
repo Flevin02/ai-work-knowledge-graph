@@ -1,6 +1,7 @@
 # AGENTS.md
 
-本文件适用于 `/Users/flevin/projects/ai-work-knowledge-graph` 整个项目，用于约束后续 Codex/LLM 会话的分析、编码、验证、文档和 Git 行为。
+本文件适用于 `/Users/flevin/projects/ai-work-knowledge-graph` 整个项目，用于约束后续 Codex/LLM 会话的分析、编码、验证、文档和
+Git 行为。
 
 ## 1. 交流约定
 
@@ -12,7 +13,8 @@
 
 ## 2. 项目目标
 
-本项目是独立的 AI/RAG 学习项目，同时以参赛作品“AI 工作知识图谱维护助手”（暂定名“知脉”）作为阶段性验证场景。比赛交付不是最高优先级；首要目标是通过可运行、可解释、可评估的实现真正理解 AI、Embedding、向量检索、RAG、结构化抽取和证据校验。
+本项目是独立的 AI/RAG 学习项目，同时以参赛作品“AI 工作知识图谱维护助手”（暂定名“知脉”）作为阶段性验证场景。比赛交付不是最高优先级；首要目标是通过可运行、可解释、可评估的实现真正理解
+AI、Embedding、向量检索、RAG、结构化抽取和证据校验。
 
 项目目标是：
 
@@ -80,23 +82,27 @@ ai-work-knowledge-graph/
 - Spring Boot 3.2.11
 - Maven `common + server` 两模块
 - Spring Web / Validation / MyBatis-Plus / JDBC
-- SQLite JDBC
+- MySQL 8.0 + HikariCP：唯一的关系型事实库，保存资料、图谱事实、审核状态、运行记录和可重建索引元数据
+- Milvus：后续阶段接入的派生向量索引，仅保存可由 MySQL 重建的向量，不保存原始全文、唯一业务事实或审核状态；完成独立验收前不得假设其可用
 - Knife4j / SpringDoc OpenAPI
 - Apache POI / PDFBox
 
 ### AI
 
 - 领域层依赖 `AiExtractionClient` 抽象，不依赖具体供应商对象。
-- 当前 AI 学习主线为 LangChain4j + RAG，不引入 Agent 编排作为默认路径；首个模型实现使用 OpenAI-compatible 协议、自定义 Base URL 和模型名，不固定到某个模型产品。
+- 当前 AI 学习主线为 LangChain4j + RAG，不引入 Agent 编排作为默认路径；首个模型实现使用 OpenAI-compatible 协议、自定义 Base
+  URL 和模型名，不固定到某个模型产品。
 - 模型、供应商、Base URL 和密钥必须配置化。
 - AI 只生成候选实体、关系、证据和冲突；正式关系必须经过人工确认。
+- 默认自动回归使用 Fake AI / Fake Embedding；真实 AI 仅可通过显式 Maven `real-ai` Profile 运行最小、虚构资料的烟测，可能产生外部调用费用。
 
 ## 6. AI 学习目标与 RAG 开发原则
 
 ### 6.1 学习优先级和讲解约束
 
 - AI 学习优先级高于比赛功能数量；任何 AI 相关改动都必须同时说明“学到了什么、为什么这样设计、有哪些替代方案、当前验证证明了什么、还没有证明什么”。
-- 不允许只把框架 API 当作黑盒使用。涉及模型、Embedding、向量检索、RAG、结构化输出或 Prompt 的改动，必须在实现说明或代码注释中解释输入、输出、关键参数、失败模式和业务边界。
+- 不允许只把框架 API 当作黑盒使用。涉及模型、Embedding、向量检索、RAG、结构化输出或 Prompt
+  的改动，必须在实现说明或代码注释中解释输入、输出、关键参数、失败模式和业务边界。
 - 需要向用户汇报时，优先用当前项目的真实数据流解释抽象概念，不只罗列框架名词。至少说明该概念位于“导入、解析、分片、向量化、检索、生成、校验、持久化、审核”哪一层。
 - 每个 AI 功能都应保留一个可重复的最小实验。实验应固定资料、模型、Embedding 模型、Prompt 版本和检索参数，避免把不同变量的变化混在一次结论里。
 - 不能把“调用 API 成功”“模型返回了 JSON”“页面显示了结果”表述为“AI 正确”。正确性必须结合结构校验、证据反查、人工标注样本和业务验收判断。
@@ -112,20 +118,26 @@ Java 21 + Spring Boot
   → 文档分段、Embedding 和检索
   → 结构化实体/关系/证据候选
   → 服务端校验、规范化、去重和证据验证
-  → SQLite 图谱事实和人工审核
+  → MySQL 图谱事实和人工审核
+  → Milvus 可重建派生向量索引
 ```
 
 - LangChain4j 只负责模型交互、Embedding、检索组件和结构化输出适配，不拥有知识空间、图谱事实、审核状态或原始资料生命周期。
-- `AiExtractionClient` 是供应商和框架隔离边界；业务层不得直接依赖 `ChatModel`、Prompt 模板对象、具体 OpenAI-compatible 客户端类型或 Embedding Store 实现。
+- `AiExtractionClient` 是供应商和框架隔离边界；业务层不得直接依赖 `ChatModel`、Prompt 模板对象、具体 OpenAI-compatible
+  客户端类型或 Embedding Store 实现。
 - 聊天模型和 Embedding 模型是两个不同职责：前者生成或抽取文本，后者把文本映射为向量；必须分别配置、分别记录版本，不能因为都叫“模型”就混用。
-- 当前不引入 LangGraph、CrewAI、AutoGen 或其他 Agent 编排框架。只有在出现明确的长流程状态恢复、暂停等待外部输入、复杂工具编排或多 Agent 协作需求时，才提交单独的架构决策。
+- 当前不引入 LangGraph、CrewAI、AutoGen 或其他 Agent 编排框架。只有在出现明确的长流程状态恢复、暂停等待外部输入、复杂工具编排或多
+  Agent 协作需求时，才提交单独的架构决策。
 - 当前 RAG 首先服务于“给抽取提供上下文”和“为图谱事实返回证据”，不等同于先建设一个聊天机器人。
+- MySQL 是唯一事实源；Milvus 的 collection、向量和索引状态均属于派生数据，必须可以从 MySQL 的分片、内容指纹、模型版本和维度重新构建。
+- 所有业务主键和关联标识统一使用 Java `Long` / MySQL 有符号 `BIGINT`；不使用 UUID，也不在数据库层声明外键。关联存在性、空间隔离和状态约束由 Service 层校验。
+- 在 Milvus 的独立环境、collection 和重建链路尚未验收前，不能把语义召回写入默认业务路径，也不能用未受控的本地内存索引伪装为 Milvus。
 
 ### 6.3 AI 基础概念速查
 
 #### 模型调用不是知识库
 
-- LLM 根据输入上下文生成概率性输出；它不自动知道本项目的 SQLite 数据、上传文件和图谱关系。
+- LLM 根据输入上下文生成概率性输出；它不自动知道本项目的 MySQL 数据、Milvus 索引、上传文件和图谱关系。
 - RAG 是运行时的“检索（Retrieve）→ 增强上下文（Augment）→ 生成或抽取（Generate）”流程，不是训练模型，也不会修改模型参数。
 - Prompt 只能约束输出倾向，不能替代服务端校验、数据库约束和权限边界。
 
@@ -159,30 +171,35 @@ Java 21 + Spring Boot
 3. **结构化**：优先使用确定性解析识别标题树、表头、列表和代码块；能用规则保留的结构不要交给模型猜。
 4. **分片**：按语义边界切分，不以固定字符数机械截断。每个分片需要保存 `sourceDocumentId`、`sectionPath`、顺序、原文偏移和内容指纹。
 5. **向量化**：使用独立的 Embedding 模型生成向量，记录模型、版本、维度和生成时间。重复内容不重复生成向量。
-6. **索引**：第一版使用 SQLite 保存分片和向量缓存，并在启动时重建本地内存索引；向量数据库必须通过抽象接口接入，不能让业务代码绑定具体产品。
-7. **检索**：先按 `spaceId`、文档类型、文档版本和章节等元数据过滤，再做相似度召回。`topK` 是召回率和上下文噪声之间的权衡，不能盲目调大。
+6. **索引**：MySQL 保存分片、内容指纹、模型/版本、维度和索引状态等事实元数据；Milvus 保存对应的派生向量。collection 必须使用与 MySQL 分片 ID 对齐的 `INT64` 主键，并允许按 `spaceId`、文档、内容指纹、模型/版本和维度过滤。禁止在应用启动时建 collection、建表、补字段或静默迁移。
+7. **检索**：先按 `spaceId`、文档类型、文档版本和章节等元数据过滤，再做 Milvus `COSINE` 相似度召回。`topK` 是召回率和上下文噪声之间的权衡，不能盲目调大。
 8. **重排或混合检索**：当精确编号、关键词、日期和语义召回产生冲突时，再评估全文检索、关键词加权或 Reranker；不要在没有评估数据前堆叠组件。
 9. **上下文组装**：为模型构造可读、可定位的上下文，带上文档名、章节路径、分片标识和必要的前后文；不要只把若干相似度分数最高的孤立句子拼接起来。
 10. **生成或抽取**：使用结构化 Schema、明确的关系定义和“无法从证据得出时返回空”的约束。模型只生成候选事实。
 11. **证据验证**：逐条检查引用的文档、分片、原文片段和偏移是否真实存在；找不到原文的引用不能被当作可信证据。
-12. **持久化与审核**：候选节点和关系写入 `suggested` 状态，保存模型、Prompt、Schema、检索参数和运行批次；只有人工审核后才形成正式关系。
+12. **持久化与审核**：候选节点和关系写入 MySQL 的 `suggested` 状态，保存模型、Prompt、Schema、检索参数和运行批次；只有人工审核后才形成正式关系。
 
 ### 6.5 PRD 文档接入原则
 
-- `source_documents.kind` 表示文件格式，例如 `markdown`、`txt`；`document_type` 表示业务语义，例如 `general`、`prd`、`meeting`、`design`，禁止混用。
-- PRD 首版使用章节感知解析：保留标题树、章节路径、表格表头、列表归属、验收标准和原文偏移。不能把整个 PRD 直接作为一个向量，也不能把表格简单压成无列名的字符串。
-- PRD 建议建立 `document_sections` 和 `document_chunks`；分片必须能反向定位到来源文档和章节。
+- `source_documents.kind` 表示文件格式，例如 `markdown`、`txt`；`document_type` 表示业务语义，例如 `general`、`prd`、
+  `meeting`、`design`，禁止混用。
+- PRD 首版使用章节感知解析：保留标题树、章节路径、表格表头、列表归属、验收标准和原文偏移。不能把整个 PRD
+  直接作为一个向量，也不能把表格简单压成无列名的字符串。
+- PRD 建议在 MySQL 建立 `document_sections` 和 `document_chunks`；主键与关联标识使用 Snowflake `BIGINT`，不建立数据库外键，分片必须能反向定位到来源文档和章节。
 - PRD 首版固定增加 `requirement`、`feature` 节点类型；`acceptance_criterion` 暂时作为需求属性和证据，不做用户可配置节点类型。
 - 节点规范化唯一性应按 `spaceId + nodeType + normalizedKey` 判断，不能只按名称去重，否则“登录功能”“登录需求”“登录任务”可能互相冲突。
-- PRD 的抽取建议拆为“章节结构识别 → 需求/功能候选 → 依赖/风险/任务关系 → 验收标准关联 → 证据校验”，不要使用一个超长 Prompt 一次性抽完整份文档。
+- PRD 的抽取建议拆为“章节结构识别 → 需求/功能候选 → 依赖/风险/任务关系 → 验收标准关联 → 证据校验”，不要使用一个超长
+  Prompt 一次性抽完整份文档。
 - PRD 的 RAG 检索必须保留知识空间、文档类型、文档版本和章节元数据过滤，不能让不同项目或不同版本的需求互相召回。
-- 同一内容指纹和相同 `promptVersion + schemaVersion + embeddingModel` 下的重复运行应当幂等；Prompt 或 Schema 变化时必须创建新的抽取运行，不能静默覆盖旧事实。
+- 同一内容指纹和相同 `promptVersion + schemaVersion + embeddingModel` 下的重复运行应当幂等；Prompt 或 Schema
+  变化时必须创建新的抽取运行，不能静默覆盖旧事实。
 
 ### 6.6 LangChain4j 使用边界
 
 - 可以使用 LangChain4j 的低层模型接口学习请求、响应、参数、异常和 Token；正式业务通过 `AiExtractionClient` 隔离这些实现细节。
 - 结构化输出必须映射到 Java DTO，再经过 Jackson/Bean Validation 和业务规则校验。模型返回合法 JSON 不等于业务结构合法。
-- LangChain4j 的检索器、Embedding Store、Prompt 模板和 AI Service 都是基础设施组件；不能让它们直接操作 `graph_nodes`、`graph_edges` 或 `review_actions`。
+- LangChain4j 的检索器、Embedding Store、Prompt 模板和 AI Service 都是基础设施组件；不能让它们直接操作 `graph_nodes`、
+  `graph_edges` 或 `review_actions`。
 - 框架默认值必须显式记录或封装，例如模型、温度、最大输出、超时、重试次数、`topK`、相似度阈值、分片策略和 Prompt 版本。
 - 首次接入自定义 OpenAI-compatible 模型时只验证一条最小抽取链路；不要同时引入 Agent、多个协议实现、外部向量数据库和复杂重排，避免无法判断问题来自哪一层。
 
@@ -245,9 +262,12 @@ topK 和阈值
 - 不把固定字符数切片当成通用方案；章节、表格、列表、代码和页码需要不同的边界策略。
 - 不混用不同 Embedding 模型、维度或版本生成的向量。
 - 不在没有知识空间和文档版本过滤的情况下做全库相似度召回。
+- 不把 Milvus 当作事实库，不将原始全文、审核状态或唯一业务事实只写入 Milvus；模型或维度变化时不得混用旧向量，必须创建兼容的 collection/索引边界并支持从 MySQL 重建。
+- 不在应用启动时执行建库、建表、建 collection、补字段或兼容迁移；目标环境必须在发布前显式执行完整 MySQL DDL，Milvus collection 的创建和重建也必须由受控发布/运维步骤完成。
 - 不因为模型输出流畅、置信度高或 JSON 可解析，就跳过原文证据校验。
 - 不把失败原因统一写成“AI 调用失败”；必须区分解析失败、Embedding 失败、召回为空、结构化输出非法、证据无效、数据库失败和人工拒绝。
 - 不用一次成功的真实模型调用替代自动测试；测试必须能在无 API Key 时使用 Fake AI/Embedding 实现重复执行。
+- 不在默认 `mvn test`、CI 或开发启动中隐式调用真实 AI；真实烟测只允许使用虚构输入、最小请求量、环境变量注入的凭据和显式 `-Preal-ai`，并如实记录模型、时间、参数边界、费用风险与失败原因。
 - 不记录 API Key、完整敏感原文或不必要的 Prompt 内容到日志；日志优先保存运行 ID、文档 ID、分片 ID、哈希和错误上下文。
 
 ### 6.10 验证层次
@@ -255,10 +275,11 @@ topK 和阈值
 AI 相关结果必须明确分层汇报：
 
 1. **编译验证**：依赖、DTO、配置和接口能否编译。
-2. **单元测试**：使用 FakeAiExtractionClient、FakeEmbeddingModel 和固定资料验证分片、校验、去重、证据反查和状态机。
-3. **本地集成验证**：验证 SQLite、知识空间隔离、向量索引重建、抽取运行记录和审核链路。
-4. **真实模型验证**：使用环境变量注入的真实供应商验证模型输出；记录模型、版本、参数和时间，不能当作永久稳定证据。
-5. **生产或外部服务验证**：只有在真实部署、真实数据和真实外部服务上验证后才能这样表述；本地 Mock、Fixture 和健康接口不能替代它。
+2. **默认自动回归**：使用 FakeAiExtractionClient、FakeEmbeddingModel 和固定虚构资料验证分片、校验、去重、证据反查和状态机；不得依赖真实 API Key、模型额度或 Milvus 服务。
+3. **本地 MySQL 集成验证**：验证 MySQL 表结构、知识空间隔离、事务、抽取运行记录、审核链路和 HTTP/SSE 契约；这不等于真实模型或生产数据库验证。
+4. **本地 Milvus 集成验证**：在独立 Milvus 实例上验证 collection、`INT64` ID、元数据过滤、COSINE 召回和从 MySQL 重建；这不等于真实 Embedding 质量或生产向量服务验证。
+5. **真实 AI 烟测**：仅在显式 `real-ai` Profile 下，以环境变量注入真实供应商、固定虚构输入和最小调用量验证聊天/Embedding 的端点、认证、基础输出和向量维度；它可能计费，不代替 Fake 回归、质量评估或生产验证。
+6. **生产或外部服务验证**：只有在真实部署、真实数据和真实外部服务上验证后才能这样表述；本地 Mock、Fixture、Fake、单次真实 AI 烟测和健康接口不能替代它。
 
 ### 6.11 Agent 暂不纳入默认架构
 
@@ -316,36 +337,42 @@ AI 相关结果必须明确分层汇报：
 - 方法参数超过 2 个或单行影响可读性时，每行放一个参数，右括号单独换行。
 - 方法体内调用其他方法时，在调用语句正上方增加说明本次调用业务目的的独立行注释。
 - 异常必须保留有助于定位问题的上下文，不吞异常，不把正常的 404 记录成系统 ERROR。
-- 简单 CRUD、按条件查询和状态更新优先使用 MyBatis-Plus `BaseMapper`；领域层继续使用 record/DTO，不能让 ORM Entity 直接泄漏到 Service 或 Controller。
-- MyBatis-Plus Entity 只负责表字段映射，Mapper 只负责持久化操作；复杂 Join、SQLite JSON 解析和批量统计必须使用 MyBatis Mapper 自定义 XML/SQL，不能回退到 Repository 内的 JdbcTemplate。数据库初始化和兼容迁移的 DDL 执行器可以保留 JDBC。
+- 简单 CRUD、按条件查询和状态更新优先使用 MyBatis-Plus `BaseMapper`；领域层继续使用 record/DTO，不能让 ORM Entity 直接泄漏到
+  Service 或 Controller。
+- MyBatis-Plus Entity 只负责表字段映射，Mapper 只负责持久化操作；复杂 Join、MySQL JSON 解析和批量统计必须使用 MyBatis
+  Mapper 自定义 XML/SQL，不能回退到 Repository 内的 JdbcTemplate。业务应用不得在启动或运行时执行 DDL、建表、补字段或兼容迁移。
 
 ### 前端
 
 - 前端不保存模型密钥、数据库路径或服务端敏感配置。
 - 图谱组件只负责展示和交互，数据导入、解析和持久化由 Java 后端负责。
 - 前后端契约变化时同步更新 TypeScript 类型和 Java DTO。
+- Snowflake `Long` ID 在 HTTP JSON 和 SSE 中一律按十进制字符串传输，前端使用 TypeScript `string`，不得转换为 `number` 以避免超过 JavaScript 安全整数范围。
 - 默认使用聚焦图和类型筛选，避免全局图谱形成不可读的“毛线团”。
 - 前端演示数据必须明确标识，真实接口接入后不得静默继续使用演示数据兜底。
 
 ## 9. API 与 Knife4j 规范
 
 - 统一前缀由 `server.servlet.context-path` 配置，默认 `/api`。
-- Controller 不重复声明 `/api`，只声明按资源组织的业务路径，例如 `/v1/spaces/{spaceId}/documents`、`/v1/spaces/{spaceId}/graph`。
-- 接口优先使用 RESTful 资源语义：集合使用 `GET/POST`，单个资源使用 `GET/DELETE/PATCH`，子资源使用名词路径；禁止把 `import`、`ai-extract`、`process` 等动作动词直接拼到资源 URL 中。
+- Controller 不重复声明 `/api`，只声明按资源组织的业务路径，例如 `/v1/spaces/{spaceId}/documents`、
+  `/v1/spaces/{spaceId}/graph`。
+- 接口优先使用 RESTful 资源语义：集合使用 `GET/POST`，单个资源使用 `GET/DELETE/PATCH`，子资源使用名词路径；禁止把 `import`、
+  `ai-extract`、`process` 等动作动词直接拼到资源 URL 中。
 - Controller 类使用 `@Tag` 描述业务分组。
 - 接口方法使用 `@Operation` 描述摘要和用途。
 - 请求 DTO、响应 DTO 和字段使用 `@Schema` 提供中文说明及必要示例。
 - 参数需要额外语义时使用 `@Parameter`。
 - 不为普通接口重复添加 `@ApiResponses`；响应结构由 SpringDoc 根据真实泛型返回类型推导。
 - 统一响应使用 `ApiResponse<T>`，并保留 `traceId`。
+- 业务资源的 `Long` ID 在请求、响应和 SSE 事件中使用十进制字符串；时间戳、文件大小、计数和耗时等普通数值仍使用 JSON number，不能因为 ID 字符串化而改变其他数值字段语义。
 - 新接口完成后至少检查 OpenAPI JSON 或 Knife4j 页面中的路径、标签、摘要和具体响应模型。
 
-## 10. 数据与安全
+## 10. 数据、建模与安全
 
-- API Key、Token、密码、连接串等只通过环境变量或未提交的本地配置注入。
-- `.env.example` 只放变量名和空值/安全示例，不放真实密钥。
+- MySQL 连接地址、用户名、密码和连接池参数，以及 AI Base URL、模型名和密钥，都只能由环境变量或未提交的本地配置注入；禁止写入源码、SQL、脚本、文档或 `.env.example`。
+- `backend/server/src/main/resources/db/schema.sql` 是新库一次性执行的 MySQL 8.0 完整建表脚本：使用 InnoDB、`utf8mb4`、`BIGINT` 主键/关联 ID，所有表和字段写中文 `COMMENT`，且不使用数据库外键、`IF NOT EXISTS`、启动补表或补字段逻辑。执行删库、建库、全量 DDL、Milvus collection 删除或重建前必须先得到用户/发布负责人确认。
 - 提交前扫描源码、配置、文档和演示资料中的敏感信息。
-- SQLite 数据库、上传文件、构建产物、IDE 配置不提交 Git。
+- MySQL 本地数据目录/备份、Milvus 本地数据目录、上传文件、构建产物和 IDE 配置不提交 Git。
 - 文件删除优先软删除或失效标记，不直接删除事实来源。
 - 原始办公资料是事实源；图谱节点和关系只保存结构化索引、摘要和证据定位。
 - AI 建议必须携带来源和证据，不能仅凭文件名或关键词建立正式关系。
@@ -367,13 +394,15 @@ npm run build
 ```bash
 cd backend
 kg_java_home=$(/usr/libexec/java_home -v 21)
-JAVA_HOME="$kg_java_home" PATH="$kg_java_home/bin:$PATH" mvn test
+test -n "${MYSQL_PASSWORD:-}" || { echo '请先在当前终端设置 MYSQL_PASSWORD'; exit 1; }
+JAVA_HOME="$kg_java_home" PATH="$kg_java_home/bin:$PATH" mvn -pl server -am test
 ```
 
 - 后端共享模块变更使用根 Reactor 测试。
 - 接口、异常处理或数据规则变更应增加针对性测试。
+- 真实 AI 烟测只在用户确认可发起少量外部调用且当前终端已设置 `AI_API_KEY`、`AI_BASE_URL`、`AI_MODEL`、`AI_EMBEDDING_MODEL` 后运行：`mvn -pl server -am -Preal-ai -Dtest=RealAiSmokeIntegrationTests test`。测试完成后只报告非敏感的模型标识、时间、结果与失败摘要，绝不回显密钥、完整响应或向量。
 - `test-compile`、构建成功或服务启动不等于真实数据、模型或生产环境联调完成。
-- 最终汇报必须区分：编译、自动测试、本地接口、真实外部服务和生产部署分别证明了什么。
+- 最终汇报必须区分：编译、Fake 自动回归、本机 MySQL、Milvus、本地接口、真实 AI 烟测、真实外部服务和生产部署分别证明了什么。
 
 ## 12. PRD、路线图维护与会话交接
 
@@ -385,6 +414,7 @@ PRD 是产品范围、当前状态和下一会话入口的正式事实记录：
 - 仅有骨架、演示数据或尚未联调的部分写入第 18.2 节。
 - 下一次新会话可直接执行的首要任务写入第 19.1 节。
 - 后续主线写入第 19.2 节。
+- PRD 保持简洁，只记录已确认决策、范围/非范围、阶段顺序、验收边界、风险和下一步；字段级模型、调用流程、伪代码和重复的实现说明放入设计文档或代码注释，避免把 PRD 写成技术设计全文。
 - 不把计划描述成已完成，不把本地接口验证描述成真实模型或生产联调。
 
 路线图 `docs/roadmap.md` 是阶段顺序、时间范围和阶段验收的正式记录：
@@ -410,7 +440,7 @@ PRD 是产品范围、当前状态和下一会话入口的正式事实记录：
 4. 执行与本次改动相匹配的测试或构建。
 5. 执行 `git diff --check`。
 6. 扫描密钥、Token、密码、连接串和真实个人/公司数据。
-7. 确认 `node_modules`、`.next`、`target`、数据库、上传文件和 IDE 配置未进入提交。
+7. 确认 `node_modules`、`.next`、`target`、MySQL/Milvus 数据目录或备份、上传文件和 IDE 配置未进入提交。
 8. 根据实际 diff 生成中文 Conventional Commit 信息。
 
 ### 提交信息

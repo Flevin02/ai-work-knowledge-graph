@@ -16,13 +16,13 @@ import lombok.NoArgsConstructor;
 public class DocumentTagReviewEntity {
 
     @TableId(value = "id", type = IdType.INPUT)
-    private String id;
+    private Long id;
 
     @TableField("space_id")
-    private String spaceId;
+    private Long spaceId;
 
     @TableField("document_tag_id")
-    private String documentTagId;
+    private Long documentTagId;
 
     private String action;
 

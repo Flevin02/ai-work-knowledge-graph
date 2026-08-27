@@ -16,10 +16,10 @@ import java.time.Instant;
  * @param createdAt 创建时间
  */
 public record GraphEvidence(
-        String id,
-        String spaceId,
-        String edgeId,
-        String sourceDocumentId,
+        Long id,
+        Long spaceId,
+        Long edgeId,
+        Long sourceDocumentId,
         String sourceDocumentName,
         String quote,
         String locator,

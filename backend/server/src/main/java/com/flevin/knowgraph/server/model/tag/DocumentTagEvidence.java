@@ -17,10 +17,10 @@ import java.time.Instant;
  * @param createdAt 创建时间
  */
 public record DocumentTagEvidence(
-        String id,
-        String spaceId,
-        String documentTagId,
-        String sourceDocumentId,
+        Long id,
+        Long spaceId,
+        Long documentTagId,
+        Long sourceDocumentId,
         String chunkId,
         String sectionPath,
         String quote,

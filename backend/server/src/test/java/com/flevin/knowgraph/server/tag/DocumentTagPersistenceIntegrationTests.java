@@ -14,6 +14,7 @@ import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
 import com.flevin.knowgraph.server.service.tag.DocumentTagPersistenceService;
 import com.flevin.knowgraph.server.support.TestKnowledgeSpaceFixtures;
+import com.flevin.knowgraph.server.support.TestIdFixtures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,12 +34,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * 可选标签阶段 2 持久化基础集成测试。
  */
 @SpringBootTest(properties = {
-        "app.database-path=target/test-data/document-tag-persistence.sqlite",
         "app.upload-dir=target/test-data/document-tag-persistence-uploads"
 })
 class DocumentTagPersistenceIntegrationTests {
 
-    private static final String DEFAULT_SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
+    private static final Long DEFAULT_SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
     private static final String PROMPT_VERSION = "document-tag-v1";
     private static final String SCHEMA_VERSION = "document-tag-v1";
     private static final Instant TEST_TIME = Instant.parse("2026-08-24T08:00:00Z");
@@ -88,9 +88,9 @@ class DocumentTagPersistenceIntegrationTests {
 
     @Test
     void createsTagTablesAndPersistsAiSuggestionWithVerbatimEvidence() {
-        // 查询当前 SQLite 表结构，确认标签持久化基础已经初始化
+        // 查询当前 MySQL 表结构，确认标签持久化基础已经初始化
         Set<String> tableNames = Set.copyOf(jdbcTemplate.queryForList(
-                "SELECT name FROM sqlite_master WHERE type = 'table'",
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()",
                 String.class
         ));
         assertThat(tableNames).contains("tags", "document_tags", "document_tag_evidences");
@@ -202,7 +202,7 @@ class DocumentTagPersistenceIntegrationTests {
                         "Annual Plan"
                 ))
         );
-        assertThat(nextPromptSaved.id()).isEqualTo("document-tag-v2");
+        assertThat(nextPromptSaved.id()).isEqualTo(TestIdFixtures.id("document-tag-v2"));
         assertThat(nextPromptSaved.tagId()).isEqualTo(firstSaved.tagId());
         assertThat(nextPromptSaved.documentTagKey()).isNotEqualTo(firstSaved.documentTagKey());
         assertThat(persistenceService.listDocumentTags(DEFAULT_SPACE_ID, document.id())).hasSize(2);
@@ -218,7 +218,7 @@ class DocumentTagPersistenceIntegrationTests {
         );
         KnowledgeTag userDefinition = newTag("tag-budget", "年度预算");
         DocumentTag userTag = new DocumentTag(
-                "document-tag-user-1",
+                TestIdFixtures.id("document-tag-user-1"),
                 DEFAULT_SPACE_ID,
                 document.id(),
                 userDefinition.id(),
@@ -242,14 +242,14 @@ class DocumentTagPersistenceIntegrationTests {
         assertThat(persistenceService.listEvidence(DEFAULT_SPACE_ID, savedUserTag.id())).isEmpty();
 
         DocumentTag invalidAiState = new DocumentTag(
-                "document-tag-ai-confirmed",
+                TestIdFixtures.id("document-tag-ai-confirmed"),
                 DEFAULT_SPACE_ID,
                 document.id(),
                 userDefinition.id(),
                 "ai",
                 "confirmed",
                 0.9,
-                "tag-run-invalid-ai",
+                TestIdFixtures.id("tag-run-invalid-ai"),
                 document.contentHash(),
                 PROMPT_VERSION,
                 SCHEMA_VERSION,
@@ -273,7 +273,7 @@ class DocumentTagPersistenceIntegrationTests {
                 .hasMessage("AI 候选标签初始状态必须为 suggested");
 
         DocumentTag invalidUserState = new DocumentTag(
-                "document-tag-user-suggested",
+                TestIdFixtures.id("document-tag-user-suggested"),
                 DEFAULT_SPACE_ID,
                 document.id(),
                 userDefinition.id(),
@@ -394,7 +394,7 @@ class DocumentTagPersistenceIntegrationTests {
      * @return 已持久化来源资料
      */
     private SourceDocument importDocument(
-            String spaceId,
+            Long spaceId,
             String fileName,
             String content
     ) {
@@ -407,7 +407,7 @@ class DocumentTagPersistenceIntegrationTests {
 
         // 使用现有导入 Service 保存来源文件、解析原文和内容指纹
         DocumentImportResponse response = documentService.importDocuments(spaceId, List.of(file));
-        String documentId = response.results().getFirst().document().id();
+        Long documentId = response.results().getFirst().document().id();
 
         // 读取完整来源资料，供标签证据逐字反查
         return sourceDocumentRepository.findById(spaceId, documentId).orElseThrow();
@@ -425,7 +425,7 @@ class DocumentTagPersistenceIntegrationTests {
             String name
     ) {
         return new KnowledgeTag(
-                tagId,
+                TestIdFixtures.id(tagId),
                 DEFAULT_SPACE_ID,
                 name,
                 null,
@@ -446,19 +446,19 @@ class DocumentTagPersistenceIntegrationTests {
      */
     private DocumentTag newAiSuggestion(
             String documentTagId,
-            String tagId,
+            Long tagId,
             SourceDocument document,
             String promptVersion
     ) {
         return new DocumentTag(
-                documentTagId,
+                TestIdFixtures.id(documentTagId),
                 DEFAULT_SPACE_ID,
                 document.id(),
                 tagId,
                 "ai",
                 "suggested",
                 0.91,
-                "tag-run-" + documentTagId,
+                TestIdFixtures.id("tag-run-" + documentTagId),
                 document.contentHash(),
                 promptVersion,
                 SCHEMA_VERSION,
@@ -484,7 +484,7 @@ class DocumentTagPersistenceIntegrationTests {
             String quote
     ) {
         return new DocumentTagEvidence(
-                evidenceId,
+                TestIdFixtures.id(evidenceId),
                 documentTag.spaceId(),
                 documentTag.id(),
                 document.id(),
@@ -506,7 +506,7 @@ class DocumentTagPersistenceIntegrationTests {
      */
     private DocumentTag copyWithSpace(
             DocumentTag documentTag,
-            String spaceId
+            Long spaceId
     ) {
         return new DocumentTag(
                 documentTag.id(),

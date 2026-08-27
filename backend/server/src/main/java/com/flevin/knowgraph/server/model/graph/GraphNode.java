@@ -18,14 +18,14 @@ import java.util.List;
  * @param updatedAt 最近更新时间
  */
 public record GraphNode(
-        String id,
-        String spaceId,
+        Long id,
+        Long spaceId,
         String type,
         String label,
         String summary,
         String status,
         String normalizedKey,
-        List<String> sourceIds,
+        List<Long> sourceIds,
         Instant createdAt,
         Instant updatedAt
 ) {

@@ -40,13 +40,13 @@ public class DocumentGraphServiceImpl implements DocumentGraphService {
      * @return 当前知识空间的独立文档关系图
      */
     @Override
-    public DocumentGraphResponse getGraph(String spaceId) {
+    public DocumentGraphResponse getGraph(Long spaceId) {
         // 校验知识空间当前有效，阻断跨空间读取文档关系图
         knowledgeSpaceService.requireActive(spaceId);
 
         // 批量查询当前空间全部有效来源文档，节点不从模型自由创建
         List<SourceDocument> documents = sourceDocumentRepository.findAll(spaceId);
-        Map<String, SourceDocument> documentById = documents.stream()
+        Map<Long, SourceDocument> documentById = documents.stream()
                 .collect(Collectors.toMap(SourceDocument::id, Function.identity()));
 
         // 只查询已确认文档关系，默认不把 suggested/rejected/stale 展示为正式图边
@@ -56,7 +56,7 @@ public class DocumentGraphServiceImpl implements DocumentGraphService {
                 .filter(relation -> documentById.containsKey(relation.sourceDocumentId()))
                 .filter(relation -> documentById.containsKey(relation.targetDocumentId()))
                 .toList();
-        Map<String, List<DocumentRelationEvidence>> evidenceByRelationId = documentRelationEvidenceRepository
+        Map<Long, List<DocumentRelationEvidence>> evidenceByRelationId = documentRelationEvidenceRepository
                 .findAllByRelations(spaceId, relations.stream().map(DocumentRelation::id).toList())
                 .stream()
                 .collect(Collectors.groupingBy(

@@ -16,16 +16,16 @@ import lombok.NoArgsConstructor;
 public class DocumentTagEntity {
 
     @TableId(value = "id", type = IdType.INPUT)
-    private String id;
+    private Long id;
 
     @TableField("space_id")
-    private String spaceId;
+    private Long spaceId;
 
     @TableField("source_document_id")
-    private String sourceDocumentId;
+    private Long sourceDocumentId;
 
     @TableField("tag_id")
-    private String tagId;
+    private Long tagId;
 
     @TableField("source_type")
     private String sourceType;
@@ -35,7 +35,7 @@ public class DocumentTagEntity {
     private Double confidence;
 
     @TableField("extraction_run_id")
-    private String extractionRunId;
+    private Long extractionRunId;
 
     @TableField("content_hash")
     private String contentHash;

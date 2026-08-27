@@ -26,8 +26,8 @@ import java.util.List;
  */
 @Schema(description = "文档标签运行状态和建议结果")
 public record DocumentTaggingRunResponse(
-        @Schema(description = "标签运行标识") String runId,
-        @Schema(description = "当前来源资料标识") String sourceDocumentId,
+        @Schema(description = "标签运行标识") Long runId,
+        @Schema(description = "当前来源资料标识") Long sourceDocumentId,
         @Schema(description = "运行状态", example = "completed") String status,
         @Schema(description = "失败阶段", example = "evidence_invalid") String failureStage,
         @Schema(description = "脱敏后的错误摘要") String errorMessage,

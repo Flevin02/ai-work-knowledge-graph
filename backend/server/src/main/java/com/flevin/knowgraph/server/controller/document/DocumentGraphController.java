@@ -26,7 +26,7 @@ public class DocumentGraphController {
     @GetMapping(value = "", name = "查询文档关系图")
     @Operation(summary = "查询文档关系图", description = "返回当前知识空间的真实来源文档节点和已确认文档关系边。")
     public ApiResponse<DocumentGraphResponse> getGraph(
-            @Parameter(description = "知识空间标识") @PathVariable String spaceId
+            @Parameter(description = "知识空间标识") @PathVariable Long spaceId
     ) {
         // 查询独立文档关系图，避免与历史实体图谱混合
         DocumentGraphResponse response = documentGraphService.getGraph(spaceId);

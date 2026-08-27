@@ -13,6 +13,7 @@ import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.flevin.knowgraph.server.service.tag.DocumentTagPersistenceService;
 import com.flevin.knowgraph.server.service.tag.DocumentTagService;
 import com.flevin.knowgraph.server.support.TestKnowledgeSpaceFixtures;
+import com.flevin.knowgraph.server.support.TestIdFixtures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,13 +39,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 文档标签查询、不可变审核历史、批量审核和 OpenAPI 契约集成测试。
  */
 @SpringBootTest(properties = {
-        "app.database-path=target/test-data/document-tag-review-controller.sqlite",
         "app.upload-dir=target/test-data/document-tag-review-controller-uploads"
 })
 @AutoConfigureMockMvc
 class DocumentTagReviewControllerIntegrationTests {
 
-    private static final String SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
+    private static final Long SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
     private static final String PROMPT_VERSION = "document-tag-v1";
     private static final String SCHEMA_VERSION = "document-tag-v1";
 
@@ -87,7 +87,7 @@ class DocumentTagReviewControllerIntegrationTests {
     @Test
     void listsTagsReviewsBatchAndConfirmedSpaceSummaries() throws Exception {
         Set<String> tableNames = Set.copyOf(jdbcTemplate.queryForList(
-                "SELECT name FROM sqlite_master WHERE type = 'table'",
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()",
                 String.class
         ));
         assertThat(tableNames).contains("document_tag_reviews");
@@ -317,7 +317,7 @@ class DocumentTagReviewControllerIntegrationTests {
     ) {
         Instant createdAt = Instant.now();
         KnowledgeTag tag = new KnowledgeTag(
-                "tag-" + suffix,
+                TestIdFixtures.id("tag-" + suffix),
                 SPACE_ID,
                 name,
                 null,
@@ -326,14 +326,14 @@ class DocumentTagReviewControllerIntegrationTests {
                 createdAt
         );
         DocumentTag suggestion = new DocumentTag(
-                "document-tag-" + suffix,
+                TestIdFixtures.id("document-tag-" + suffix),
                 SPACE_ID,
                 document.id(),
                 tag.id(),
                 "ai",
                 "suggested",
                 0.9,
-                "tag-run-" + suffix,
+                TestIdFixtures.id("tag-run-" + suffix),
                 document.contentHash(),
                 PROMPT_VERSION,
                 SCHEMA_VERSION,
@@ -343,7 +343,7 @@ class DocumentTagReviewControllerIntegrationTests {
         );
         int startOffset = document.contentText().indexOf(quote);
         DocumentTagEvidence evidence = new DocumentTagEvidence(
-                "tag-evidence-" + suffix,
+                TestIdFixtures.id("tag-evidence-" + suffix),
                 SPACE_ID,
                 suggestion.id(),
                 document.id(),

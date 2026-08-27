@@ -14,7 +14,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 @Schema(description = "可追溯到来源资料的关系证据")
 public record GraphEvidenceResponse(
         @Schema(description = "来源资料标识")
-        String sourceDocumentId,
+        Long sourceDocumentId,
         @Schema(description = "来源资料名称", example = "第一次筹备会议纪要.md")
         String sourceDocumentName,
         @Schema(description = "原文证据片段", example = "张三负责场地预订和流程协调。")

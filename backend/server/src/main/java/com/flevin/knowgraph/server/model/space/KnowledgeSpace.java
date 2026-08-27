@@ -13,7 +13,7 @@ import java.time.Instant;
  * @param updatedAt 最近更新时间
  */
 public record KnowledgeSpace(
-        String id,
+        Long id,
         String name,
         String description,
         String status,

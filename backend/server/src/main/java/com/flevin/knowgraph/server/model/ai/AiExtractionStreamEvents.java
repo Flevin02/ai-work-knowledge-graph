@@ -23,8 +23,8 @@ public final class AiExtractionStreamEvents {
      * 抽取运行已经持久化并开始执行。
      */
     public record RunStarted(
-            String extractionRunId,
-            String documentId,
+            Long extractionRunId,
+            Long documentId,
             String documentName,
             String provider,
             String model,
@@ -39,8 +39,8 @@ public final class AiExtractionStreamEvents {
      * 一个来源分片开始调用模型。
      */
     public record ChunkStarted(
-            String extractionRunId,
-            String documentId,
+            Long extractionRunId,
+            Long documentId,
             String chunkId,
             String sectionPath,
             int chunkIndex,
@@ -53,8 +53,8 @@ public final class AiExtractionStreamEvents {
      * 供应商真实返回的一段模型原始文本。
      */
     public record Delta(
-            String extractionRunId,
-            String documentId,
+            Long extractionRunId,
+            Long documentId,
             String chunkId,
             String sectionPath,
             String delta,
@@ -66,8 +66,8 @@ public final class AiExtractionStreamEvents {
      * 一个来源分片的完整模型输出已经通过结构和证据校验。
      */
     public record ChunkCompleted(
-            String extractionRunId,
-            String documentId,
+            Long extractionRunId,
+            Long documentId,
             String chunkId,
             String sectionPath,
             int chunkIndex,
@@ -81,8 +81,8 @@ public final class AiExtractionStreamEvents {
      * 所有分片完成校验后开始生成文档级全文摘要。
      */
     public record DocumentSummaryStarted(
-            String extractionRunId,
-            String documentId,
+            Long extractionRunId,
+            Long documentId,
             int chunkCount,
             Instant occurredAt
     ) {
@@ -92,8 +92,8 @@ public final class AiExtractionStreamEvents {
      * 文档级全文摘要生成完成或失败，但不影响已校验候选事实落库。
      */
     public record DocumentSummaryCompleted(
-            String extractionRunId,
-            String documentId,
+            Long extractionRunId,
+            Long documentId,
             String status,
             String summary,
             String errorMessage,
@@ -105,8 +105,8 @@ public final class AiExtractionStreamEvents {
      * 整份来源资料已经完成并保存完整候选结果。
      */
     public record Completed(
-            String extractionRunId,
-            String documentId,
+            Long extractionRunId,
+            Long documentId,
             AiDocumentExtractionResponse result,
             Instant occurredAt
     ) {
@@ -116,8 +116,8 @@ public final class AiExtractionStreamEvents {
      * 抽取运行失败；只有已持久化的运行才可通过标识恢复失败详情。
      */
     public record Error(
-            String extractionRunId,
-            String documentId,
+            Long extractionRunId,
+            Long documentId,
             String chunkId,
             String message,
             boolean recoverable,

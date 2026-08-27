@@ -52,7 +52,7 @@ public class KnowledgeSpaceController {
 
     @DeleteMapping(value = "/{spaceId}", name = "删除知识空间")
     @Operation(summary = "删除知识空间", description = "软删除知识空间并保留其来源资料和图谱事实。")
-    public ApiResponse<Void> deleteSpace(@PathVariable String spaceId) {
+    public ApiResponse<Void> deleteSpace(@PathVariable Long spaceId) {
         // 软删除指定知识空间并保留事实来源
         knowledgeSpaceService.deleteSpace(spaceId);
 

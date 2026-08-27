@@ -18,8 +18,8 @@ import java.util.List;
  */
 @Schema(description = "待审核文档标签建议")
 public record DocumentTagSuggestionResponse(
-        @Schema(description = "文档标签关系标识") String id,
-        @Schema(description = "标签字典标识") String tagId,
+        @Schema(description = "文档标签关系标识") Long id,
+        @Schema(description = "标签字典标识") Long tagId,
         @Schema(description = "标签展示名称", example = "年会筹备") String name,
         @Schema(description = "审核状态", example = "suggested") String status,
         @Schema(description = "模型置信度", example = "0.91") Double confidence,
@@ -43,7 +43,7 @@ public record DocumentTagSuggestionResponse(
      */
     @Schema(description = "文档标签逐字证据")
     public record Evidence(
-            @Schema(description = "来源资料标识") String sourceDocumentId,
+            @Schema(description = "来源资料标识") Long sourceDocumentId,
             @Schema(description = "分片标识") String chunkId,
             @Schema(description = "章节路径") String sectionPath,
             @Schema(description = "逐字原文") String quote,

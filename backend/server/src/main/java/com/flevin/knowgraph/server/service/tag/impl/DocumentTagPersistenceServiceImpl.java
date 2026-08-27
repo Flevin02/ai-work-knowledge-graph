@@ -13,6 +13,7 @@ import com.flevin.knowgraph.server.repository.space.KnowledgeSpaceRepository;
 import com.flevin.knowgraph.server.repository.tag.DocumentTagRepository;
 import com.flevin.knowgraph.server.repository.tag.DocumentTagReviewRepository;
 import com.flevin.knowgraph.server.service.tag.DocumentTagPersistenceService;
+import com.flevin.knowgraph.server.util.SnowflakeIdGenerator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,7 +27,6 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
@@ -202,8 +202,8 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
     @Override
     @Transactional
     public DocumentTagReview reviewDocumentTag(
-            String spaceId,
-            String documentTagId,
+            Long spaceId,
+            Long documentTagId,
             String action,
             String reason,
             String operatorName
@@ -237,7 +237,7 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
         }
 
         DocumentTagReview review = new DocumentTagReview(
-                UUID.randomUUID().toString(),
+                SnowflakeIdGenerator.nextId(),
                 spaceId,
                 documentTagId,
                 action,
@@ -261,8 +261,8 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
     @Override
     @Transactional(readOnly = true)
     public List<DocumentTag> listDocumentTags(
-            String spaceId,
-            String sourceDocumentId
+            Long spaceId,
+            Long sourceDocumentId
     ) {
         // 校验空间内有效来源资料，阻断跨空间或已删除资料读取
         requireSourceDocument(spaceId, sourceDocumentId);
@@ -281,8 +281,8 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
     @Override
     @Transactional(readOnly = true)
     public List<DocumentTagEvidence> listEvidence(
-            String spaceId,
-            String documentTagId
+            Long spaceId,
+            Long documentTagId
     ) {
         // 校验文档标签关系存在且属于当前空间
         documentTagRepository.findDocumentTagById(spaceId, documentTagId)
@@ -350,7 +350,7 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
         if (isBlank(documentTag.promptVersion()) || isBlank(documentTag.schemaVersion())) {
             throw new TipsException(ErrorCode.PARAM_ERROR, "AI 候选标签必须记录 Prompt 和 Schema 版本");
         }
-        if (isBlank(documentTag.extractionRunId())) {
+        if (isInvalidId(documentTag.extractionRunId())) {
             throw new TipsException(ErrorCode.PARAM_ERROR, "AI 候选标签必须记录抽取运行标识");
         }
         if (evidences == null || evidences.isEmpty()) {
@@ -372,7 +372,7 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
             throw new TipsException(ErrorCode.PARAM_ERROR, "用户手工标签保存后必须直接为 confirmed");
         }
         if (documentTag.confidence() != null
-                || !isBlank(documentTag.extractionRunId())
+                || documentTag.extractionRunId() != null
                 || !isBlank(documentTag.promptVersion())
                 || !isBlank(documentTag.schemaVersion())) {
             throw new TipsException(ErrorCode.PARAM_ERROR, "用户手工标签不能携带模型置信度、运行或版本字段");
@@ -386,10 +386,10 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
      */
     private void requireDocumentTag(DocumentTag documentTag) {
         if (documentTag == null
-                || isBlank(documentTag.id())
-                || isBlank(documentTag.spaceId())
-                || isBlank(documentTag.sourceDocumentId())
-                || isBlank(documentTag.tagId())
+                || isInvalidId(documentTag.id())
+                || isInvalidId(documentTag.spaceId())
+                || isInvalidId(documentTag.sourceDocumentId())
+                || isInvalidId(documentTag.tagId())
                 || isBlank(documentTag.contentHash())) {
             throw new TipsException(ErrorCode.PARAM_ERROR, "文档标签标识、空间、来源资料、标签和内容指纹不能为空");
         }
@@ -421,8 +421,8 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
      * @return 当前有效来源资料
      */
     private SourceDocument requireSourceDocument(
-            String spaceId,
-            String sourceDocumentId
+            Long spaceId,
+            Long sourceDocumentId
     ) {
         // 校验知识空间有效，避免已删除空间继续写入标签
         knowledgeSpaceRepository.findActiveById(spaceId)
@@ -445,8 +445,8 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
             DocumentTag documentTag
     ) {
         if (tag == null
-                || isBlank(tag.id())
-                || isBlank(tag.spaceId())
+                || isInvalidId(tag.id())
+                || isInvalidId(tag.spaceId())
                 || isBlank(tag.name())) {
             throw new TipsException(ErrorCode.PARAM_ERROR, "标签标识、空间和名称不能为空");
         }
@@ -479,8 +479,8 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
         Instant createdAt = tag.createdAt() == null ? Instant.now() : tag.createdAt();
         Instant updatedAt = tag.updatedAt() == null ? createdAt : tag.updatedAt();
         KnowledgeTag preparedTag = new KnowledgeTag(
-                tag.id().strip(),
-                tag.spaceId().strip(),
+                tag.id(),
+                tag.spaceId(),
                 normalizedName,
                 normalizedKey,
                 ACTIVE_STATUS,
@@ -523,14 +523,14 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
         Instant createdAt = documentTag.createdAt() == null ? Instant.now() : documentTag.createdAt();
         Instant updatedAt = documentTag.updatedAt() == null ? createdAt : documentTag.updatedAt();
         return new DocumentTag(
-                documentTag.id().strip(),
-                documentTag.spaceId().strip(),
+                documentTag.id(),
+                documentTag.spaceId(),
                 sourceDocument.id(),
                 tag.id(),
                 documentTag.sourceType(),
                 documentTag.status(),
                 documentTag.confidence(),
-                normalizeNullable(documentTag.extractionRunId()),
+                documentTag.extractionRunId(),
                 sourceDocument.contentHash(),
                 normalizeNullable(documentTag.promptVersion()),
                 normalizeNullable(documentTag.schemaVersion()),
@@ -553,7 +553,7 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
             SourceDocument sourceDocument,
             List<DocumentTagEvidence> evidences
     ) {
-        Set<String> evidenceIds = new HashSet<>();
+        Set<Long> evidenceIds = new HashSet<>();
 
         // 逐条验证证据标识、文档归属、quote 和偏移
         return evidences.stream()
@@ -574,13 +574,13 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
             DocumentTag documentTag,
             SourceDocument sourceDocument,
             DocumentTagEvidence evidence,
-            Set<String> evidenceIds
+            Set<Long> evidenceIds
     ) {
         if (evidence == null
-                || isBlank(evidence.id())
-                || isBlank(evidence.spaceId())
-                || isBlank(evidence.documentTagId())
-                || isBlank(evidence.sourceDocumentId())
+                || isInvalidId(evidence.id())
+                || isInvalidId(evidence.spaceId())
+                || isInvalidId(evidence.documentTagId())
+                || isInvalidId(evidence.sourceDocumentId())
                 || isBlank(evidence.chunkId())
                 || evidence.sectionPath() == null
                 || isBlank(evidence.quote())) {
@@ -610,8 +610,8 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
         }
 
         return new DocumentTagEvidence(
-                evidence.id().strip(),
-                evidence.spaceId().strip(),
+                evidence.id(),
+                evidence.spaceId(),
                 documentTag.id(),
                 sourceDocument.id(),
                 evidence.chunkId().strip(),
@@ -635,8 +635,8 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
      * @return 十六进制稳定幂等键
      */
     private String buildDocumentTagKey(
-            String spaceId,
-            String sourceDocumentId,
+            Long spaceId,
+            Long sourceDocumentId,
             String contentHash,
             String normalizedTagKey,
             String promptVersion,
@@ -644,8 +644,8 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
     ) {
         String signature = String.join(
                 KEY_SEPARATOR,
-                spaceId,
-                sourceDocumentId,
+                String.valueOf(spaceId),
+                String.valueOf(sourceDocumentId),
                 contentHash,
                 normalizedTagKey,
                 normalizeOptional(promptVersion),
@@ -690,5 +690,9 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
      */
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private boolean isInvalidId(Long value) {
+        return value == null || value <= 0;
     }
 }

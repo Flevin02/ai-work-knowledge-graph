@@ -30,12 +30,12 @@ public class LocalFileStorage {
      * @return 规范化后的空间文档目录
      * @throws IOException 目录创建失败时抛出
      */
-    public Path prepareDocumentsDirectory(String spaceId) throws IOException {
+    public Path prepareDocumentsDirectory(Long spaceId) throws IOException {
         // 解析并规范化全局上传根目录
         Path uploadRoot = Path.of(storageProperties.getUploadDir()).toAbsolutePath().normalize();
 
         // 在知识空间目录下使用 documents 子目录保存原始事实来源
-        Path documentsDirectory = uploadRoot.resolve(spaceId).resolve("documents").normalize();
+        Path documentsDirectory = uploadRoot.resolve(String.valueOf(spaceId)).resolve("documents").normalize();
         if (!documentsDirectory.startsWith(uploadRoot)) {
             throw new IOException("知识空间目录超出配置的上传根目录");
         }
@@ -55,7 +55,7 @@ public class LocalFileStorage {
      * @throws IOException 目录准备或文件写入失败时抛出
      */
     public Path storeSourceDocument(
-            String spaceId,
+            Long spaceId,
             String extension,
             byte[] contentBytes
     ) throws IOException {

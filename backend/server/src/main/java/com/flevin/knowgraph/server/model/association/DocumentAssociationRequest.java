@@ -13,7 +13,7 @@ import java.util.List;
  * @param associationPolicyVersion 文档关联策略版本
  */
 public record DocumentAssociationRequest(
-        String runId,
+        Long runId,
         DocumentAssociationDocumentContext currentDocument,
         List<DocumentAssociationCandidateContext> candidates,
         String promptVersion,

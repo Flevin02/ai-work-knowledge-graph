@@ -19,7 +19,7 @@ public interface GraphNodeMapper extends BaseMapper<GraphNodeEntity> {
      * @param spaceId 知识空间标识
      * @return 未失效节点
      */
-    List<GraphNodeEntity> findActiveBySpaceId(String spaceId);
+    List<GraphNodeEntity> findActiveBySpaceId(Long spaceId);
 
     /**
      * 批量查询指定知识空间内可复用的规范化节点。
@@ -29,7 +29,7 @@ public interface GraphNodeMapper extends BaseMapper<GraphNodeEntity> {
      * @return 已存在的节点
      */
     List<GraphNodeEntity> findBySpaceIdAndNormalizedKeys(
-            @Param("spaceId") String spaceId,
+            @Param("spaceId") Long spaceId,
             @Param("normalizedKeys") List<String> normalizedKeys
     );
 }

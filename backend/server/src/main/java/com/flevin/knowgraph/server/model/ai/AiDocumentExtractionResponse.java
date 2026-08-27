@@ -27,11 +27,11 @@ import java.util.List;
  */
 @Schema(description = "单份来源资料的 AI 抽取预览")
 public record AiDocumentExtractionResponse(
-        String extractionId,
+        Long extractionId,
         String status,
         Instant createdAt,
         Instant completedAt,
-        String documentId,
+        Long documentId,
         String documentName,
         SourceDocumentType documentType,
         String provider,

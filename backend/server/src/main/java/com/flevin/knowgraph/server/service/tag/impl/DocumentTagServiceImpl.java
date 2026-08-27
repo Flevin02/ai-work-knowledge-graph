@@ -57,8 +57,8 @@ public class DocumentTagServiceImpl implements DocumentTagService {
     @Override
     @Transactional(readOnly = true)
     public List<DocumentTagResponse> listDocumentTags(
-            String spaceId,
-            String documentId
+            Long spaceId,
+            Long documentId
     ) {
         // 校验当前空间和来源资料仍有效，阻断跨空间标签读取
         requireDocument(spaceId, documentId);
@@ -81,8 +81,8 @@ public class DocumentTagServiceImpl implements DocumentTagService {
     @Override
     @Transactional
     public DocumentTagReviewBatchResponse reviewDocumentTags(
-            String spaceId,
-            String documentId,
+            Long spaceId,
+            Long documentId,
             DocumentTagReviewBatchRequest request
     ) {
         // 校验批次基本形状，保证 Service 直接调用也遵守 Controller 契约
@@ -91,7 +91,7 @@ public class DocumentTagServiceImpl implements DocumentTagService {
         // 校验当前空间和来源资料仍有效，阻断跨空间或已删除资料审核
         requireDocument(spaceId, documentId);
 
-        Set<String> documentTagIds = request.reviews().stream()
+        Set<Long> documentTagIds = request.reviews().stream()
                 .map(DocumentTagReviewBatchRequest.Item::documentTagId)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         if (documentTagIds.size() != request.reviews().size()) {
@@ -99,7 +99,7 @@ public class DocumentTagServiceImpl implements DocumentTagService {
         }
 
         // 一次读取当前资料的全部标签，验证客户端不能跨文档提交服务端标识
-        Map<String, DocumentTag> documentTagById = documentTagRepository
+        Map<Long, DocumentTag> documentTagById = documentTagRepository
                 .findAllByDocument(spaceId, documentId)
                 .stream()
                 .collect(Collectors.toMap(DocumentTag::id, Function.identity()));
@@ -143,7 +143,7 @@ public class DocumentTagServiceImpl implements DocumentTagService {
      */
     @Override
     @Transactional(readOnly = true)
-    public List<KnowledgeTagSummaryResponse> listConfirmedTags(String spaceId) {
+    public List<KnowledgeTagSummaryResponse> listConfirmedTags(Long spaceId) {
         // 校验知识空间仍有效，避免跨空间聚合标签统计
         knowledgeSpaceRepository.findActiveById(spaceId)
                 .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "知识空间不存在"));
@@ -169,7 +169,7 @@ public class DocumentTagServiceImpl implements DocumentTagService {
         }
         boolean invalidItem = request.reviews().stream().anyMatch(review -> review == null
                 || review.documentTagId() == null
-                || review.documentTagId().isBlank()
+                || review.documentTagId() <= 0
                 || review.action() == null
                 || review.reason() != null && review.reason().length() > 500);
         if (invalidItem) {
@@ -184,7 +184,7 @@ public class DocumentTagServiceImpl implements DocumentTagService {
      * @param review 单条审核决定
      */
     private void validateReviewTarget(
-            Map<String, DocumentTag> documentTagById,
+            Map<Long, DocumentTag> documentTagById,
             DocumentTagReviewBatchRequest.Item review
     ) {
         DocumentTag documentTag = documentTagById.get(review.documentTagId());
@@ -204,19 +204,19 @@ public class DocumentTagServiceImpl implements DocumentTagService {
      * @return 完整文档标签响应
      */
     private List<DocumentTagResponse> toResponses(
-            String spaceId,
+            Long spaceId,
             List<DocumentTag> documentTags
     ) {
-        List<String> tagIds = documentTags.stream().map(DocumentTag::tagId).distinct().toList();
-        List<String> documentTagIds = documentTags.stream().map(DocumentTag::id).toList();
+        List<Long> tagIds = documentTags.stream().map(DocumentTag::tagId).distinct().toList();
+        List<Long> documentTagIds = documentTags.stream().map(DocumentTag::id).toList();
 
         // 批量读取标签定义并建立标识索引，避免逐标签查询数据库
-        Map<String, KnowledgeTag> tagById = documentTagRepository.findTagsByIds(spaceId, tagIds)
+        Map<Long, KnowledgeTag> tagById = documentTagRepository.findTagsByIds(spaceId, tagIds)
                 .stream()
                 .collect(Collectors.toMap(KnowledgeTag::id, Function.identity()));
 
         // 批量读取全部逐字证据并按文档标签关系分组
-        Map<String, List<DocumentTagEvidence>> evidenceByDocumentTag = documentTagRepository
+        Map<Long, List<DocumentTagEvidence>> evidenceByDocumentTag = documentTagRepository
                 .findEvidenceByDocumentTags(spaceId, documentTagIds)
                 .stream()
                 .collect(Collectors.groupingBy(
@@ -226,7 +226,7 @@ public class DocumentTagServiceImpl implements DocumentTagService {
                 ));
 
         // 批量读取不可变审核历史并按文档标签关系分组
-        Map<String, List<DocumentTagReview>> reviewByDocumentTag = documentTagReviewRepository
+        Map<Long, List<DocumentTagReview>> reviewByDocumentTag = documentTagReviewRepository
                 .findAllByDocumentTags(spaceId, documentTagIds)
                 .stream()
                 .collect(Collectors.groupingBy(
@@ -322,8 +322,8 @@ public class DocumentTagServiceImpl implements DocumentTagService {
      * @param documentId 来源资料标识
      */
     private void requireDocument(
-            String spaceId,
-            String documentId
+            Long spaceId,
+            Long documentId
     ) {
         // 校验知识空间有效，避免已删除空间查询或审核标签
         knowledgeSpaceRepository.findActiveById(spaceId)

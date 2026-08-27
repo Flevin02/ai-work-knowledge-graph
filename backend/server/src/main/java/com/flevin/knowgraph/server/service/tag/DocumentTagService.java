@@ -20,8 +20,8 @@ public interface DocumentTagService {
      * @return 文档标签响应列表
      */
     List<DocumentTagResponse> listDocumentTags(
-            String spaceId,
-            String documentId
+            Long spaceId,
+            Long documentId
     );
 
     /**
@@ -33,8 +33,8 @@ public interface DocumentTagService {
      * @return 审核统计和最新标签快照
      */
     DocumentTagReviewBatchResponse reviewDocumentTags(
-            String spaceId,
-            String documentId,
+            Long spaceId,
+            Long documentId,
             DocumentTagReviewBatchRequest request
     );
 
@@ -44,5 +44,5 @@ public interface DocumentTagService {
      * @param spaceId 知识空间标识
      * @return 已确认标签摘要列表
      */
-    List<KnowledgeTagSummaryResponse> listConfirmedTags(String spaceId);
+    List<KnowledgeTagSummaryResponse> listConfirmedTags(Long spaceId);
 }

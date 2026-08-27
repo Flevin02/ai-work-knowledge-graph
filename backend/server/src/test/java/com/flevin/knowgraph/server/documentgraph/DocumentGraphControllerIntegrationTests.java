@@ -5,6 +5,7 @@ import com.flevin.knowgraph.server.model.document.SourceDocument;
 import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
 import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.flevin.knowgraph.server.support.TestKnowledgeSpaceFixtures;
+import com.flevin.knowgraph.server.support.TestIdFixtures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,13 +27,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 独立文档关系图查询接口集成测试。
  */
 @SpringBootTest(properties = {
-        "app.database-path=target/test-data/document-graph-controller.sqlite",
         "app.upload-dir=target/test-data/document-graph-controller-uploads"
 })
 @AutoConfigureMockMvc
 class DocumentGraphControllerIntegrationTests {
 
-    private static final String SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
+    private static final Long SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
 
     @Autowired
     private MockMvc mockMvc;
@@ -71,9 +71,16 @@ class DocumentGraphControllerIntegrationTests {
         Instant now = Instant.parse("2026-08-25T10:00:00Z");
 
         // 写入一条已确认关系和一条待审核关系，验证文档关系图默认只展示 confirmed
-        insertRelation("confirmed-relation", source, target, "confirmed", now);
-        insertEvidence("confirmed-evidence", source, "confirmed-relation", "会议依据年会方案讨论场地。", now);
-        insertRelation("suggested-relation", target, source, "suggested", now.plusSeconds(1));
+        Long confirmedRelationId = TestIdFixtures.id("confirmed-relation");
+        insertRelation(confirmedRelationId, source, target, "confirmed", now);
+        insertEvidence(
+                TestIdFixtures.id("confirmed-evidence"),
+                source,
+                confirmedRelationId,
+                "会议依据年会方案讨论场地。",
+                now
+        );
+        insertRelation(TestIdFixtures.id("suggested-relation"), target, source, "suggested", now.plusSeconds(1));
 
         mockMvc.perform(get("/v1/spaces/{spaceId}/document-graph", SPACE_ID))
                 .andExpect(status().isOk())
@@ -82,7 +89,7 @@ class DocumentGraphControllerIntegrationTests {
                 .andExpect(jsonPath("$.data.nodes[?(@.name == '会议纪要.md')]").isNotEmpty())
                 .andExpect(jsonPath("$.data.nodes[?(@.name == '年会方案.md')]").isNotEmpty())
                 .andExpect(jsonPath("$.data.edges.length()").value(1))
-                .andExpect(jsonPath("$.data.edges[0].id").value("confirmed-relation"))
+                .andExpect(jsonPath("$.data.edges[0].id").value(confirmedRelationId))
                 .andExpect(jsonPath("$.data.edges[0].status").value("confirmed"))
                 .andExpect(jsonPath("$.data.edges[0].sourceDocumentId").value(source.id()))
                 .andExpect(jsonPath("$.data.edges[0].targetDocumentId").value(target.id()))
@@ -119,7 +126,7 @@ class DocumentGraphControllerIntegrationTests {
     }
 
     private void insertRelation(
-            String id,
+            Long id,
             SourceDocument source,
             SourceDocument target,
             String status,
@@ -147,9 +154,9 @@ class DocumentGraphControllerIntegrationTests {
     }
 
     private void insertEvidence(
-            String id,
+            Long id,
             SourceDocument source,
-            String relationId,
+            Long relationId,
             String quote,
             Instant createdAt
     ) {

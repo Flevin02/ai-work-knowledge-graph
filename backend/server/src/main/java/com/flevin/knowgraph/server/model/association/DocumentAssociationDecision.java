@@ -22,12 +22,12 @@ import java.util.List;
  */
 @Description("一份服务端候选文档的关系判断")
 public record DocumentAssociationDecision(
-        @NotBlank String candidateDocumentId,
+        @NotNull Long candidateDocumentId,
         @NotBlank String relationType,
         @NotBlank String direction,
         @DecimalMin("0.0") @DecimalMax("1.0") double confidence,
         @NotBlank @Size(max = 200) String reason,
-        @NotNull List<@NotBlank String> matchedTagIds,
+        @NotNull List<@NotNull Long> matchedTagIds,
         @NotNull List<@NotBlank String> evidenceIds
 ) {
 

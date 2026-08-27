@@ -41,8 +41,8 @@ public class DocumentTagReviewRepository {
      * @return 按标签、时间和标识排序的审核历史
      */
     public List<DocumentTagReview> findAllByDocumentTags(
-            String spaceId,
-            List<String> documentTagIds
+            Long spaceId,
+            List<Long> documentTagIds
     ) {
         if (documentTagIds.isEmpty()) {
             return List.of();

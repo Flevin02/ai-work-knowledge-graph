@@ -16,7 +16,7 @@ import lombok.NoArgsConstructor;
 public class KnowledgeSpaceEntity {
 
     @TableId(value = "id", type = IdType.INPUT)
-    private String id;
+    private Long id;
 
     private String name;
 

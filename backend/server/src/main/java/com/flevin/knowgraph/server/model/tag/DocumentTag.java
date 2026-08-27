@@ -21,14 +21,14 @@ import java.time.Instant;
  * @param updatedAt 最近更新时间
  */
 public record DocumentTag(
-        String id,
-        String spaceId,
-        String sourceDocumentId,
-        String tagId,
+        Long id,
+        Long spaceId,
+        Long sourceDocumentId,
+        Long tagId,
         String sourceType,
         String status,
         Double confidence,
-        String extractionRunId,
+        Long extractionRunId,
         String contentHash,
         String promptVersion,
         String schemaVersion,

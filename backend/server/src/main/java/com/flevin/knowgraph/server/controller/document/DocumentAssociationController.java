@@ -35,8 +35,8 @@ public class DocumentAssociationController {
             description = "执行无 Embedding 候选召回、关联判断和服务端证据校验；只有校验通过的非 none 结果保存为 suggested。"
     )
     public ApiResponse<DocumentAssociationRunResponse> createRun(
-            @Parameter(description = "知识空间标识") @PathVariable String spaceId,
-            @Parameter(description = "当前分析的来源资料标识") @PathVariable String documentId,
+            @Parameter(description = "知识空间标识") @PathVariable Long spaceId,
+            @Parameter(description = "当前分析的来源资料标识") @PathVariable Long documentId,
             @Parameter(description = "是否显式开启已确认标签补充候选，默认关闭")
             @RequestParam(defaultValue = "false") boolean includeConfirmedTags
     ) {
@@ -57,9 +57,9 @@ public class DocumentAssociationController {
             description = "恢复指定运行的状态、版本、统计和本次新保存的文档关系建议。"
     )
     public ApiResponse<DocumentAssociationRunResponse> getRun(
-            @Parameter(description = "知识空间标识") @PathVariable String spaceId,
-            @Parameter(description = "当前分析的来源资料标识") @PathVariable String documentId,
-            @Parameter(description = "文档关联运行标识") @PathVariable String runId
+            @Parameter(description = "知识空间标识") @PathVariable Long spaceId,
+            @Parameter(description = "当前分析的来源资料标识") @PathVariable Long documentId,
+            @Parameter(description = "文档关联运行标识") @PathVariable Long runId
     ) {
         // 按空间、来源资料和运行标识恢复文档关联结果
         DocumentAssociationRunResponse response = documentAssociationService.getRun(
@@ -78,8 +78,8 @@ public class DocumentAssociationController {
             description = "返回当前资料作为任一端点的 suggested、confirmed、rejected 或 stale 关系及已校验证据。"
     )
     public ApiResponse<List<DocumentRelationResponse>> listRelations(
-            @Parameter(description = "知识空间标识") @PathVariable String spaceId,
-            @Parameter(description = "来源资料标识") @PathVariable String documentId
+            @Parameter(description = "知识空间标识") @PathVariable Long spaceId,
+            @Parameter(description = "来源资料标识") @PathVariable Long documentId
     ) {
         // 查询当前资料作为主体或客体的全部文档关系
         List<DocumentRelationResponse> response = documentAssociationService.listRelations(
@@ -97,8 +97,8 @@ public class DocumentAssociationController {
             description = "只按服务端关系标识批量采纳或拒绝 suggested 建议，不接受客户端覆盖关系内容、置信度或证据。"
     )
     public ApiResponse<DocumentRelationReviewBatchResponse> reviewRelations(
-            @Parameter(description = "知识空间标识") @PathVariable String spaceId,
-            @Parameter(description = "来源资料标识") @PathVariable String documentId,
+            @Parameter(description = "知识空间标识") @PathVariable Long spaceId,
+            @Parameter(description = "来源资料标识") @PathVariable Long documentId,
             @Valid @RequestBody DocumentRelationReviewBatchRequest request
     ) {
         // 按服务端关系标识执行 suggested 到 confirmed/rejected 的状态迁移

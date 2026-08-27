@@ -16,7 +16,7 @@ import java.time.Instant;
 @Schema(description = "来源资料最近一次 AI 抽取摘要")
 public record SourceDocumentExtractionSummary(
         @Schema(description = "最近一次抽取记录标识；未开始时为空")
-        String extractionId,
+        Long extractionId,
         @Schema(
                 description = "最近一次抽取状态",
                 allowableValues = {"not_started", "processing", "completed", "failed"},

@@ -21,9 +21,9 @@ import java.time.Instant;
  * @param updatedAt 最近更新时间
  */
 public record SourceDocument(
-        String id,
-        String spaceId,
-        String batchId,
+        Long id,
+        Long spaceId,
+        Long batchId,
         String name,
         String kind,
         SourceDocumentType documentType,

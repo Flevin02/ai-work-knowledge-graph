@@ -38,14 +38,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 标签运行、Fake 候选、服务端校验、幂等物化和恢复集成测试。
  */
 @SpringBootTest(classes = KnowledgeGraphApplication.class, properties = {
-        "app.database-path=target/test-data/document-tagging-service.sqlite",
         "app.upload-dir=target/test-data/document-tagging-service-uploads",
         "test.document-tagging-client=service"
 })
 @Import(DocumentTaggingServiceIntegrationTests.FakeTaggingConfiguration.class)
 class DocumentTaggingServiceIntegrationTests {
 
-    private static final String SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
+    private static final Long SPACE_ID = TestKnowledgeSpaceFixtures.DEFAULT_SPACE_ID;
 
     @Autowired
     private DocumentTaggingService taggingService;
@@ -87,7 +86,7 @@ class DocumentTaggingServiceIntegrationTests {
     @Test
     void createsTaggingRunAndRestoresValidatedSuggestions() {
         Set<String> tableNames = Set.copyOf(jdbcTemplate.queryForList(
-                "SELECT name FROM sqlite_master WHERE type = 'table'",
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()",
                 String.class
         ));
         assertThat(tableNames).contains("document_tagging_runs");

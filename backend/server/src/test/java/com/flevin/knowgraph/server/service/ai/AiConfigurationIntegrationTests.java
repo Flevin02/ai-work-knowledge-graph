@@ -15,7 +15,6 @@ import org.springframework.context.ApplicationContext;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(properties = {
-        "app.database-path=target/test-data/ai-configuration.sqlite",
         "app.upload-dir=target/test-data/ai-configuration-uploads",
         "ai.enabled=true",
         "ai.provider=openai-compatible",

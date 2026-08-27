@@ -16,16 +16,16 @@ import lombok.NoArgsConstructor;
 public class GraphEdgeEntity {
 
     @TableId(value = "id", type = IdType.INPUT)
-    private String id;
+    private Long id;
 
     @TableField("space_id")
-    private String spaceId;
+    private Long spaceId;
 
     @TableField("source_node_id")
-    private String sourceNodeId;
+    private Long sourceNodeId;
 
     @TableField("target_node_id")
-    private String targetNodeId;
+    private Long targetNodeId;
 
     @TableField("relation_type")
     private String relationType;

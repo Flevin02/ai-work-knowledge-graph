@@ -16,7 +16,7 @@ import java.util.List;
 @Component
 public class PersistenceMappingSupport {
 
-    private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {
+    private static final TypeReference<List<Long>> LONG_LIST_TYPE = new TypeReference<>() {
     };
 
     private final ObjectMapper objectMapper;
@@ -112,11 +112,11 @@ public class PersistenceMappingSupport {
      * @param value 来源资料标识 JSON
      * @return 来源资料标识列表
      */
-    @Named("jsonToStringList")
-    public List<String> jsonToStringList(String value) {
+    @Named("jsonToLongList")
+    public List<Long> jsonToLongList(String value) {
         try {
             // 使用项目统一 ObjectMapper 解析来源资料标识
-            return objectMapper.readValue(value, STRING_LIST_TYPE);
+            return objectMapper.readValue(value, LONG_LIST_TYPE);
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("图谱节点来源资料标识不是有效 JSON", exception);
         }
@@ -128,8 +128,8 @@ public class PersistenceMappingSupport {
      * @param value 来源资料标识列表
      * @return 来源资料标识 JSON
      */
-    @Named("stringListToJson")
-    public String stringListToJson(List<String> value) {
+    @Named("longListToJson")
+    public String longListToJson(List<Long> value) {
         try {
             // 使用项目统一 ObjectMapper 序列化来源资料标识
             return objectMapper.writeValueAsString(value);

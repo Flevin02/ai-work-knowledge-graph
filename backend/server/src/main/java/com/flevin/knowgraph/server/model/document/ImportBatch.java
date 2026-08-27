@@ -16,8 +16,8 @@ import java.time.Instant;
  * @param completedAt 批次完成时间
  */
 public record ImportBatch(
-        String id,
-        String spaceId,
+        Long id,
+        Long spaceId,
         String status,
         int totalCount,
         int importedCount,

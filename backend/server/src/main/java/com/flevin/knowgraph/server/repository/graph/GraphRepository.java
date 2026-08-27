@@ -39,7 +39,7 @@ public class GraphRepository {
      * @param spaceId 知识空间标识
      * @return 图谱节点列表
      */
-    public List<GraphNode> findNodes(String spaceId) {
+    public List<GraphNode> findNodes(Long spaceId) {
         // 通过专用 Mapper 查询未失效节点，复杂排序仍由 Mapper SQL 保持明确
         return graphNodeMapper.findActiveBySpaceId(spaceId).stream()
                 .map(entityMapper::toDomain)
@@ -52,7 +52,7 @@ public class GraphRepository {
      * @param spaceId 知识空间标识
      * @return 图谱关系列表
      */
-    public List<GraphEdge> findEdges(String spaceId) {
+    public List<GraphEdge> findEdges(Long spaceId) {
         // 通过专用 Mapper 查询未失效关系，保持原有创建顺序
         return graphEdgeMapper.findActiveBySpaceId(spaceId).stream()
                 .map(entityMapper::toDomain)
@@ -67,8 +67,8 @@ public class GraphRepository {
      * @return 关系证据列表
      */
     public List<GraphEvidence> findEvidencesByEdgeIds(
-            String spaceId,
-            List<String> edgeIds
+            Long spaceId,
+            List<Long> edgeIds
     ) {
         if (edgeIds.isEmpty()) {
             return List.of();
@@ -86,7 +86,7 @@ public class GraphRepository {
      * @param spaceId 知识空间标识
      * @return 有效节点数量
      */
-    public int countNodes(String spaceId) {
+    public int countNodes(Long spaceId) {
         // 使用 MyBatis-Plus Lambda 条件构造器统计未失效节点
         Long count = graphNodeMapper.selectCount(
                 Wrappers.<GraphNodeEntity>lambdaQuery()
@@ -102,7 +102,7 @@ public class GraphRepository {
      * @param spaceId 知识空间标识
      * @return 已确认关系数量
      */
-    public int countConfirmedEdges(String spaceId) {
+    public int countConfirmedEdges(Long spaceId) {
         // 使用 MyBatis-Plus Lambda 条件构造器统计已确认关系
         Long count = graphEdgeMapper.selectCount(
                 Wrappers.<GraphEdgeEntity>lambdaQuery()
@@ -118,7 +118,7 @@ public class GraphRepository {
      * @param spaceId 知识空间标识
      * @return 待审核关系数量
      */
-    public int countPendingEdges(String spaceId) {
+    public int countPendingEdges(Long spaceId) {
         // 使用 MyBatis-Plus Lambda 条件构造器统计待审核关系
         Long count = graphEdgeMapper.selectCount(
                 Wrappers.<GraphEdgeEntity>lambdaQuery()
@@ -149,7 +149,7 @@ public class GraphRepository {
      * @return 已存在的图谱节点
      */
     public List<GraphNode> findNodesByNormalizedKeys(
-            String spaceId,
+            Long spaceId,
             List<String> normalizedKeys
     ) {
         if (normalizedKeys.isEmpty()) {
@@ -191,7 +191,7 @@ public class GraphRepository {
      * @param edgeId 关系标识
      * @return 关系；不存在时为空
      */
-    public Optional<GraphEdge> findEdge(String edgeId) {
+    public Optional<GraphEdge> findEdge(Long edgeId) {
         return graphEdgeMapper.findById(edgeId).map(entityMapper::toDomain);
     }
 
@@ -205,9 +205,9 @@ public class GraphRepository {
      * @return 关系；不存在时为空
      */
     public Optional<GraphEdge> findEdgeBySignature(
-            String spaceId,
-            String sourceNodeId,
-            String targetNodeId,
+            Long spaceId,
+            Long sourceNodeId,
+            Long targetNodeId,
             String relationType
     ) {
         return Optional.ofNullable(graphEdgeMapper.selectOne(
@@ -229,7 +229,7 @@ public class GraphRepository {
      * @param updatedAt 更新时间
      */
     public void updateEdgeStatus(
-            String edgeId,
+            Long edgeId,
             String status,
             Instant updatedAt
     ) {
@@ -263,7 +263,7 @@ public class GraphRepository {
      * @param evidenceId 证据标识
      * @return 已存在返回 true
      */
-    public boolean existsEvidence(String evidenceId) {
+    public boolean existsEvidence(Long evidenceId) {
         return graphEvidenceMapper.selectById(evidenceId) != null;
     }
 
@@ -275,13 +275,13 @@ public class GraphRepository {
      * @param updatedAt 更新时间
      */
     public void invalidateBySourceDocument(
-            String spaceId,
-            String documentId,
+            Long spaceId,
+            Long documentId,
             Instant updatedAt
     ) {
         // 查询当前知识空间全部未失效节点，逐个检查来源资料贡献
         List<GraphNodeEntity> nodes = graphNodeMapper.findActiveBySpaceId(spaceId);
-        List<String> staleNodeIds = new ArrayList<>();
+        List<Long> staleNodeIds = new ArrayList<>();
 
         nodes.forEach(node -> invalidateNodeSource(node, documentId, updatedAt, staleNodeIds));
 
@@ -312,22 +312,22 @@ public class GraphRepository {
      */
     private void invalidateNodeSource(
             GraphNodeEntity node,
-            String documentId,
+            Long documentId,
             Instant updatedAt,
-            List<String> staleNodeIds
+            List<Long> staleNodeIds
     ) {
         // 解析节点来源资料标识，复用持久化映射的统一 JSON 转换规则
-        List<String> sourceIds = mappingSupport.jsonToStringList(node.getSourceIdsJson());
+        List<Long> sourceIds = mappingSupport.jsonToLongList(node.getSourceIdsJson());
         if (!sourceIds.contains(documentId)) {
             return;
         }
 
         // 移除当前来源资料，保留其他文档对同一节点的支撑
-        List<String> remainingSourceIds = sourceIds.stream()
+        List<Long> remainingSourceIds = sourceIds.stream()
                 .filter(sourceId -> !documentId.equals(sourceId))
                 .toList();
         // 将剩余来源资料标识按统一格式序列化回持久化字段
-        node.setSourceIdsJson(mappingSupport.stringListToJson(remainingSourceIds));
+        node.setSourceIdsJson(mappingSupport.longListToJson(remainingSourceIds));
         node.setUpdatedAt(updatedAt.toString());
 
         if (remainingSourceIds.isEmpty()) {

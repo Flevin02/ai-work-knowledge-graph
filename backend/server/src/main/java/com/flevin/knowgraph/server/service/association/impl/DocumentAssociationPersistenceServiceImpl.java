@@ -15,6 +15,7 @@ import com.flevin.knowgraph.server.repository.association.DocumentRelationReview
 import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
 import com.flevin.knowgraph.server.repository.space.KnowledgeSpaceRepository;
 import com.flevin.knowgraph.server.service.association.DocumentAssociationPersistenceService;
+import com.flevin.knowgraph.server.util.SnowflakeIdGenerator;
 import com.flevin.knowgraph.server.service.ai.rag.PrdMarkdownSectionParser;
 import com.flevin.knowgraph.server.service.ai.rag.SectionAwareDocumentChunker;
 import lombok.RequiredArgsConstructor;
@@ -141,9 +142,9 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
     @Override
     @Transactional(readOnly = true)
     public DocumentAssociationRun getRun(
-            String spaceId,
-            String sourceDocumentId,
-            String runId
+            Long spaceId,
+            Long sourceDocumentId,
+            Long runId
     ) {
         // 校验当前知识空间和主体文档仍可访问
         requireActiveSpace(spaceId);
@@ -251,8 +252,8 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
     @Override
     @Transactional
     public DocumentRelationReview reviewRelation(
-            String spaceId,
-            String relationId,
+            Long spaceId,
+            Long relationId,
             String action,
             String reason,
             String operatorName
@@ -303,8 +304,8 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
     @Override
     @Transactional(readOnly = true)
     public List<DocumentRelationEvidence> listEvidence(
-            String spaceId,
-            String relationId
+            Long spaceId,
+            Long relationId
     ) {
         // 校验空间和关系存在，防止返回跨空间证据
         requireRelation(spaceId, relationId);
@@ -323,8 +324,8 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
     @Override
     @Transactional(readOnly = true)
     public List<DocumentRelationReview> listReviews(
-            String spaceId,
-            String relationId
+            Long spaceId,
+            Long relationId
     ) {
         // 校验空间和关系存在，防止返回跨空间审核记录
         requireRelation(spaceId, relationId);
@@ -343,8 +344,8 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
     @Override
     @Transactional(readOnly = true)
     public DocumentRelation getRelation(
-            String spaceId,
-            String relationId
+            Long spaceId,
+            Long relationId
     ) {
         // 使用统一关系边界校验阻断跨空间读取
         return requireRelation(spaceId, relationId);
@@ -360,8 +361,8 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
     @Override
     @Transactional(readOnly = true)
     public List<DocumentRelation> listRelationsByRun(
-            String spaceId,
-            String runId
+            Long spaceId,
+            Long runId
     ) {
         // 校验空间有效后按运行标识批量读取关系
         requireActiveSpace(spaceId);
@@ -380,8 +381,8 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
     @Override
     @Transactional(readOnly = true)
     public List<DocumentRelation> listRelationsByDocument(
-            String spaceId,
-            String documentId
+            Long spaceId,
+            Long documentId
     ) {
         // 校验来源资料属于当前有效空间，避免通过任意标识枚举关系
         requireDocument(spaceId, documentId);
@@ -400,8 +401,8 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
     @Override
     @Transactional(readOnly = true)
     public List<DocumentRelationEvidence> listEvidence(
-            String spaceId,
-            List<String> relationIds
+            Long spaceId,
+            List<Long> relationIds
     ) {
         // 校验知识空间有效，批量查询只返回当前空间证据
         requireActiveSpace(spaceId);
@@ -417,9 +418,9 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
      */
     private void validateRun(DocumentAssociationRun run) {
         if (run == null
-                || isBlank(run.id())
-                || isBlank(run.spaceId())
-                || isBlank(run.sourceDocumentId())
+                || isInvalidId(run.id())
+                || isInvalidId(run.spaceId())
+                || isInvalidId(run.sourceDocumentId())
                 || isBlank(run.sourceContentHash())
                 || !RUN_STATUSES.contains(run.status())
                 || isBlank(run.promptVersion())
@@ -478,10 +479,10 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
      */
     private void validateRelationShape(DocumentRelation relation) {
         if (relation == null
-                || isBlank(relation.id())
-                || isBlank(relation.spaceId())
-                || isBlank(relation.sourceDocumentId())
-                || isBlank(relation.targetDocumentId())
+                || isInvalidId(relation.id())
+                || isInvalidId(relation.spaceId())
+                || isInvalidId(relation.sourceDocumentId())
+                || isInvalidId(relation.targetDocumentId())
                 || isBlank(relation.relationType())
                 || isBlank(relation.direction())
                 || isBlank(relation.status())
@@ -607,10 +608,10 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
      */
     private void validateEvidenceShape(DocumentRelationEvidence evidence) {
         if (evidence == null
-                || isBlank(evidence.id())
-                || isBlank(evidence.spaceId())
-                || isBlank(evidence.documentRelationId())
-                || isBlank(evidence.sourceDocumentId())
+                || isInvalidId(evidence.id())
+                || isInvalidId(evidence.spaceId())
+                || isInvalidId(evidence.documentRelationId())
+                || isInvalidId(evidence.sourceDocumentId())
                 || isBlank(evidence.chunkId())
                 || isBlank(evidence.sectionPath())
                 || isBlank(evidence.quote())
@@ -796,7 +797,7 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
      *
      * @param spaceId 知识空间标识
      */
-    private void requireActiveSpace(String spaceId) {
+    private void requireActiveSpace(Long spaceId) {
         // 查询有效知识空间，确保新记录不会写入已删除空间
         knowledgeSpaceRepository.findActiveById(spaceId)
                 .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "知识空间不存在或已删除"));
@@ -809,7 +810,7 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
      * @param documentId 来源资料标识
      * @return 有效来源资料
      */
-    private SourceDocument requireDocument(String spaceId, String documentId) {
+    private SourceDocument requireDocument(Long spaceId, Long documentId) {
         // 使用空间和文档标识双重边界读取原文
         return sourceDocumentRepository.findById(spaceId, documentId)
                 .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "来源资料不存在或已删除"));
@@ -822,7 +823,7 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
      * @param relationId 文档关系标识
      * @return 文档关系
      */
-    private DocumentRelation requireRelation(String spaceId, String relationId) {
+    private DocumentRelation requireRelation(Long spaceId, Long relationId) {
         // 校验知识空间有效，保持查询边界一致
         requireActiveSpace(spaceId);
 
@@ -866,8 +867,8 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
      * @return SHA-256 稳定关系键
      */
     private String buildRelationKey(DocumentRelation relation) {
-        String leftDocumentId = relation.sourceDocumentId();
-        String rightDocumentId = relation.targetDocumentId();
+        Long leftDocumentId = relation.sourceDocumentId();
+        Long rightDocumentId = relation.targetDocumentId();
         String leftHash = relation.sourceContentHash();
         String rightHash = relation.targetContentHash();
         if ("symmetric".equals(relation.direction()) && leftDocumentId.compareTo(rightDocumentId) > 0) {
@@ -878,9 +879,9 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
         }
         String rawKey = String.join(
                 "|",
-                leftDocumentId,
+                String.valueOf(leftDocumentId),
                 relation.relationType(),
-                rightDocumentId,
+                String.valueOf(rightDocumentId),
                 leftHash,
                 rightHash,
                 relation.associationPolicyVersion()
@@ -901,16 +902,20 @@ public class DocumentAssociationPersistenceServiceImpl implements DocumentAssoci
      * @param relationId 文档关系标识
      * @param action 审核动作
      * @param operatorName 操作者名称
-     * @return UUID 审核记录标识
+     * @return Long 审核记录标识
      */
-    private String buildReviewId(
-            String spaceId,
-            String relationId,
+    private Long buildReviewId(
+            Long spaceId,
+            Long relationId,
             String action,
             String operatorName
     ) {
-        // 审核记录必须保留每次动作，因此使用随机 UUID 而非关系级固定键
-        return java.util.UUID.randomUUID().toString();
+        // 审核记录必须保留每次动作，因此使用新的 Long 标识而非关系级固定键
+        return SnowflakeIdGenerator.nextId();
+    }
+
+    private boolean isInvalidId(Long value) {
+        return value == null || value <= 0;
     }
 
     /**

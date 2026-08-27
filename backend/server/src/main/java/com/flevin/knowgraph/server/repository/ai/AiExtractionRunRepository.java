@@ -40,7 +40,7 @@ public class AiExtractionRunRepository {
      * @param chunkCount 分片数量
      */
     public void plan(
-            String extractionId,
+            Long extractionId,
             int sectionCount,
             int chunkCount
     ) {
@@ -70,7 +70,7 @@ public class AiExtractionRunRepository {
      * @param completedAt 完成时间
      */
     public void complete(
-            String extractionId,
+            Long extractionId,
             int sectionCount,
             int chunkCount,
             String documentSummary,
@@ -108,7 +108,7 @@ public class AiExtractionRunRepository {
      * @param completedAt 失败时间
      */
     public void fail(
-            String extractionId,
+            Long extractionId,
             String errorMessage,
             String completedAt
     ) {
@@ -133,8 +133,8 @@ public class AiExtractionRunRepository {
      * @return 抽取运行实体列表
      */
     public List<AiExtractionRunEntity> findAllByDocument(
-            String spaceId,
-            String documentId
+            Long spaceId,
+            Long documentId
     ) {
         // 按空间、文档和创建时间查询抽取记录，保持历史可追溯
         return aiExtractionRunMapper.selectList(
@@ -155,9 +155,9 @@ public class AiExtractionRunRepository {
      * @return 抽取运行实体；不存在时返回空
      */
     public Optional<AiExtractionRunEntity> findById(
-            String spaceId,
-            String documentId,
-            String extractionId
+            Long spaceId,
+            Long documentId,
+            Long extractionId
     ) {
         // 使用空间、文档和运行标识三重边界查询单条抽取记录
         AiExtractionRunEntity entity = aiExtractionRunMapper.selectOne(
@@ -177,8 +177,8 @@ public class AiExtractionRunRepository {
      * @return 存在抽取记录的资料概览；未开始资料不返回记录
      */
     public List<DocumentExtractionOverview> findLatestByDocuments(
-            String spaceId,
-            List<String> documentIds
+            Long spaceId,
+            List<Long> documentIds
     ) {
         if (documentIds.isEmpty()) {
             return List.of();

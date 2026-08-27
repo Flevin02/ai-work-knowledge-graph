@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class KnowledgeTagSummaryProjection {
 
-    private String tagId;
+    private Long tagId;
 
     private String name;
 

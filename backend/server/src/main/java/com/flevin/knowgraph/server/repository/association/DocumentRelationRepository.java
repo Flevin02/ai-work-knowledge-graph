@@ -30,7 +30,7 @@ public class DocumentRelationRepository {
      * @return 已存在关系；不存在时返回空
      */
     public Optional<DocumentRelation> findByRelationKey(
-            String spaceId,
+            Long spaceId,
             String relationKey
     ) {
         // 只在当前知识空间内读取关系，避免相同关系键跨空间复用
@@ -50,8 +50,8 @@ public class DocumentRelationRepository {
      * @return 文档关系；不存在时返回空
      */
     public Optional<DocumentRelation> findById(
-            String spaceId,
-            String relationId
+            Long spaceId,
+            Long relationId
     ) {
         // 使用空间和主键双重边界查询关系
         DocumentRelationEntity entity = mapper.selectOne(
@@ -70,8 +70,8 @@ public class DocumentRelationRepository {
      * @return 按创建时间和关系标识稳定排序的关系列表
      */
     public List<DocumentRelation> findAllByRun(
-            String spaceId,
-            String runId
+            Long spaceId,
+            Long runId
     ) {
         // 运行详情只读取当前空间内由该运行新保存的关系
         return mapper.selectList(
@@ -93,8 +93,8 @@ public class DocumentRelationRepository {
      * @return 当前资料相关的关系列表，最近更新优先
      */
     public List<DocumentRelation> findAllByDocument(
-            String spaceId,
-            String documentId
+            Long spaceId,
+            Long documentId
     ) {
         // 同时匹配有向关系和规范化后的对称关系两端
         return mapper.selectList(
@@ -119,7 +119,7 @@ public class DocumentRelationRepository {
      * @return 按最近更新时间倒序排列的文档关系
      */
     public List<DocumentRelation> findAllBySpaceAndStatus(
-            String spaceId,
+            Long spaceId,
             String status
     ) {
         // 只在当前知识空间读取目标状态关系，避免跨空间构造图边
@@ -154,8 +154,8 @@ public class DocumentRelationRepository {
      * @return 实际更新记录数
      */
     public int updateStatus(
-            String spaceId,
-            String relationId,
+            Long spaceId,
+            Long relationId,
             String status,
             Instant updatedAt
     ) {

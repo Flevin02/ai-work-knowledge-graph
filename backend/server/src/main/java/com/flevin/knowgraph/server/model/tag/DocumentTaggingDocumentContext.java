@@ -15,7 +15,7 @@ import java.util.List;
  * @param chunks 允许模型引用的章节感知分片
  */
 public record DocumentTaggingDocumentContext(
-        String documentId,
+        Long documentId,
         String name,
         String kind,
         String documentType,

@@ -9,7 +9,7 @@ package com.flevin.knowgraph.server.model.tag;
  * @param schemaVersion 标签输出 Schema 版本
  */
 public record DocumentTaggingRequest(
-        String runId,
+        Long runId,
         DocumentTaggingDocumentContext document,
         String promptVersion,
         String schemaVersion

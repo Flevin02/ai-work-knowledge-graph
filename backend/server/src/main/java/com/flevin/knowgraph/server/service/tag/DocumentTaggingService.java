@@ -15,8 +15,8 @@ public interface DocumentTaggingService {
      * @return 运行状态和本次新保存的标签建议
      */
     DocumentTaggingRunResponse createRun(
-            String spaceId,
-            String sourceDocumentId
+            Long spaceId,
+            Long sourceDocumentId
     );
 
     /**
@@ -27,8 +27,8 @@ public interface DocumentTaggingService {
      * @return 最近一次运行状态和建议
      */
     DocumentTaggingRunResponse getLatestRun(
-            String spaceId,
-            String sourceDocumentId
+            Long spaceId,
+            Long sourceDocumentId
     );
 
     /**
@@ -40,8 +40,8 @@ public interface DocumentTaggingService {
      * @return 可重复恢复的运行状态和建议
      */
     DocumentTaggingRunResponse getRun(
-            String spaceId,
-            String sourceDocumentId,
-            String runId
+            Long spaceId,
+            Long sourceDocumentId,
+            Long runId
     );
 }

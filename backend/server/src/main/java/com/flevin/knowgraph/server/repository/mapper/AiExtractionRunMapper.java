@@ -21,7 +21,7 @@ public interface AiExtractionRunMapper extends BaseMapper<AiExtractionRunEntity>
      * @return 每份存在抽取记录的资料对应一条最近运行
      */
     List<AiExtractionRunEntity> findLatestByDocumentIds(
-            @Param("spaceId") String spaceId,
-            @Param("documentIds") List<String> documentIds
+            @Param("spaceId") Long spaceId,
+            @Param("documentIds") List<Long> documentIds
     );
 }

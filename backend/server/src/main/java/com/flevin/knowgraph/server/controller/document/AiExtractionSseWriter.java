@@ -3,8 +3,8 @@ package com.flevin.knowgraph.server.controller.document;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flevin.knowgraph.server.service.ai.AiExtractionEventPublisher;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -17,10 +17,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class AiExtractionSseWriter {
 
     private final ObjectMapper objectMapper;
+
+    public AiExtractionSseWriter(
+            @Qualifier("apiObjectMapper") ObjectMapper objectMapper
+    ) {
+        this.objectMapper = objectMapper;
+    }
 
     /**
      * 为单次 HTTP 响应创建事件发布器；客户端断开后停止写出，但不取消后台抽取。

@@ -16,16 +16,16 @@ import lombok.NoArgsConstructor;
 public class GraphEvidenceEntity {
 
     @TableId(value = "id", type = IdType.INPUT)
-    private String id;
+    private Long id;
 
     @TableField("space_id")
-    private String spaceId;
+    private Long spaceId;
 
     @TableField("edge_id")
-    private String edgeId;
+    private Long edgeId;
 
     @TableField("source_document_id")
-    private String sourceDocumentId;
+    private Long sourceDocumentId;
 
     private String quote;
 

@@ -18,7 +18,7 @@ import java.util.List;
 @Schema(description = "来源资料导入批次结果")
 public record DocumentImportResponse(
         @Schema(description = "导入批次标识", example = "7a201ec1-b37c-48da-b388-477817ed0a31")
-        String batchId,
+        Long batchId,
         @Schema(description = "批次状态", example = "completed")
         DocumentImportBatchStatus status,
         @Schema(description = "文件总数", example = "2")

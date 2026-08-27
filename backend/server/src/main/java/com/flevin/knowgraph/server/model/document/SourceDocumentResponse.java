@@ -24,9 +24,9 @@ import java.time.Instant;
 @Schema(description = "已持久化的来源资料摘要")
 public record SourceDocumentResponse(
         @Schema(description = "来源资料标识", example = "7ff1d617-997b-46cb-8127-7c99834e57ef")
-        String id,
+        Long id,
         @Schema(description = "所属知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
-        String spaceId,
+        Long spaceId,
         @Schema(description = "原始文件名", example = "第一次筹备会议纪要.md")
         String name,
         @Schema(description = "文件类型", allowableValues = {"markdown", "txt", "pdf"}, example = "pdf")

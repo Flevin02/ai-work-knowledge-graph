@@ -4,7 +4,7 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * 批量 AI 抽取后台线程池配置，限制同时访问模型和 SQLite 写入收口的任务数量。
+ * 批量 AI 抽取后台线程池配置，限制同时访问模型和 MySQL 写入收口的任务数量。
  */
 @Data
 @ConfigurationProperties(prefix = "ai.batch-extraction")

@@ -20,9 +20,9 @@ import java.time.Instant;
 @Schema(description = "来源资料原文预览")
 public record SourceDocumentContentResponse(
         @Schema(description = "来源资料标识")
-        String id,
+        Long id,
         @Schema(description = "所属知识空间标识")
-        String spaceId,
+        Long spaceId,
         @Schema(description = "原始文件名")
         String name,
         @Schema(description = "文件类型", allowableValues = {"markdown", "txt", "pdf"}, example = "pdf")

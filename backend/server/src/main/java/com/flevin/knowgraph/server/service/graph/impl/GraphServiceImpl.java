@@ -44,7 +44,7 @@ public class GraphServiceImpl implements GraphService {
      * @return 图谱摘要
      */
     @Override
-    public GraphSummaryResponse getSummary(String spaceId) {
+    public GraphSummaryResponse getSummary(Long spaceId) {
         // 校验待查询知识空间当前有效
         knowledgeSpaceService.requireActive(spaceId);
 
@@ -63,7 +63,7 @@ public class GraphServiceImpl implements GraphService {
                 pendingReviewCount,
                 nodeCount == 0
                         ? "当前知识空间尚未生成图谱节点。"
-                        : "图谱摘要已从 SQLite 实时统计。"
+                        : "图谱摘要已从 MySQL 实时统计。"
         );
     }
 
@@ -74,7 +74,7 @@ public class GraphServiceImpl implements GraphService {
      * @return 图谱基础数据
      */
     @Override
-    public GraphDataResponse getGraph(String spaceId) {
+    public GraphDataResponse getGraph(Long spaceId) {
         // 校验待查询知识空间当前有效
         knowledgeSpaceService.requireActive(spaceId);
 
@@ -87,7 +87,7 @@ public class GraphServiceImpl implements GraphService {
         List<GraphEdge> edges = graphRepository.findEdges(spaceId);
 
         // 一次性查询全部关系证据并按关系标识分组，避免循环访问数据库
-        Map<String, List<GraphEvidenceResponse>> evidenceByEdgeId = graphRepository.findEvidencesByEdgeIds(
+        Map<Long, List<GraphEvidenceResponse>> evidenceByEdgeId = graphRepository.findEvidencesByEdgeIds(
                         spaceId,
                         edges.stream().map(GraphEdge::id).toList()
                 ).stream()

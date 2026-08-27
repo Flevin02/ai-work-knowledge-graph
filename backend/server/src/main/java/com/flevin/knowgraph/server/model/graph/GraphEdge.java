@@ -16,10 +16,10 @@ import java.time.Instant;
  * @param updatedAt 最近更新时间
  */
 public record GraphEdge(
-        String id,
-        String spaceId,
-        String sourceNodeId,
-        String targetNodeId,
+        Long id,
+        Long spaceId,
+        Long sourceNodeId,
+        Long targetNodeId,
         String type,
         String status,
         double confidence,

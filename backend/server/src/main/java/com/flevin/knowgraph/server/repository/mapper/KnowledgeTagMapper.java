@@ -21,6 +21,6 @@ public interface KnowledgeTagMapper extends BaseMapper<KnowledgeTagEntity> {
      * @return 按文档数量、名称和标识稳定排序的标签摘要
      */
     List<KnowledgeTagSummaryProjection> findConfirmedSummaries(
-            @Param("spaceId") String spaceId
+            @Param("spaceId") Long spaceId
     );
 }

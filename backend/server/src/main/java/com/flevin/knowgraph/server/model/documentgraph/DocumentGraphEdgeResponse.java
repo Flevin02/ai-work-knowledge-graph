@@ -21,9 +21,9 @@ import java.util.List;
  */
 @Schema(description = "文档关系图中的文档关系边")
 public record DocumentGraphEdgeResponse(
-        @Schema(description = "文档关系标识") String id,
-        @Schema(description = "关系主体文档标识") String sourceDocumentId,
-        @Schema(description = "关系客体文档标识") String targetDocumentId,
+        @Schema(description = "文档关系标识") Long id,
+        @Schema(description = "关系主体文档标识") Long sourceDocumentId,
+        @Schema(description = "关系客体文档标识") Long targetDocumentId,
         @Schema(description = "关系类型", example = "references") String relationType,
         @Schema(description = "关系方向", example = "current_to_candidate") String direction,
         @Schema(description = "审核状态", example = "confirmed") String status,
@@ -51,8 +51,8 @@ public record DocumentGraphEdgeResponse(
      */
     @Schema(description = "文档关系图边的原文证据")
     public record Evidence(
-            @Schema(description = "证据标识") String id,
-            @Schema(description = "证据所在文档标识") String sourceDocumentId,
+            @Schema(description = "证据标识") Long id,
+            @Schema(description = "证据所在文档标识") Long sourceDocumentId,
             @Schema(description = "证据所在分片标识") String chunkId,
             @Schema(description = "章节路径") String sectionPath,
             @Schema(description = "逐字原文") String quote,

@@ -45,7 +45,7 @@ public class ImportBatchRepository {
      * @param completedAt 批次完成时间
      */
     public void complete(
-            String batchId,
+            Long batchId,
             String status,
             int importedCount,
             int duplicateCount,

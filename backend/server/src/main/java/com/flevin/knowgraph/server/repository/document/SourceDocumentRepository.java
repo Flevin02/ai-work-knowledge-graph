@@ -48,7 +48,7 @@ public class SourceDocumentRepository {
      * @return 已存在的来源资料；不存在时返回空
      */
     public Optional<SourceDocument> findByContentHash(
-            String spaceId,
+            Long spaceId,
             String contentHash
     ) {
         // 使用知识空间和内容指纹查询空间内重复来源资料
@@ -68,8 +68,8 @@ public class SourceDocumentRepository {
      * @return 完整来源资料；不存在时返回空
      */
     public Optional<SourceDocument> findById(
-            String spaceId,
-            String documentId
+            Long spaceId,
+            Long documentId
     ) {
         // 使用知识空间和资料标识查询完整原文，防止跨空间读取
         SourceDocumentEntity entity = sourceDocumentMapper.selectOne(
@@ -87,7 +87,7 @@ public class SourceDocumentRepository {
      * @param spaceId 知识空间标识
      * @return 来源资料列表
      */
-    public List<SourceDocument> findAll(String spaceId) {
+    public List<SourceDocument> findAll(Long spaceId) {
         // 按空间、导入时间和主键查询来源资料，保持现有 API 顺序稳定
         List<SourceDocumentEntity> entities = sourceDocumentMapper.selectList(
                 Wrappers.<SourceDocumentEntity>lambdaQuery()
@@ -111,7 +111,7 @@ public class SourceDocumentRepository {
      * @return 当前页来源资料和分页元数据
      */
     public SourceDocumentPage findPage(
-            String spaceId,
+            Long spaceId,
             String name,
             int page,
             int pageSize
@@ -128,7 +128,7 @@ public class SourceDocumentRepository {
         if (normalizedName != null && !normalizedName.isEmpty()) {
             // 转义 LIKE 元字符，确保搜索百分号和下划线时按文件名字符匹配
             queryWrapper.apply(
-                    "name LIKE {0} ESCAPE '\\'",
+                    "name LIKE {0} ESCAPE '\\\\'",
                     "%" + escapeLikePattern(normalizedName) + "%"
             );
         }
@@ -157,7 +157,7 @@ public class SourceDocumentRepository {
     }
 
     /**
-     * 转义 SQLite LIKE 查询中的通配符，保留用户输入的文件名语义。
+     * 转义 MySQL LIKE 查询中的通配符，保留用户输入的文件名语义。
      *
      * @param value 原始名称筛选条件
      * @return 可作为 LIKE 参数使用的转义文本
@@ -178,8 +178,8 @@ public class SourceDocumentRepository {
      * @return 实际更新记录数
      */
     public int softDelete(
-            String spaceId,
-            String documentId,
+            Long spaceId,
+            Long documentId,
             Instant updatedAt
     ) {
         SourceDocumentEntity updateEntity = new SourceDocumentEntity();
@@ -206,8 +206,8 @@ public class SourceDocumentRepository {
      * @return 实际更新记录数
      */
     public int restore(
-            String spaceId,
-            String documentId,
+            Long spaceId,
+            Long documentId,
             SourceDocumentType documentType,
             Instant updatedAt
     ) {

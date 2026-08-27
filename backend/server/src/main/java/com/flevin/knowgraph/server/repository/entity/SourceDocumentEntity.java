@@ -16,13 +16,13 @@ import lombok.NoArgsConstructor;
 public class SourceDocumentEntity {
 
     @TableId(value = "id", type = IdType.INPUT)
-    private String id;
+    private Long id;
 
     @TableField("space_id")
-    private String spaceId;
+    private Long spaceId;
 
     @TableField("batch_id")
-    private String batchId;
+    private Long batchId;
 
     private String name;
 
