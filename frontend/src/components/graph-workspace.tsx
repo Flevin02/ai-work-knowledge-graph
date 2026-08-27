@@ -650,11 +650,17 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
     }, [documentGraph, documentRelationTypeFilter, documentTypeFilter, hasDocumentGraphFilters]);
 
     useEffect(() => {
-        if (graphMode !== 'document') return;
+        if (
+            graphMode !== 'document'
+            || !currentSpaceId
+            || loadedDocumentGraphSpaceId !== currentSpaceId
+        ) return;
+
+        // 等当前空间的文档图加载完成后再归一化选择，避免根 URL 的选中节点被初始空图提前覆盖
         setSelectedNodeId((current) => filteredDocumentGraph.nodes.some((node) => node.id === current)
             ? current
             : filteredDocumentGraph.nodes[0]?.id ?? null);
-    }, [filteredDocumentGraph.nodes, graphMode]);
+    }, [currentSpaceId, filteredDocumentGraph.nodes, graphMode, loadedDocumentGraphSpaceId]);
 
     const documentGraphAsGraphData: GraphData = useMemo(() => ({
         nodes: filteredDocumentGraph.nodes.map((node) => ({

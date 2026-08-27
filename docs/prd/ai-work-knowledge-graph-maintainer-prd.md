@@ -1,9 +1,9 @@
 ---
 title: AI 工作知识图谱维护助手 PRD
-version: v0.42
+version: v0.43
 status: 开发中
 created: 2026-08-17
-updated: 2026-08-26
+updated: 2026-08-27
 scope: 参赛项目 / 独立轻量应用
 ---
 
@@ -540,7 +540,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 
 # 18. 当前实施状态
 
-更新时间：2026-08-26。
+更新时间：2026-08-27。
 
 ## 18.1 已完成
 
@@ -562,6 +562,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 已实现节点点击、节点详情、来源资料和关系证据展示。
 - 已将知识空间、文档类型和关系类型的原生下拉框统一为复用的自定义下拉组件：收起态、展开层、悬浮、选中勾选和聚焦状态保持同一视觉语义，并提供 `combobox/listbox/option` 角色、方向键、Home/End、Enter/空格、Escape、Tab 和点击外部关闭路径；桌面真实 Chrome 与前端 typecheck/build 已通过。
 - 已为文档关系图增加 `/spaces/{spaceId}/documents/{documentId}` 可恢复详情 URL：图内打开文档或关系证据时写入真实路由，直接访问可恢复知识空间、文档图模式、搜索词、选中节点、文档/关系筛选及有效证据定位；关闭详情返回带状态参数和筛选条件的文档关系图。当前尚未建立 Cytoscape 视口快照，因此不把本切片描述为完整视口恢复。
+- 已修复根图 URL 的 `selectedNodeId` 在文档图首次加载前被初始空筛选结果覆盖的问题：选中节点归一化现在只在当前知识空间的文档图加载完成后执行，有效节点继续保留，无效或被筛选排除的节点仍按既有规则回退。前端 `npm run typecheck`、`npm run build` 和本地 3010/4010 HTTP 可用性检查已通过；本会话没有可控制的浏览器实例，因此尚未补齐“关闭详情后立即返回”和“根 URL 刷新”两条桌面浏览器断言。
 - 已优化 Cytoscape 默认布局：标签尺寸参与布局计算，节点间距、独立分组间距和缩放边界更适合中文标签展示。
 - 已修复点击节点时因可见关系数组引用变化导致整张图重新布局的问题，点击现在只更新选中状态和节点详情。
 - 已实现 Cytoscape 一跳邻居高亮：鼠标悬浮当前节点时，当前节点、一跳文档和连接边保持高对比度，非邻居只降低透明度且不改变布局；画布提供方向键、Home/End、Enter/空格和 Escape 的等价键盘路径，连接边显示中文关系类型和审核状态。高亮仅切换前端展示 class，不写入 URL、数据库或审核状态；当前独立文档图不含标签节点/边，因此不伪造图内标签高亮。2026-08-26 真实 Chrome 已验证鼠标进入/连续移出、Home/方向键/Enter/Escape、邻居高亮与非邻居降权；移动端、触控和读屏仍未验收。
@@ -721,13 +722,13 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 当前 `document_summary` 已改为“分片摘要 Map → 一次模型 Reduce 汇总”的自然全文摘要；单分片和多分片均执行独立汇总阶段，失败时不影响已校验候选事实落库并回退导入原文 excerpt。Fake/SQLite/MockMvc 已验证状态、事件和失败原因，真实 `gpt-5.4-mini` 的摘要质量、长度遵循度和跨章节自然度仍未验证。
 - 已确认文档关联主线的产品边界：默认业务节点收敛为真实来源文档，默认先按文档内容关联；标签仅作为用户可选的筛选、补充候选和解释条件。独立图谱类型不再是后续用户流程或新增 AI 识别的必选维度。文档关系持久化和后端 API、标签字典、文档标签、标签证据、独立 Fake 标签运行、标签查询、不可变审核历史、批量审核 API、桌面 Web 标签运行/导航统计/审核联调、confirmed 标签候选补充、文档关系图查询、详情侧栏、关系证据定位、可恢复详情 URL、文档类型/关系类型筛选和一跳邻居高亮实现均已完成；真实标签模型、手工标签编辑、视口恢复、图内标签节点/边和移动端仍待专项后续阶段。
 - 当前标签运行只使用测试注入的 Fake `DocumentTaggingClient`；默认生产上下文没有真实实现时会以 `tag_extraction_failed` 结束并可恢复。当前上下文上限为 32 分片、24,000 字符，超限明确记录 `chunk_failed`，不会静默只分析部分原文；该参数尚未通过真实模型 Token、延迟或长文质量评估。
-- 文档关联阶段 1 已完成运行、关系、证据、审核的本地持久化基础、无 Embedding 候选召回、Fake 关系判断、逐字证据校验、后端审核 API 和固定资料完整指标评估。文档关系图已具备独立 `/v1/spaces/{spaceId}/document-graph` 查询、桌面切换、节点详情侧栏、边证据批量查询、可恢复详情路由、文档类型/关系类型筛选和一跳邻居高亮；筛选只保留仍由 confirmed 关系连接的节点，详情 URL 和关闭返回保留筛选条件，高亮只影响 Cytoscape 展示。前端 typecheck/build、隔离动态路由 HTTP 200 和含证据的文档图 API 已通过；2026-08-26 真实 Chrome 在本机专用知识空间内使用 6 份用户明确授权的现有任务文档、4 条手工 confirmed 关系和 4 条逐字证据，验证了 6 节点/4 边全量图、`supports` 4 节点/2 边、`related_to` 2 节点/1 边筛选、统一下拉菜单鼠标/键盘路径、详情 URL 刷新、证据 ID 恢复、原文 `<mark>` 定位及关闭返回筛选。测试资料未复制进仓库，关系为浏览器回归手工数据，不代表 AI 关系质量。当前发现根图 URL 的 `selectedNodeId` 会在文档图首次加载前被空筛选结果覆盖并回退到首节点，尚未修复；Cytoscape 视口恢复、真实模型关系质量和生产验证仍未完成，Precision@8 0.1707 也表明候选上下文噪声仍需后续对照优化。
+- 文档关联阶段 1 已完成运行、关系、证据、审核的本地持久化基础、无 Embedding 候选召回、Fake 关系判断、逐字证据校验、后端审核 API 和固定资料完整指标评估。文档关系图已具备独立 `/v1/spaces/{spaceId}/document-graph` 查询、桌面切换、节点详情侧栏、边证据批量查询、可恢复详情路由、文档类型/关系类型筛选和一跳邻居高亮；筛选只保留仍由 confirmed 关系连接的节点，详情 URL 和关闭返回保留筛选条件，高亮只影响 Cytoscape 展示。前端 typecheck/build、隔离动态路由 HTTP 200 和含证据的文档图 API 已通过；2026-08-26 真实 Chrome 在本机专用知识空间内使用 6 份用户明确授权的现有任务文档、4 条手工 confirmed 关系和 4 条逐字证据，验证了 6 节点/4 边全量图、`supports` 4 节点/2 边、`related_to` 2 节点/1 边筛选、统一下拉菜单鼠标/键盘路径、详情 URL 刷新、证据 ID 恢复、原文 `<mark>` 定位及关闭返回筛选。测试资料未复制进仓库，关系为浏览器回归手工数据，不代表 AI 关系质量。2026-08-27 已完成根图 URL `selectedNodeId` 首次加载覆盖缺陷的代码修复和 typecheck/build，但本会话浏览器运行环境没有可控制实例，“关闭详情后立即返回”和“根 URL 刷新”仍待桌面浏览器补验；Cytoscape 视口恢复、真实模型关系质量和生产验证仍未完成，Precision@8 0.1707 也表明候选上下文噪声仍需后续对照优化。
 - 已完成固定资料开关对照：使用 document-association-eval-v1 的 12 份资料和冻结 expectedTags 作为人工 confirmed 输入，只改变 includeConfirmedTags=false/true，TopK 固定为 8。两条路径 Recall@8 均为 1.0000；开启标签后候选总数由 41 增至 48，Precision@8 由 0.1707 降至 0.1458，固定硬负例未新增。结论是当前标签通道能补候选但会引入未标注候选噪声，不能称为质量提升；详细结果见 docs/tests/document-association-tag-augmentation-evaluation-v1.md。
 - 已完成阶段 2 的 confirmed 标签补充候选最小切片：`POST /documents/{documentId}/association-runs?includeConfirmedTags=false` 默认保持无标签内容召回；用户显式传 `true` 后，服务端一次读取当前空间有效文档的 `confirmed` 标签，以共享标签补充候选并记录 `tagCandidateCount`、`keywordCandidateCount` 和 `confirmed_tag_match` 生成方式。共同标签只影响候选召回，不直接形成关系或跳过证据校验/人工审核；Java 21 根 Reactor 全量 84 项、前端 typecheck/build 通过。
 - 已完成阶段 2 标签候选降噪单变量实验：新增 `document-candidate-recall-v2` 版本，confirmed 标签只补充所有内容通道均未命中的候选，并排在内容候选之后；固定资料回归证明默认内容候选顺序恢复，开启标签后的候选总数仍为 48、Precision@8 仍为 0.1458，Recall@8 仍为 1.0000，固定硬负例仍为 0。该策略未带来质量提升，下一实验改评估共同标签数量分层阈值；报告见 docs/tests/document-association-tag-augmentation-evaluation-v1.md。
 - 已完成阶段 2 共同标签数量分层阈值实验：新增 `document-candidate-recall-v3`，标签-only 候选需共享至少 2 个 confirmed 标签。固定资料的 7 个新增候选均只共享 1 个标签，因此全部被过滤；开启标签后候选总数与 Precision@8 均回到无标签基线（41、0.1707），Recall@8 保持 1.0000。该结果只证明单标签噪声得到抑制，未证明标签能补充正例召回；报告见 docs/tests/document-association-tag-threshold-evaluation-v1.md。
 - 已完成阶段 2 双共同标签正负例对照：保留冻结的 `document-association-eval-v1`，新增独立 `document-association-tag-threshold-eval-v2` confirmed 标签补充标注、同项目正例和跨项目明确负例。开启 `document-candidate-recall-v3` 后 Recall@8 由 0.8750 提升至 1.0000、Precision@8 由 0.1707 提升至 0.1860、候选总数 41→43；2 个标签候选中包含 1 个跨项目硬负例。结论是保留双共同标签作为最低候选门槛，但不能据此确认关系，仍需关系判断、逐字证据校验和人工审核；报告见 docs/tests/document-association-tag-threshold-evaluation-v2.md。
-- 2026-08-21 已完成目标态核验：当时页面仍是实体/关系混合图，节点点击只更新右侧详情，来源资料名称没有详情页跳转；标签区是空态；没有问答、引用或 Agent 运行入口。2026-08-25 已补文档关系图查询、confirmed 边过滤、真实来源文档节点、桌面切换、详情侧栏和关系证据定位；2026-08-26 已补真实动态详情 URL、空间/搜索词/选中节点/证据定位的基础返回状态、文档类型/关系类型筛选、统一自定义下拉菜单，以及悬浮/键盘一跳邻居高亮，并完成桌面真实 Chrome 的筛选、高亮、详情刷新、证据定位和关闭返回回归。当前根图 URL 的 `selectedNodeId` 恢复仍有首节点覆盖缺陷，Cytoscape 视口、固定 RAG 有据问答和可选 Agent 仍未实现。
+- 2026-08-21 已完成目标态核验：当时页面仍是实体/关系混合图，节点点击只更新右侧详情，来源资料名称没有详情页跳转；标签区是空态；没有问答、引用或 Agent 运行入口。2026-08-25 已补文档关系图查询、confirmed 边过滤、真实来源文档节点、桌面切换、详情侧栏和关系证据定位；2026-08-26 已补真实动态详情 URL、空间/搜索词/选中节点/证据定位的基础返回状态、文档类型/关系类型筛选、统一自定义下拉菜单，以及悬浮/键盘一跳邻居高亮，并完成桌面真实 Chrome 的筛选、高亮、详情刷新、证据定位和关闭返回回归。2026-08-27 已修复根图 URL 的 `selectedNodeId` 首节点覆盖代码缺陷并通过前端 typecheck/build，仍需补两条桌面浏览器断言；Cytoscape 视口、固定 RAG 有据问答和可选 Agent 仍未实现。
 - 本轮 PDF 前端契约已经通过 TypeScript 检查和生产构建，但未执行 PDF 文件选择、卡片标签和预览弹窗的新增浏览器回归；既有 Markdown/TXT 浏览器证据不能替代该项验收。
 - 既有来源资料和 AI 链路的本地 HTTP/浏览器验证使用 `fixture/annual-party/`、临时虚构资料或 Fake 运行状态。2026-08-26 文档关系图回归在用户明确授权后改用本机专用空间内 6 份现有任务文档，并手工写入 4 条 confirmed 关系、审核记录和逐字证据；原文未复制进仓库，未调用真实模型，也未进行生产部署或真实模型浏览器端到端验证。
 - 历史真实结果虽通过结构、引用和逐字证据校验，但模型曾把“项目到人员”的关系错误归类为 `project_contains_feature`；当前 `prd-extraction-v3` 已增加服务端类型方向校验以拒绝该类结果，但尚未使用真实模型复验，人工审核边界继续保留。
@@ -738,7 +739,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 
 # 19. 下一步代办与新会话入口
 
-新会话开始时，先阅读本节、`docs/roadmap.md`、[`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)、[`docs/tests/document-association-evaluation-report-v1.md`](../tests/document-association-evaluation-report-v1.md)、[`docs/tests/document-association-tag-augmentation-evaluation-v1.md`](../tests/document-association-tag-augmentation-evaluation-v1.md)、[`docs/tests/document-association-tag-threshold-evaluation-v1.md`](../tests/document-association-tag-threshold-evaluation-v1.md)、[`docs/tests/document-association-tag-threshold-evaluation-v2.md`](../tests/document-association-tag-threshold-evaluation-v2.md) 和 `document-tag-v1` 契约。文档关系图详情侧栏、关系证据定位、`/spaces/{spaceId}/documents/{documentId}` 可恢复详情 URL、文档类型/关系类型筛选、统一自定义下拉菜单及悬浮/键盘一跳邻居高亮均已完成实现和桌面真实 Chrome 回归。下一项先修复根图 URL 的 `selectedNodeId` 在文档图首次加载前被空 `filteredDocumentGraph` 覆盖的问题，并补充“关闭详情 → 立即返回”和“根 URL 刷新”两条浏览器断言；修复后再进入 RAG/Embedding 对照评估。当前不同时实现真实标签模型、问答或 Agent，移动端、触控和读屏仍顺延。
+新会话开始时，先阅读本节、`docs/roadmap.md`、[`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)、[`docs/tests/document-association-evaluation-report-v1.md`](../tests/document-association-evaluation-report-v1.md)、[`docs/tests/document-association-tag-augmentation-evaluation-v1.md`](../tests/document-association-tag-augmentation-evaluation-v1.md)、[`docs/tests/document-association-tag-threshold-evaluation-v1.md`](../tests/document-association-tag-threshold-evaluation-v1.md)、[`docs/tests/document-association-tag-threshold-evaluation-v2.md`](../tests/document-association-tag-threshold-evaluation-v2.md) 和 `document-tag-v1` 契约。文档关系图详情侧栏、关系证据定位、`/spaces/{spaceId}/documents/{documentId}` 可恢复详情 URL、文档类型/关系类型筛选、统一自定义下拉菜单及悬浮/键盘一跳邻居高亮均已完成实现和桌面真实 Chrome 回归；根图 URL 的 `selectedNodeId` 首次加载覆盖缺陷也已完成代码修复并通过前端 typecheck/build。下一项先在可控制的桌面浏览器中补充“关闭详情 → 立即返回”和“根 URL 刷新”两条断言；通过后再进入 RAG/Embedding 对照评估。当前不同时实现真实标签模型、问答或 Agent，移动端、触控和读屏仍顺延。
 
 ## 19.1 已完成验收：SQLite 有界连接池与流式抽取主线
 
@@ -805,7 +806,7 @@ v0.13 已完成分页接口、MyBatis-Plus SQLite 分页、最近运行与最近
    - 已完成桌面 Web 真实 Chrome 下的来源资料无限滚动、卡片多选、批量操作、三 Tab、空态、历史恢复、错误/重试和上游连接中断验证；移动端、触控和读屏顺延到后续专项；
    - 已完成现有实体关系白名单、主体/客体方向和跨分片精确规范化键合并的 Fake/SQLite 验收；
    - 已完成专项阶段 0，冻结 12 份资料、7 条正例、5 组负例、7 个召回用例、Prompt/Schema/策略版本、方向和验收规程；
-   - 已完成阶段 1 的文档关联运行、关系、证据和审核持久化基础、无 Embedding 候选召回、Fake 关系判断、候选集合/逐字证据校验、关联审核 API 和固定资料完整关系指标评估；阶段 2 已完成标签持久化基础、独立 Fake 标签运行、Schema/业务/证据校验、suggested 幂等物化、运行恢复、标签查询、不可变审核历史、批量审核 API、桌面 Web 标签联调和 confirmed 标签显式补充候选后端/前端契约；文档关系图查询、confirmed 边过滤、真实来源文档节点、桌面切换、空态、节点详情侧栏、关系证据定位、可恢复详情 URL、文档类型/关系类型筛选、统一下拉菜单和悬浮/键盘邻居高亮已完成桌面真实 Chrome 回归，根 URL 的选中节点恢复缺陷待修复；
+   - 已完成阶段 1 的文档关联运行、关系、证据和审核持久化基础、无 Embedding 候选召回、Fake 关系判断、候选集合/逐字证据校验、关联审核 API 和固定资料完整关系指标评估；阶段 2 已完成标签持久化基础、独立 Fake 标签运行、Schema/业务/证据校验、suggested 幂等物化、运行恢复、标签查询、不可变审核历史、批量审核 API、桌面 Web 标签联调和 confirmed 标签显式补充候选后端/前端契约；文档关系图查询、confirmed 边过滤、真实来源文档节点、桌面切换、空态、节点详情侧栏、关系证据定位、可恢复详情 URL、文档类型/关系类型筛选、统一下拉菜单和悬浮/键盘邻居高亮已完成桌面真实 Chrome 回归，根 URL 的选中节点恢复代码缺陷已修复，仍待两条桌面浏览器断言；
    - 在具备真实模型密钥和受控预算时，单独补充二阶段自然全文摘要与 `prd-extraction-v3` 关系约束的真实模型质量边界，不以 Fake 结果代替真实模型结论，也不阻塞候选召回；
    - 之后按“文档关系判断 → 证据校验 → 关联审核 → 可选标签生成/审核/关联 → 文档关系图 → RAG/Embedding 评估”的顺序实现。
 6. **禁止提前扩张**：阶段 2 只允许按冻结契约新增标签持久化、候选、证据和审核能力；Embedding 索引、文档关系图切换、会话引用和 Agent 编排仍等待各自阶段。
@@ -816,7 +817,7 @@ v0.13 已完成分页接口、MyBatis-Plus SQLite 分页、最近运行与最近
 2. 实现孤立、失效来源、缺字段和冲突检查。
 3. 在文本型 PDF 首版完成后增加 DOCX 解析，并继续实现增量导入和 Markdown/JSON/PNG 导出；扫描 PDF OCR 仍不进入当前首版。
 4. **阶段 1 已完成，进入阶段 2**：默认主线为文档内容关联，标签关联可选；不再保留独立图谱类型导航或把实体类型识别作为新增主线前置；现有实体图谱保留兼容和实验用途。专项 PRD、固定资料、标注答案、关系方向、五种关系优先级、版本契约、持久化基础、无 Embedding 候选召回、Fake 判断、证据校验、后端审核 API 和固定资料完整指标评估已完成。
-5. **专项方案实施顺序**：可选标签持久化、独立 Fake 标签运行、Schema/业务/证据校验、suggested 幂等物化、运行恢复、标签查询、不可变审核历史、批量审核 API、桌面 Web 标签联调、confirmed 标签显式补充候选通道、固定资料质量对照、入口浏览器回归、独立文档关系图、详情/证据定位、可恢复详情 URL、文档类型/关系类型筛选、统一下拉菜单及悬浮/键盘邻居高亮已经完成；下一步修复根图 URL 的选中节点恢复缺陷，再评估是否引入向量召回和混合 RAG。固定 Fake 关系基线已经达标，但 Precision@8 0.1707 仍作为后续降噪对照，不把共同标签或向量相似度当作正式关系依据。
+5. **专项方案实施顺序**：可选标签持久化、独立 Fake 标签运行、Schema/业务/证据校验、suggested 幂等物化、运行恢复、标签查询、不可变审核历史、批量审核 API、桌面 Web 标签联调、confirmed 标签显式补充候选通道、固定资料质量对照、入口浏览器回归、独立文档关系图、详情/证据定位、可恢复详情 URL、文档类型/关系类型筛选、统一下拉菜单及悬浮/键盘邻居高亮已经完成；根图 URL 的选中节点恢复代码缺陷已修复，下一步补齐关闭详情立即返回和根 URL 刷新的桌面浏览器断言，再评估是否引入向量召回和混合 RAG。固定 Fake 关系基线已经达标，但 Precision@8 0.1707 仍作为后续降噪对照，不把共同标签或向量相似度当作正式关系依据。
 6. **未来 Agent 扩展边界**：仅当出现动态工具选择、长流程暂停/恢复、复杂多步骤编排或可回放工作流需求时，才评估在专项 PRD 第 14 节定义的 `AgentOrchestrator`；当前标签与关联主线继续使用固定 Pipeline，不能为了引入 Agent 而绕过领域 Service、证据校验或审核状态机。
 
 ## 19.3 提交约定
