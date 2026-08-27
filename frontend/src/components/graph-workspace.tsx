@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import GraphCanvas from './graph-canvas';
 import DocumentGraphSidebar from './document-graph-sidebar';
+import SelectMenu from './select-menu';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -1392,14 +1393,19 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
                         <div className="eyebrow">当前知识空间</div>
                         {spaces.length ? <>
                             <div className="space-switcher">
-                                <select aria-label="选择知识空间" value={currentSpaceId ?? ''} onChange={(event) => {
-                                    suppressDocumentSearchNoticeRef.current = false;
-                                    documentSearchPendingRef.current = false;
-                                    setDocumentPage(1);
-                                    setCurrentSpaceId(event.target.value);
-                                }} disabled={isManagingSpace}>
-                                    {spaces.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
-                                </select>
+                                <SelectMenu
+                                    ariaLabel="选择知识空间"
+                                    className="space-select-menu"
+                                    value={currentSpaceId ?? ''}
+                                    options={spaces.map((space) => ({value: space.id, label: space.name}))}
+                                    onChange={(spaceId) => {
+                                        suppressDocumentSearchNoticeRef.current = false;
+                                        documentSearchPendingRef.current = false;
+                                        setDocumentPage(1);
+                                        setCurrentSpaceId(spaceId);
+                                    }}
+                                    disabled={isManagingSpace}
+                                />
                                 <button className="space-icon-button" aria-label="新建知识空间" title="新建知识空间"
                                     onClick={() => setIsSpaceFormOpen((current) => !current)}><FolderPlus size={15}/>
                                 </button>
@@ -1521,20 +1527,34 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
                             </div>
                             {graphMode === 'document' && <div className="document-graph-filters" aria-label="文档关系图筛选">
                                 <label className="document-graph-filter">文档类型
-                                    <select value={documentTypeFilter}
-                                        onChange={(event) => setDocumentTypeFilter(event.target.value)}>
-                                        <option value="">全部</option>
-                                        {documentTypeOptions.map((documentType) => <option key={documentType}
-                                            value={documentType}>{documentTypeLabels[documentType] ?? documentType}</option>)}
-                                    </select>
+                                    <SelectMenu
+                                        ariaLabel="文档类型"
+                                        className="document-graph-select-menu"
+                                        value={documentTypeFilter}
+                                        options={[
+                                            {value: '', label: '全部'},
+                                            ...documentTypeOptions.map((documentType) => ({
+                                                value: documentType,
+                                                label: documentTypeLabels[documentType] ?? documentType
+                                            }))
+                                        ]}
+                                        onChange={setDocumentTypeFilter}
+                                    />
                                 </label>
                                 <label className="document-graph-filter">关系类型
-                                    <select value={documentRelationTypeFilter}
-                                        onChange={(event) => setDocumentRelationTypeFilter(event.target.value)}>
-                                        <option value="">全部</option>
-                                        {documentRelationTypeOptions.map((relationType) => <option key={relationType}
-                                            value={relationType}>{documentRelationTypeLabels[relationType] ?? relationType}</option>)}
-                                    </select>
+                                    <SelectMenu
+                                        ariaLabel="关系类型"
+                                        className="document-graph-select-menu"
+                                        value={documentRelationTypeFilter}
+                                        options={[
+                                            {value: '', label: '全部'},
+                                            ...documentRelationTypeOptions.map((relationType) => ({
+                                                value: relationType,
+                                                label: documentRelationTypeLabels[relationType] ?? relationType
+                                            }))
+                                        ]}
+                                        onChange={setDocumentRelationTypeFilter}
+                                    />
                                 </label>
                                 {hasDocumentGraphFilters && <button className="document-graph-filter-reset" type="button"
                                     onClick={() => {
