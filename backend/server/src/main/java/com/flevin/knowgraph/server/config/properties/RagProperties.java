@@ -11,6 +11,16 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class RagProperties {
 
     /**
+     * 章节解析规则版本；规则语义变化时必须显式升级。
+     */
+    private String sectionParserVersion = "prd-markdown-section-v1";
+
+    /**
+     * 章节感知分片策略版本；算法语义变化时必须显式升级。
+     */
+    private String chunkStrategyVersion = "section-aware-v1";
+
+    /**
      * 单个文本分片最大字符数。
      */
     private int maxChunkChars = 1500;

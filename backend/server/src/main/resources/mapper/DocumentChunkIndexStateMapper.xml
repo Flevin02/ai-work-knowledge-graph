@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.flevin.knowgraph.server.repository.mapper.DocumentChunkIndexStateMapper">
+
+    <!-- 同一分片和模型版本重试成功后，以完整已校验向量原子覆盖失败或旧状态。 -->
+    <insert id="upsertReady">
+        INSERT INTO document_chunk_index_states (
+            id, space_id, source_document_id, chunk_record_id, chunk_id,
+            content_hash, chunk_version, embedding_provider, embedding_model,
+            embedding_version, dimension, vector_json, status, error_message,
+            created_at, updated_at
+        ) VALUES (
+            #{entity.id}, #{entity.spaceId}, #{entity.sourceDocumentId}, #{entity.chunkRecordId},
+            #{entity.chunkId}, #{entity.contentHash}, #{entity.chunkVersion},
+            #{entity.embeddingProvider}, #{entity.embeddingModel}, #{entity.embeddingVersion},
+            #{entity.dimension}, #{entity.vectorJson}, #{entity.status}, #{entity.errorMessage},
+            #{entity.createdAt}, #{entity.updatedAt}
+        )
+        ON DUPLICATE KEY UPDATE
+            vector_json = VALUES(vector_json),
+            status = VALUES(status),
+            error_message = VALUES(error_message),
+            updated_at = VALUES(updated_at)
+    </insert>
+
+</mapper>

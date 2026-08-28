@@ -82,12 +82,15 @@ class AiExtractionIntegrationTests {
 
     @BeforeEach
     void clearPreviousExtractionData() {
-        // 先清理引用来源资料的抽取、证据、关系和节点，满足 MySQL 外键约束
+        // 按业务引用顺序清理抽取、证据、关系、向量和来源资料测试数据
         jdbcTemplate.update("DELETE FROM ai_extraction_runs");
         jdbcTemplate.update("DELETE FROM review_actions");
         jdbcTemplate.update("DELETE FROM evidences");
         jdbcTemplate.update("DELETE FROM graph_edges");
         jdbcTemplate.update("DELETE FROM graph_nodes");
+        jdbcTemplate.update("DELETE FROM document_chunk_index_states");
+        jdbcTemplate.update("DELETE FROM document_chunks");
+        jdbcTemplate.update("DELETE FROM document_sections");
         jdbcTemplate.update("DELETE FROM source_documents");
         jdbcTemplate.update("DELETE FROM import_batches");
 
@@ -156,6 +159,41 @@ class AiExtractionIntegrationTests {
                 .isEqualTo("用户中心的登录功能支持手机号验证码。");
         assertThat(completedEvent.path("result").path("chunks").get(0)
                 .path("extraction").path("entities").size()).isEqualTo(2);
+
+        // 确定性解析结果已在模型调用前写入 MySQL 章节和分片事实
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM document_sections WHERE space_id = ? AND source_document_id = ?",
+                Integer.class,
+                SPACE_ID,
+                documentId
+        )).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM document_chunks WHERE space_id = ? AND source_document_id = ?",
+                Integer.class,
+                SPACE_ID,
+                documentId
+        )).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForList(
+                """
+                SELECT document_ordinal
+                FROM document_chunks
+                WHERE space_id = ? AND source_document_id = ?
+                ORDER BY document_ordinal
+                """,
+                Integer.class,
+                SPACE_ID,
+                documentId
+        )).containsExactly(1, 2);
+        assertThat(jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM document_chunk_index_states
+                WHERE space_id = ? AND source_document_id = ?
+                """,
+                Integer.class,
+                SPACE_ID,
+                documentId
+        )).isZero();
 
         // 两个分片重复输出同一实体和关系时，只保留两个规范化节点和一条待审核边
         assertThat(jdbcTemplate.queryForObject(

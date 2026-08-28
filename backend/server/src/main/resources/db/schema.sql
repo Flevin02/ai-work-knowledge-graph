@@ -63,6 +63,91 @@ CREATE TABLE source_documents
   COLLATE = utf8mb4_unicode_ci
   COMMENT = '来源办公资料及解析原文';
 
+CREATE TABLE document_sections
+(
+    id                BIGINT       NOT NULL COMMENT '章节事实唯一标识，由应用侧 Snowflake 生成',
+    space_id          BIGINT       NOT NULL COMMENT '所属知识空间标识，业务层校验空间归属',
+    source_document_id BIGINT      NOT NULL COMMENT '所属来源资料标识',
+    section_id        VARCHAR(128) NOT NULL COMMENT '文档内稳定章节标识',
+    parser_version    VARCHAR(128) NOT NULL COMMENT '章节解析规则版本，用于重建和版本隔离',
+    title             VARCHAR(512) NOT NULL COMMENT '章节标题；无标题文档使用根章节标题',
+    level             INT          NOT NULL COMMENT 'Markdown 标题层级；无标题文档为 0',
+    section_path      TEXT         NOT NULL COMMENT '从顶层标题到当前章节的路径',
+    ordinal           INT          NOT NULL COMMENT '章节在来源资料内的顺序，从 1 开始',
+    content_text      LONGTEXT     NOT NULL COMMENT '章节原文，包含标题和直属正文',
+    start_offset      INT          NOT NULL COMMENT '章节在来源资料原文中的起始偏移',
+    end_offset        INT          NOT NULL COMMENT '章节在来源资料原文中的结束偏移，不包含该位置字符',
+    content_hash      CHAR(64)     NOT NULL COMMENT '章节原文内容 SHA-256 指纹',
+    created_at        VARCHAR(40)  NOT NULL COMMENT '章节事实创建时间，ISO-8601 UTC 字符串',
+    updated_at        VARCHAR(40)  NOT NULL COMMENT '章节事实最近更新时间，ISO-8601 UTC 字符串',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_document_sections_document_section
+        (space_id, source_document_id, section_id, content_hash, parser_version),
+    KEY idx_document_sections_space_document_ordinal
+        (space_id, source_document_id, parser_version, ordinal, id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci
+  COMMENT = '来源资料章节事实与原文定位';
+
+CREATE TABLE document_chunks
+(
+    id                BIGINT       NOT NULL COMMENT '分片事实唯一标识，由应用侧 Snowflake 生成',
+    space_id          BIGINT       NOT NULL COMMENT '所属知识空间标识，业务层校验空间归属',
+    source_document_id BIGINT      NOT NULL COMMENT '所属来源资料标识',
+    section_record_id BIGINT       NOT NULL COMMENT '对应 document_sections.id 的章节事实标识',
+    section_id        VARCHAR(128) NOT NULL COMMENT '所属章节在文档内的稳定标识',
+    chunk_id          VARCHAR(128) NOT NULL COMMENT '文档内稳定分片标识',
+    parser_version    VARCHAR(128) NOT NULL COMMENT '生成所属章节的解析规则版本',
+    section_path      TEXT         NOT NULL COMMENT '分片所属章节路径',
+    ordinal           INT          NOT NULL COMMENT '分片在所属章节内的顺序，从 1 开始',
+    document_ordinal  INT          NOT NULL COMMENT '分片在来源资料内的全局顺序，从 1 开始',
+    content_text      LONGTEXT     NOT NULL COMMENT '可逐字反查的分片原文',
+    start_offset      INT          NOT NULL COMMENT '分片在来源资料原文中的起始偏移',
+    end_offset        INT          NOT NULL COMMENT '分片在来源资料原文中的结束偏移，不包含该位置字符',
+    content_hash      CHAR(64)     NOT NULL COMMENT '分片原文内容 SHA-256 指纹',
+    chunk_version     VARCHAR(128) NOT NULL COMMENT '分片策略版本，用于重建和版本隔离',
+    created_at        VARCHAR(40)  NOT NULL COMMENT '分片事实创建时间，ISO-8601 UTC 字符串',
+    updated_at        VARCHAR(40)  NOT NULL COMMENT '分片事实最近更新时间，ISO-8601 UTC 字符串',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_document_chunks_document_chunk (space_id, source_document_id, chunk_id, content_hash, chunk_version),
+    KEY idx_document_chunks_space_document_ordinal
+        (space_id, source_document_id, parser_version, chunk_version, document_ordinal, id),
+    KEY idx_document_chunks_space_content_hash (space_id, content_hash)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci
+  COMMENT = '来源资料章节感知分片事实';
+
+CREATE TABLE document_chunk_index_states
+(
+    id                 BIGINT       NOT NULL COMMENT '分片索引状态唯一标识，由应用侧 Snowflake 生成',
+    space_id           BIGINT       NOT NULL COMMENT '所属知识空间标识，业务层校验空间归属',
+    source_document_id BIGINT       NOT NULL COMMENT '所属来源资料标识',
+    chunk_record_id    BIGINT       NOT NULL COMMENT '对应 document_chunks.id 的分片事实标识',
+    chunk_id           VARCHAR(128) NOT NULL COMMENT '文档内稳定分片标识',
+    content_hash       CHAR(64)     NOT NULL COMMENT '生成向量时的分片内容指纹',
+    chunk_version      VARCHAR(128) NOT NULL COMMENT '生成向量时使用的分片策略版本',
+    embedding_provider VARCHAR(128) NOT NULL COMMENT 'Embedding 供应商或 Fake 标识',
+    embedding_model    VARCHAR(128) NOT NULL COMMENT 'Embedding 模型标识',
+    embedding_version  VARCHAR(128) NOT NULL COMMENT 'Embedding 版本标识',
+    dimension          INT          NOT NULL COMMENT '向量维度',
+    vector_json        LONGTEXT     NOT NULL COMMENT '按 JSON 数组保存的向量事实，可由 MySQL 重建并由 Java 精确计算',
+    status             VARCHAR(32)  NOT NULL COMMENT '索引状态：ready、failed 或 stale',
+    error_message      TEXT                  COMMENT '向量化或校验失败原因',
+    created_at         VARCHAR(40)  NOT NULL COMMENT '索引状态创建时间，ISO-8601 UTC 字符串',
+    updated_at         VARCHAR(40)  NOT NULL COMMENT '索引状态最近更新时间，ISO-8601 UTC 字符串',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_document_chunk_index_state_version
+        (space_id, chunk_record_id, content_hash, chunk_version,
+         embedding_provider, embedding_model, embedding_version, dimension),
+    KEY idx_document_chunk_index_states_retrieval
+        (space_id, status, chunk_version, embedding_model, embedding_version, dimension, source_document_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci
+  COMMENT = '分片 Embedding 向量事实和可重建索引状态';
+
 CREATE TABLE graph_nodes
 (
     id              BIGINT       NOT NULL COMMENT '图谱节点唯一标识，由应用侧 Snowflake 生成',

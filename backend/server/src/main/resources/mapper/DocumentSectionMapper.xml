@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.flevin.knowgraph.server.repository.mapper.DocumentSectionMapper">
+
+    <!-- 并发重复解析命中业务唯一键时保留先写入的 Snowflake 标识。 -->
+    <insert id="insertIfAbsent">
+        INSERT INTO document_sections (
+            id, space_id, source_document_id, section_id, parser_version,
+            title, level, section_path, ordinal, content_text,
+            start_offset, end_offset, content_hash, created_at, updated_at
+        ) VALUES (
+            #{entity.id}, #{entity.spaceId}, #{entity.sourceDocumentId}, #{entity.sectionId},
+            #{entity.parserVersion}, #{entity.title}, #{entity.level}, #{entity.sectionPath},
+            #{entity.ordinal}, #{entity.contentText}, #{entity.startOffset}, #{entity.endOffset},
+            #{entity.contentHash}, #{entity.createdAt}, #{entity.updatedAt}
+        )
+        ON DUPLICATE KEY UPDATE id = id
+    </insert>
+
+</mapper>

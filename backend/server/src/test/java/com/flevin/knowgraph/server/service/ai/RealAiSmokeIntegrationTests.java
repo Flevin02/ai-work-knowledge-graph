@@ -66,7 +66,7 @@ class RealAiSmokeIntegrationTests {
         Embedding firstEmbedding = embeddingModel.embed("虚构项目的资料导入流程需要保留原文证据。").content();
         Embedding secondEmbedding = embeddingModel.embed("虚构项目要求每份导入资料都可以回溯到原始证据。").content();
 
-        // 校验同一模型返回的向量维度一致且元素均为有限值，作为接入 Milvus 前的最低协议门槛
+        // 校验同一模型返回的向量维度一致且元素均为有限值，作为写入可重建向量事实前的最低协议门槛
         assertThat(firstEmbedding.dimension()).isPositive();
         assertThat(secondEmbedding.dimension()).isEqualTo(firstEmbedding.dimension());
         // 逐元素验证首条向量不存在 NaN 或无穷值，避免在测试输出中暴露完整向量

@@ -57,6 +57,8 @@ ai:
     max-concurrency: ${AI_BATCH_EXTRACTION_MAX_CONCURRENCY:2}
     queue-capacity: ${AI_BATCH_EXTRACTION_QUEUE_CAPACITY:12}
   rag:
+    section-parser-version: ${AI_RAG_SECTION_PARSER_VERSION:prd-markdown-section-v1}
+    chunk-strategy-version: ${AI_RAG_CHUNK_STRATEGY_VERSION:section-aware-v1}
     max-chunk-chars: ${AI_RAG_MAX_CHUNK_CHARS:1500}
     overlap-chars: ${AI_RAG_OVERLAP_CHARS:150}
     top-k: ${AI_RAG_TOP_K:5}

@@ -1,9 +1,9 @@
 ---
 title: AI 工作知识图谱维护助手 PRD
-version: v0.43
+version: v0.44
 status: 开发中
 created: 2026-08-17
-updated: 2026-08-27
+updated: 2026-08-28
 scope: 参赛项目 / 独立轻量应用
 ---
 
@@ -319,7 +319,7 @@ AI_EMBEDDING_MODEL=text-embedding-3-small
 | 文本解析 | Java NIO、Apache POI、Apache PDFBox | 分别处理 Markdown/TXT、DOCX 和 PDF 文本 |
 | 内容指纹 | Java MessageDigest SHA-256 | 判断文档是否新增或发生变化，避免重复调用模型 |
 | 数据持久化 MVP | MySQL 8.0 + MyBatis-Plus/MyBatis Mapper（后端） | MySQL 保存可追溯的业务事实；业务 CRUD 和查询统一使用 Mapper，发布前显式执行完整 DDL，应用启动不执行建库、建表或迁移 |
-| 向量索引（后续阶段） | Milvus | 只保存可由 MySQL 文档分片和 Embedding 重新构建的派生向量索引；业务事实、审核状态和来源资料不依赖 Milvus |
+| 向量检索（阶段 3 实验） | MySQL 可重建向量事实 + Java 精确 COSINE | 固定资料规模先验证数据流和召回质量，不引入独立向量数据库；规模证明确有瓶颈后再单独评估 JVector 或 Qdrant |
 | 文件存储 MVP | 本地 uploads 目录 | 参赛演示无需对象存储，后续可替换为 S3/R2 |
 | 导出 | Markdown + JSON + 图谱图片 | 兼容 Obsidian，便于备份、迁移和现场展示 |
 | 测试 | JUnit 5 + Vitest + Playwright | 分别覆盖 Java 领域规则、前端规则和关键用户流程 |
@@ -348,11 +348,11 @@ Firefly Boot 后端
   ├─ 冲突检测    ├─ 失效来源标记  └─ 双向链接生成
   ↓
 MySQL 事实库（仅 Java 后端访问）
-  ├─ 来源资料 / 图谱 / 标签 / 文档关联 / 审核等 17 张业务表
+  ├─ 来源资料 / 章节 / 分片 / 向量事实 / 图谱 / 标签 / 文档关联 / 审核等 20 张业务表
   └─ 主键和关联 ID 使用应用侧 Snowflake `BIGINT`
-  ↓（后续阶段，可由事实重建）
-Milvus 向量索引
-  └─ 按 `spaceId`、模型版本和分片内容过滤的派生 Embedding
+  ↓（阶段 3 独立实验，只读可重建向量事实）
+Java 精确 COSINE 召回
+  └─ 按 `spaceId`、分片版本、Embedding 模型版本和维度过滤
 ```
 
 文档标签与文档关联专项方案评审通过后，允许在 `server` 的应用服务外增加可选 `AgentOrchestrator`。它只负责动态工具选择、长流程暂停/恢复和步骤编排；标签、候选召回、关系判断、证据校验、审核状态机和持久化继续由独立领域 Service 负责。详细工具白名单、运行状态、不可绕过边界和框架替换范围见 [`docs/prd/document-tag-and-association-rag-prd.md` 第 14 节](./document-tag-and-association-rag-prd.md#14-agent-扩展架构)。
@@ -508,7 +508,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 | API 调用成本或网络不稳定 | 现场演示中断 | 准备本地演示快照、失败重试和离线示例模式 |
 | 真实资料泄露 | 安全风险 | 全部使用虚构数据，密钥只放服务端环境变量，日志脱敏 |
 | 过度依赖 Obsidian | 产品受众变窄 | Web 应用独立运行，Obsidian 仅作为导出格式 |
-| 做成重型知识库平台 | 无法按期完成 | MVP 只做单体 MySQL 事实库、Milvus 派生索引和有限文件类型 |
+| 做成重型知识库平台 | 无法按期完成 | MVP 只做单体 MySQL 事实库、固定资料规模的 Java 精确向量实验和有限文件类型；无规模证据不增加独立向量数据库 |
 
 # 16. 成功标准
 
@@ -530,7 +530,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - [x] 后端基于 Firefly Boot 已提交基线选择性复用，保持 `common + server` 两模块。
 - [x] 后端使用 Java 21 和 Spring Boot 3.2.11。
 - [x] 数据持久化使用 MySQL 和 MyBatis-Plus/MyBatis Mapper，不使用浏览器 IndexedDB、JPA 或图数据库；完整建表 SQL 在发布前显式执行，应用启动不执行建库、建表、补字段或旧库迁移。
-- [x] 向量索引确定使用 Milvus；它是可由 MySQL 中的分片、内容指纹和模型版本重建的派生数据，不保存唯一业务事实。
+- [x] 阶段 3 先使用 MySQL 保存可重建章节、分片和向量事实，由 Java 执行精确 COSINE；暂不引入 Milvus、Qdrant 或 PostgreSQL 迁移，规模不足时再单独评估 JVector/Qdrant。
 - [x] `/api` 由 `server.servlet.context-path` 统一配置，Controller 只声明业务路径。
 - [x] AI 模型通过 `AiExtractionClient` 抽象；首个实现使用 OpenAI-compatible 协议、自定义 Base URL 和模型名，不是领域层固定产品依赖。
 - [x] 首先完成 Markdown/TXT 导入，再在同一参赛版本中补齐 DOCX/PDF。
@@ -545,7 +545,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 
 # 18. 当前实施状态
 
-更新时间：2026-08-27。
+更新时间：2026-08-28。
 
 ## 18.1 已完成
 
@@ -604,11 +604,11 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 
 - 已移除 SQLite JDBC、SQLite 初始化器、SQLite 专用连接池设置、兼容迁移 DDL 和对应测试；本地历史 SQLite 文件不属于运行时依赖，也未被删除或导入。
 - Spring Boot JDBC Starter 现在使用 MySQL HikariCP；连接地址、用户名、密码和池参数全部由环境变量注入。应用启动只准备上传目录，不执行数据库 DDL。
-- `backend/server/src/main/resources/db/schema.sql` 是 MySQL 8.0 的新库全量脚本，创建 17 张业务表；使用 InnoDB、`utf8mb4`，所有表和字段均有中文 `COMMENT`。
+- `backend/server/src/main/resources/db/schema.sql` 是 MySQL 8.0 的新库全量脚本；当前代码已由历史 17 张扩展为 20 张业务表，新增章节、分片和向量索引状态事实表，继续使用 InnoDB、`utf8mb4`，所有表和字段均有中文 `COMMENT`。新增三表尚未在本机 MySQL 执行。
 - 业务表主键和关联标识均为有符号 `BIGINT`，由应用侧 Snowflake 生成；不声明数据库外键，空间归属、关联存在性和状态转换继续由 Service 层校验。
 - 发布前必须在目标 MySQL 新建数据库后一次执行完整 `schema.sql`；脚本不含 `IF NOT EXISTS`、启动补表或补字段逻辑，避免应用静默修改线上表结构。
 - 浏览器 API 与 SSE 将 Long 标识序列化为十进制字符串，避免 Snowflake 值超过 JavaScript `Number.MAX_SAFE_INTEGER` 后丢失精度；时间戳、文件大小等普通数值保持 JSON number，持久化 JSON 继续保持 Long 数值语义。
-- 已在本机 MySQL 8.0 完成“删库、新建、执行全量脚本”的空库验证，随后 Java 21 根 Reactor MySQL 全量回归 85 项通过；这不代表真实模型、Milvus 或生产部署验证。
+- 历史 17 表版本已在本机 MySQL 8.0 完成“删库、新建、执行全量脚本”的空库验证，随后 Java 21 根 Reactor MySQL 全量回归 85 项通过；当前新增三表尚未执行，因此该历史证据不证明本轮 20 表脚本、真实模型、向量质量或生产部署。
 - 已建立知识空间和来源资料 Model、Repository、Service、Controller 分层，并通过 `space_id` 将资料、导入批次和后续图谱数据隔离到具体空间。
 - 已建立图谱节点、关系和证据 Model、Repository、Service 查询链路，并将图谱摘要改为按空间读取 MySQL 实时统计；空空间返回零统计，不再返回固定脚手架文案。
 - 已提供 `GET/POST /api/v1/spaces/{spaceId}/documents`、`GET /api/v1/spaces/{spaceId}/documents/{documentId}/content` 和 `DELETE /api/v1/spaces/{spaceId}/documents/{documentId}`；删除采用软删除，不物理删除事实来源。
@@ -701,8 +701,11 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 持久化映射统一复用 `PersistenceMappingSupport` 处理 ISO-8601 时间、文档类型兼容回退、可空数值和图谱来源标识 JSON，所有映射器使用 `unmappedTargetPolicy=ERROR` 在编译期拒绝遗漏目标字段；新增 4 项集中映射边界测试，Java 21 根 Reactor 全量 75 项测试通过。
 - 2026-08-27 已完成持久化层从 SQLite 到 MySQL 8.0 的重构：全量 `schema.sql` 覆盖 17 张业务表、中文表/字段注释、InnoDB/`utf8mb4`、`BIGINT` 主键与关联 ID，且不使用数据库外键；SQLite JDBC、启动 DDL 初始化器、兼容迁移和测试已移除。
 - 已新增单节点 Snowflake Long ID 生成器，并将生产代码、Mapper、Service、Controller 和测试夹具中的数据库标识迁移为 `Long`；为保持前端 `string` ID 契约，HTTP/SSE 只把 ID 字段输出为十进制字符串。默认持久化 ObjectMapper 保持数值 JSON，避免图谱 `source_ids_json` 与内部结果快照被 API 序列化规则污染。
-- 已在本机 MySQL 8.0 执行“删除旧库、新建数据库、执行完整建表 SQL”的空库验证，并以 Java 21 运行 MySQL 全量自动回归：85 项测试通过；前端 `npm run typecheck` 与 `NEXT_DIST_DIR=.next-build npm run build` 也通过。上述只证明本机 MySQL、Fake AI 和 MockMvc/构建边界，不证明 Milvus、真实模型或生产环境。
+- 已在本机 MySQL 8.0 执行“删除旧库、新建数据库、执行完整建表 SQL”的空库验证，并以 Java 21 运行 MySQL 全量自动回归：85 项测试通过；前端 `npm run typecheck` 与 `NEXT_DIST_DIR=.next-build npm run build` 也通过。上述只证明本机 MySQL、Fake AI 和 MockMvc/构建边界，不证明真实模型或生产环境。
 - 已新增 `@Tag("real-ai")` 的 `RealAiSmokeIntegrationTests`：默认 Maven 回归排除该标签，显式 `-Preal-ai` 才会以虚构输入调用真实聊天和 Embedding 端点，校验非空响应、维度一致及有限向量值。Java 21 测试编译与默认标签隔离已验证；本轮未提供 AI 环境变量，未发起真实模型调用，不将该测试入口表述为真实模型通过。
+- 阶段 3 已在代码中新增 `document_sections`、`document_chunks`、`document_chunk_index_states` 全量 DDL、MyBatis-Plus/MapStruct 持久化分层和解析/分片完整版本边界；手动 AI 抽取会在真实模型调用前幂等保存可逐字反查的章节与分片事实，模型失败不回滚已提交的确定性结构。
+- 已新增供应商无关 `DocumentEmbeddingClient`、8 维确定性 Fake、只补缺失向量的批量索引服务、向量 JSON 有限值校验和 Java 精确 COSINE 检索器；检索先过滤知识空间、主体资料、完整分片版本、Embedding 供应商/模型/版本/维度，再按相似度和事实标识稳定排序。该服务没有 Controller，也未接入默认文档关联候选。
+- Java 21 主代码编译和阶段 3 定向单元测试通过，覆盖重复抽取事实 ID 复用、原文偏移反查、分片全局顺序、分片/模型版本隔离、仅补缺失向量、返回数量与维度失败不写入、向量 JSON、防御性复制、三组新增 MapStruct 回环映射和精确 COSINE 稳定排序；本轮未配置 `MYSQL_PASSWORD`，未执行新增三表 DDL 或 MySQL 集成回归。
 
 ## 18.2 当前验证边界
 
@@ -715,9 +718,9 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 - 已验证当前账号和端点能够调用 `gpt-5.4-mini` 并返回 Prompt 约束的结构化输出；仍未验证原生 JSON Schema 模式、Responses API 结构化抽取或 `text-embedding-3-small`。
 - 当前 `prd-extraction-v3` / `extraction-v2` 的分片摘要、实体 0～160 字符摘要和关系白名单已通过 Fake AI、结构校验和 MySQL/MockMvc 集成测试，但尚未对真实 `gpt-5.5` 验证实体长度遵循、摘要质量、关系白名单遵循和不同分片的重复表达；实体摘要是生成性展示内容，不能替代逐字证据和人工审核。
 - `AI_JSON_SCHEMA_ENABLED` 默认关闭；当前可使用 LangChain4j 的 Prompt 约束结构化输出，但自定义端点是否支持原生 JSON Schema 需要真实请求后单独验证。
-- Embedding 真实客户端默认关闭，尚未生成、缓存或检索任何真实向量；`document_sections` 和 `document_chunks` 也尚未持久化。当前只持久化抽取运行元数据和完整结果 JSON，尚未把章节、分片、候选实体、关系和证据拆成正式领域表记录。
-- Milvus 尚未安装、启动、建 collection 或接入 Java 客户端；下一阶段只允许把它作为带 `spaceId`、文档/分片、内容指纹和模型版本元数据的派生索引，MySQL 仍是唯一事实源和重建来源。
-- `RealAiSmokeIntegrationTests` 的默认隔离与 Java 21 测试编译已通过；当前终端未配置 AI 端点和密钥，真实聊天/Embedding 烟测尚未执行。即使后续烟测成功，也只证明当次外部端点协议，不证明固定资料质量、Milvus 或生产可用性。
+- Embedding 真实领域适配器默认仍未启用，尚未生成、缓存或检索任何真实向量；当前只有 Fake Embedding 数据流和纯 Java 精确召回单元验证。新增章节/分片持久化已接入抽取代码，但因为本轮未执行 20 表全量 DDL，尚不能声称这些事实已写入本机 MySQL。
+- 历史废止方案曾核对 Milvus 本机环境：Homebrew 没有对应 formula，Colima/Docker 基础镜像下载受代理完整性校验阻塞；该记录只解释方案切换背景，已不再是阶段 3 前置或当前架构。
+- `RealAiSmokeIntegrationTests` 的默认隔离与 Java 21 测试编译已通过；当前终端未配置 AI 端点和密钥，真实聊天/Embedding 烟测尚未执行。即使后续烟测成功，也只证明当次外部端点协议，不证明固定资料召回质量、Java 精确扫描性能或生产可用性。
 - PRD Markdown 章节解析和分片已接入手动 AI 抽取动作；PDF 当前会因没有 Markdown 标题而作为根章节继续按长度分片，尚未设计 PDF 专用章节/表格结构，也未验证 PDF 经当前 AI 抽取后的语义质量和证据定位体验。
 - 当前分片数量不是固定 6 片：章节解析后，短章节保持完整，超长章节按 `AI_RAG_MAX_CHUNK_CHARS`（默认 1500）和 `AI_RAG_OVERLAP_CHARS`（默认 150）切分；这些是待评估的实验基线，不代表最佳分片策略。
 - 历史浏览器回归使用临时安装且未写入项目依赖的 Playwright Core 驱动本机无头 Chrome、隔离端口、临时 SQLite、虚构文件和 Fake 抽取运行记录；该历史证据不代表当前 MySQL 构建的可见浏览器人工验收、真实模型并发运行或生产网络验证。
@@ -754,7 +757,7 @@ Obsidian 不是运行时依赖。系统内部使用数据库保存结构化数�
 
 # 19. 下一步代办与新会话入口
 
-新会话开始时，先阅读本节、`docs/roadmap.md`、[`docs/prd/document-association-embedding-phase3-prd.md`](./document-association-embedding-phase3-prd.md)、[`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)、[`docs/tests/document-association-evaluation-report-v1.md`](../tests/document-association-evaluation-report-v1.md)、[`docs/tests/document-association-tag-augmentation-evaluation-v1.md`](../tests/document-association-tag-augmentation-evaluation-v1.md)、[`docs/tests/document-association-tag-threshold-evaluation-v1.md`](../tests/document-association-tag-threshold-evaluation-v1.md)、[`docs/tests/document-association-tag-threshold-evaluation-v2.md`](../tests/document-association-tag-threshold-evaluation-v2.md) 和 `document-tag-v1` 契约。MySQL 事实库和 Long ID 迁移已完成；下一优先级是按阶段 3 PRD 建立 Milvus 可重建向量索引的最小实验链路。文档关系图“关闭详情 → 立即返回”和“根 URL 刷新”两条桌面浏览器断言继续保留为并行未验证边界，不以此阻塞向量实验。当前不同时实现真实标签模型、问答或 Agent，移动端、触控和读屏仍顺延。
+新会话开始时，先阅读本节、`docs/roadmap.md`、[`docs/prd/document-association-embedding-phase3-prd.md`](./document-association-embedding-phase3-prd.md)、[`docs/prd/document-tag-and-association-rag-prd.md`](./document-tag-and-association-rag-prd.md)、[`docs/tests/document-association-evaluation-report-v1.md`](../tests/document-association-evaluation-report-v1.md)、[`docs/tests/document-association-tag-augmentation-evaluation-v1.md`](../tests/document-association-tag-augmentation-evaluation-v1.md)、[`docs/tests/document-association-tag-threshold-evaluation-v1.md`](../tests/document-association-tag-threshold-evaluation-v1.md)、[`docs/tests/document-association-tag-threshold-evaluation-v2.md`](../tests/document-association-tag-threshold-evaluation-v2.md) 和 `document-tag-v1` 契约。阶段 3 的 20 表 DDL、章节/分片幂等事实、Fake Embedding 索引服务和 Java 精确 COSINE 已完成代码与单元验证；下一优先级是在用户确认可重建本机测试库后执行 20 表全量 DDL 和 MySQL 集成回归，再实现独立语义候选聚合与 RRF 固定资料对照。文档关系图“关闭详情 → 立即返回”和“根 URL 刷新”两条桌面浏览器断言继续保留为并行未验证边界，不以此阻塞向量实验。当前不同时实现真实标签模型、问答或 Agent，移动端、触控和读屏仍顺延。
 
 ## 19.1 已完成验收：MySQL 事实库与流式抽取主线
 
@@ -777,7 +780,7 @@ v0.13 已完成分页接口、MyBatis-Plus 分页、最近运行与最近成功�
 
 ### 19.1.3 已完成验收：连接池、流式抽取、来源资料交互与审核质量
 
-以下事项是 AI 抽取链路进入可用状态前的配套任务；第 1～14 项、候选审核持久化、无 Embedding 候选召回、Fake 关系判断、逐字证据校验、后端审核 API、固定资料完整指标评估、标签持久化基础、Fake 标签运行、标签审核后端闭环和桌面 Web 标签联调均已完成各自记录的代码和验证边界。当前下一优先级按阶段 3 方案进入 Milvus 独立环境最小就绪，随后才是 MySQL 分片事实、Embedding 抽象、Milvus COSINE 召回和 RRF 对照：
+以下事项是 AI 抽取链路进入可用状态前的配套任务；第 1～14 项、候选审核持久化、无 Embedding 候选召回、Fake 关系判断、逐字证据校验、后端审核 API、固定资料完整指标评估、标签持久化基础、Fake 标签运行、标签审核后端闭环和桌面 Web 标签联调均已完成各自记录的代码和验证边界。阶段 3 已完成 MySQL 章节/分片/向量事实代码、Fake Embedding 数据流和 Java 精确 COSINE 单元验证；下一优先级是受控执行 20 表 MySQL 集成回归，再进行 RRF 对照：
 
 1. **已完成验收：配置 MySQL 连接池**：Spring Boot 自动配置 HikariCP，默认最大连接数 10、最小空闲 1、池获取超时 3 秒；连接参数和凭据仅由环境变量注入。MySQL 全量自动测试验证 Fake 模型阻塞期间不持有数据库连接，导入、查询、事务和审核链路仍可执行。该证据只覆盖本机单实例和 Fake 模型，不代表生产负载、多实例 Snowflake 节点分配或 MySQL 高可用。
 2. **已完成当前自动验证：将 AI 抽取改为流式输出**：v0.16 已在 Spring MVC + `fetch` 链路使用 `text/event-stream`，事件固定为 `run_started`、`chunk_started`、`delta`、`chunk_completed`、`document_summary_started`、`document_summary_completed`、`completed` 和 `error`。前端通过 `ReadableStream` 增量消费；主视图显示中文处理进度、全文摘要阶段和已校验结果，模型原始 JSON 默认折叠为技术详情。服务端只转发供应商真实增量，完整响应通过 Schema、业务引用和逐字证据校验并成功落库后才发送 `completed`；客户端断线不取消后台运行。Java 21 根 Reactor 51 项测试、前端类型检查和生产构建均通过，OpenAPI 已断言 SSE 媒体类型。真实 `gpt-5.4-mini` 流、全文摘要质量、5 秒首事件、网络代理、浏览器视觉和自动重试仍未验证。
@@ -797,16 +800,16 @@ v0.13 已完成分页接口、MyBatis-Plus 分页、最近运行与最近成功�
 13. **已完成当前自动验证：标签查询与不可变审核闭环**：新增文档级标签查询、批量采纳/拒绝和空间级已确认标签统计 API；响应批量组装标签定义、证据与审核历史，空间统计通过 MyBatis XML Join 只计算 `confirmed` 标签和有效来源资料。审核请求只接受服务端文档标签关系标识、动作和可选原因，先验证同批重复、空间/文档归属和 `suggested` 当前态，再在同一事务中更新状态并插入唯一审核历史；跨文档批次、重复标识或重复审核不会产生部分结果。新增 3 项测试后 Java 21 根 Reactor 全量 83 项测试通过；该项当时尚未验证桌面 Web 和浏览器，随后已由第 14 项补齐。真实标签模型、固定资料标签 Precision/Recall 和生产仍未验证。
 14. **已完成桌面 Web 标签联调**：新增最近标签运行只读契约，前端“AI 输出”内提供独立文档标签层，支持真实空态、同步运行处理中、完成/失败状态、逐字证据、单条和批量审核、审核冲突服务端回读、刷新恢复及实体关系兼容页切换；左侧只消费空间 confirmed 标签统计。前端 typecheck/build、Java 21 根 Reactor 全量 83 项和隔离桌面 Chrome 回归通过；Chrome 成功/处理中态使用构造的纯虚构 SQLite 运行快照，未验证真实标签模型、固定资料标签 Precision/Recall、移动端或生产。
 
-### 19.1.4 后续 RAG / Embedding / Milvus 增强计划
+### 19.1.4 后续 RAG / Embedding 增强计划
 
-本节不阻塞默认文档内容关联。MySQL 已保存来源资料、审核事实和运行记录；Milvus 只保存可重建的分片向量索引。阶段 3 必须按以下顺序推进，且一次只改变一个主要变量：
+本节不阻塞默认文档内容关联。MySQL 是唯一事实源；阶段 3 使用 MySQL 保存可重建章节、分片和向量事实，由 Java 执行精确 COSINE。阶段 3 必须按以下顺序推进，且一次只改变一个主要变量：
 
-1. 在本机安装并启动 Milvus（可使用 Homebrew），确认端口、数据目录、健康状态和停止方式；不导入其他项目数据，不设置全局开机启动。
-2. 建立 `DocumentEmbeddingClient`、确定性 Fake 和版本化实验夹具；默认环境不创建真实 Embedding 客户端，真实端点调用仍需环境变量注入密钥和受控预算授权。
-3. 在 MySQL 新增 `document_sections`、`document_chunks` 等事实和元数据表，所有主键/关联标识使用 Snowflake `BIGINT`，不使用外键；原文、内容指纹、分片版本和模型版本必须能支持索引重建。
-4. 建立 Milvus `INT64` 主键 collection，使用 COSINE 检索并保留 `spaceId`、来源资料标识、分片标识、内容指纹、模型/版本/维度等过滤元数据；不把原始全文、审核状态或唯一业务事实交给 Milvus。
-5. 先在独立服务中完成 Fake/真实分层的语义召回和 RRF 对照，记录 Recall@8、Precision@8、硬负例、耗时和失败样例；默认不修改正式文档关联候选输入。
-6. 只有真实 Embedding 指标有明确改善、Milvus 可从 MySQL 完整重建且回滚路径验证后，才单独评估 `includeSemanticCandidates` 产品开关。
+1. **已完成代码与单元验证**：在全量 MySQL DDL 新增 `document_sections`、`document_chunks` 和 `document_chunk_index_states`，所有主键/关联标识使用 Snowflake `BIGINT`，不使用外键；解析版本、分片版本、原文偏移、内容指纹和模型版本支持索引重建。当前三表尚未在本机 MySQL 执行。
+2. **已完成 Fake 数据流**：新增 `DocumentEmbeddingClient`、确定性 Fake 和只补缺失向量的原子索引服务；返回数量、维度和有限值全部通过后才写入，真实实现仅在显式配置和受控预算下调用。
+3. **已完成精确检索单元验证**：Java 按知识空间、主体资料、分片版本、Embedding 供应商/模型/版本和维度过滤后执行精确 `COSINE` TopK；当前没有 Controller，也未接入默认关联候选。
+4. 记录 Recall@8、Precision@8、硬负例、耗时、请求数、失败样例、模型/维度和索引状态；真实 Embedding 质量必须与 Fake 基线分开汇报。
+5. 只有当分片规模证明精确扫描不足时，才单独评估 JVector 或 Qdrant 等派生 ANN 索引；不以更换基础设施替代质量评估。
+6. 只有真实 Embedding 指标有明确改善、向量事实可从 MySQL 完整重建且回滚路径验证后，才单独评估 `includeSemanticCandidates` 产品开关。
 7. 继续保持候选关系经过关系判断、逐字证据校验和人工审核的边界；向量相似度不能直接生成 confirmed 关系。
 
 ### 19.1.5 已确认的文档主线入口与执行顺序
@@ -824,7 +827,7 @@ v0.13 已完成分页接口、MyBatis-Plus 分页、最近运行与最近成功�
    - 已完成阶段 1 的文档关联运行、关系、证据和审核持久化基础、无 Embedding 候选召回、Fake 关系判断、候选集合/逐字证据校验、关联审核 API 和固定资料完整关系指标评估；阶段 2 已完成标签持久化基础、独立 Fake 标签运行、Schema/业务/证据校验、suggested 幂等物化、运行恢复、标签查询、不可变审核历史、批量审核 API、桌面 Web 标签联调和 confirmed 标签显式补充候选后端/前端契约；文档关系图查询、confirmed 边过滤、真实来源文档节点、桌面切换、空态、节点详情侧栏、关系证据定位、可恢复详情 URL、文档类型/关系类型筛选、统一下拉菜单和悬浮/键盘邻居高亮已完成桌面真实 Chrome 回归，根 URL 的选中节点恢复代码缺陷已修复，仍待两条桌面浏览器断言；
    - 在具备真实模型密钥和受控预算时，单独补充二阶段自然全文摘要与 `prd-extraction-v3` 关系约束的真实模型质量边界，不以 Fake 结果代替真实模型结论，也不阻塞候选召回；
    - 之后按“文档关系判断 → 证据校验 → 关联审核 → 可选标签生成/审核/关联 → 文档关系图 → RAG/Embedding 评估”的顺序实现。
-6. **阶段 3 禁止提前扩张**：Milvus 只服务于独立 Embedding/RRF 实验；在 MySQL 可重建索引、Fake/MySQL/Milvus 分层测试和真实 Embedding 对照达标前，不接入默认关联候选，不新增问答、会话、Reranker 或 Agent。
+6. **阶段 3 禁止提前扩张**：在 20 表 MySQL 集成回归、Fake/精确 COSINE 测试、RRF 固定资料报告和真实 Embedding 对照达标前，不接入默认关联候选，不新增问答、会话、Reranker 或 Agent，也不提前引入独立向量数据库。
 
 ## 19.2 后续主线
 
@@ -832,7 +835,7 @@ v0.13 已完成分页接口、MyBatis-Plus 分页、最近运行与最近成功�
 2. 实现孤立、失效来源、缺字段和冲突检查。
 3. 在文本型 PDF 首版完成后增加 DOCX 解析，并继续实现增量导入和 Markdown/JSON/PNG 导出；扫描 PDF OCR 仍不进入当前首版。
 4. **阶段 1 已完成，进入阶段 2**：默认主线为文档内容关联，标签关联可选；不再保留独立图谱类型导航或把实体类型识别作为新增主线前置；现有实体图谱保留兼容和实验用途。专项 PRD、固定资料、标注答案、关系方向、五种关系优先级、版本契约、持久化基础、无 Embedding 候选召回、Fake 判断、证据校验、后端审核 API 和固定资料完整指标评估已完成。
-5. **专项方案实施顺序**：可选标签持久化、独立 Fake 标签运行、Schema/业务/证据校验、suggested 幂等物化、运行恢复、标签查询、不可变审核历史、批量审核 API、桌面 Web 标签联调、confirmed 标签显式补充候选通道、固定资料质量对照、入口浏览器回归、独立文档关系图、详情/证据定位、可恢复详情 URL、文档类型/关系类型筛选、统一下拉菜单及悬浮/键盘邻居高亮已经完成；根图 URL 的选中节点恢复代码缺陷已修复，“关闭详情立即返回”和“根 URL 刷新”两条桌面浏览器断言仍待补验。当前下一开发切片按阶段 3 PRD 完成“Milvus 环境 → MySQL 分片事实 → Embedding 抽象 → Milvus COSINE 召回 → RRF 评估”，固定 Fake 关系基线 Precision@8 0.1707 继续作为对照；不把共同标签或向量相似度当作正式关系依据。
+5. **专项方案实施顺序**：可选标签持久化、独立 Fake 标签运行、Schema/业务/证据校验、suggested 幂等物化、运行恢复、标签查询、不可变审核历史、批量审核 API、桌面 Web 标签联调、confirmed 标签显式补充候选通道、固定资料质量对照、入口浏览器回归、独立文档关系图、详情/证据定位、可恢复详情 URL、文档类型/关系类型筛选、统一下拉菜单及悬浮/键盘邻居高亮已经完成；根图 URL 的选中节点恢复代码缺陷已修复，“关闭详情立即返回”和“根 URL 刷新”两条桌面浏览器断言仍待补验。阶段 3 的 MySQL 章节/分片事实、Embedding 抽象、MySQL 可重建向量事实和 Java 精确 COSINE 单元边界已完成；下一切片先在用户确认目标库后执行 20 表 MySQL 集成验证，再实现独立 RRF 固定资料对照。固定 Fake 关系基线 Precision@8 0.1707 继续作为对照；不把共同标签或向量相似度当作正式关系依据。
 6. **未来 Agent 扩展边界**：仅当出现动态工具选择、长流程暂停/恢复、复杂多步骤编排或可回放工作流需求时，才评估在专项 PRD 第 14 节定义的 `AgentOrchestrator`；当前标签与关联主线继续使用固定 Pipeline，不能为了引入 Agent 而绕过领域 Service、证据校验或审核状态机。
 
 ## 19.3 提交约定

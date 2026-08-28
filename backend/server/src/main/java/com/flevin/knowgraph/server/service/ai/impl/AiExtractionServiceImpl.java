@@ -29,6 +29,7 @@ import com.flevin.knowgraph.server.service.ai.AiExtractionService;
 import com.flevin.knowgraph.server.service.ai.AiExtractionValidationException;
 import com.flevin.knowgraph.server.service.ai.rag.PrdMarkdownSectionParser;
 import com.flevin.knowgraph.server.service.ai.rag.SectionAwareDocumentChunker;
+import com.flevin.knowgraph.server.service.ai.rag.DocumentStructurePersistenceService;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
 import com.flevin.knowgraph.server.util.SnowflakeIdGenerator;
 import lombok.extern.slf4j.Slf4j;
@@ -61,6 +62,7 @@ public class AiExtractionServiceImpl implements AiExtractionService {
     private final KnowledgeSpaceService knowledgeSpaceService;
     private final PrdMarkdownSectionParser sectionParser;
     private final SectionAwareDocumentChunker documentChunker;
+    private final DocumentStructurePersistenceService structurePersistenceService;
     private final ObjectProvider<AiExtractionClient> extractionClientProvider;
     private final AiProperties aiProperties;
     private final AiExtractionRunRepository extractionRunRepository;
@@ -242,6 +244,18 @@ public class AiExtractionServiceImpl implements AiExtractionService {
                     )
             );
 
+            // 使用确定性 Markdown 规则解析章节路径和原文偏移
+            List<DocumentSection> sections = sectionParser.parse(document.contentText());
+
+            // 按章节边界生成可追溯文本分片
+            List<DocumentChunk> chunks = documentChunker.chunk(sections);
+
+            // 在模型调用前幂等保存确定性章节和分片事实，模型失败时仍保留可重建结构
+            structurePersistenceService.persist(document, sections, chunks);
+
+            // 保存确定性章节和分片总数，处理中或失败后仍可恢复计划边界
+            extractionRunRepository.plan(extractionId, sections.size(), chunks.size());
+
             // 获取当前已启用并完成配置的真实模型客户端
             AiExtractionClient extractionClient = extractionClientProvider.getIfAvailable();
             if (extractionClient == null) {
@@ -250,15 +264,6 @@ public class AiExtractionServiceImpl implements AiExtractionService {
                         "AI 服务未启用，请检查 AI_ENABLED 和 AI_API_KEY"
                 );
             }
-
-            // 使用确定性 Markdown 规则解析章节路径和原文偏移
-            List<DocumentSection> sections = sectionParser.parse(document.contentText());
-
-            // 按章节边界生成可追溯文本分片
-            List<DocumentChunk> chunks = documentChunker.chunk(sections);
-
-            // 保存确定性章节和分片总数，处理中或失败后仍可恢复计划边界
-            extractionRunRepository.plan(extractionId, sections.size(), chunks.size());
 
             List<AiChunkExtractionResult> chunkResults = new ArrayList<>(chunks.size());
             for (int index = 0; index < chunks.size(); index++) {

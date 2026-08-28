@@ -3,6 +3,7 @@ package com.flevin.knowgraph.server.repository.mapping;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.flevin.knowgraph.server.model.ai.embedding.EmbeddingVector;
 import com.flevin.knowgraph.server.model.document.SourceDocumentType;
 import org.mapstruct.Named;
 import org.springframework.stereotype.Component;
@@ -135,6 +136,38 @@ public class PersistenceMappingSupport {
             return objectMapper.writeValueAsString(value);
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("无法序列化图谱节点来源资料标识", exception);
+        }
+    }
+
+    /**
+     * 将 Embedding 向量序列化为可重建事实 JSON。
+     *
+     * @param value 已通过有限值校验的向量
+     * @return JSON 数组文本
+     */
+    @Named("embeddingVectorToJson")
+    public String embeddingVectorToJson(EmbeddingVector value) {
+        try {
+            // 只保存向量数值，不把模型或审核状态混入向量字段
+            return objectMapper.writeValueAsString(value.values());
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("无法序列化 Embedding 向量事实", exception);
+        }
+    }
+
+    /**
+     * 将向量事实 JSON 反序列化并重新执行有限值校验。
+     *
+     * @param value JSON 数组文本
+     * @return Embedding 向量
+     */
+    @Named("jsonToEmbeddingVector")
+    public EmbeddingVector jsonToEmbeddingVector(String value) {
+        try {
+            // 反序列化时重新经过 EmbeddingVector 边界校验，拒绝损坏或非有限数据
+            return new EmbeddingVector(objectMapper.readValue(value, float[].class));
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("分片 Embedding 向量事实不是有效 JSON", exception);
         }
     }
 }
