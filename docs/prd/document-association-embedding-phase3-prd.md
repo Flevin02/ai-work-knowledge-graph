@@ -1,7 +1,7 @@
 ---
 title: 文档关联阶段 3：Embedding 与混合召回实验
-version: v0.4
-status: MySQL/Fake 精确检索骨架已实现，待集成与质量对照
+version: v0.5
+status: 20 表 MySQL 集成已通过，待 RRF 与真实 Embedding 质量对照
 updated: 2026-08-28
 ---
 
@@ -26,12 +26,13 @@ MySQL 章节/分片事实与索引元数据
 # 2. 当前状态
 
 - 已完成代码与单元边界：MySQL 8.0 全量 DDL 已由历史 17 张扩展为 20 张业务表；章节/分片事实、`DocumentEmbeddingClient`、确定性 Fake、可重建向量事实、只补缺失向量的索引服务和 Java 精确 COSINE 召回已实现，但不接入默认关联候选。
-- 未完成验证与质量对照：新增三表尚未在本机 MySQL 执行，真实 OpenAI-compatible `DocumentEmbeddingClient`、RRF 固定资料评估和真实 Embedding 对照尚未实现或运行。
+- 已完成 MySQL 集成验证：本机 MySQL 8.0 无备份重建并执行 20 表全量 DDL，Java 21 根 Reactor 99 项 MySQL/Fake 回归全部通过；回归后再次重建空库，精确验证 20 张业务表总行数为 0、三张阶段 3 表存在、表/字段注释无缺失且没有数据库外键。
+- 未完成质量对照：真实 OpenAI-compatible `DocumentEmbeddingClient`、RRF 固定资料评估和真实 Embedding 对照尚未实现或运行。
 - 当前无向量候选基线：`document-candidate-recall-v1/v3`；Precision@8 为 `0.1707`。
 
 # 3. 实施计划
 
-## 3.1 MySQL + Java 精确语义检索（代码与单元边界已完成）
+## 3.1 MySQL + Java 精确语义检索（代码、单元与 MySQL 集成已完成）
 
 1. 在完整 MySQL DDL 中保存章节、分片和向量索引状态事实；原文、内容指纹、模型/版本和维度必须支持重建。
 2. 通过供应商无关的 `DocumentEmbeddingClient` 生成 Fake 向量；真实 Embedding 只在显式配置和受控预算下调用。
@@ -39,13 +40,13 @@ MySQL 章节/分片事实与索引元数据
 
 验收：Fake/单元测试证明空间隔离、主体排除、维度与有限值校验、空索引和稳定排序。该结果不代表大规模 ANN 性能、真实模型质量或生产部署。
 
-## 3.2 MySQL 章节与分片事实（代码已完成，MySQL 集成待确认）
+## 3.2 MySQL 章节与分片事实（已完成 MySQL 集成验证）
 
 在完整 `schema.sql` 中新增 `document_sections`、`document_chunks`、`document_chunk_index_states`，所有表和字段写中文 `COMMENT`。不增加启动 DDL 或数据库外键。
 
-验收：Fake/MySQL 测试覆盖空间隔离、内容版本、偏移反查、幂等和事务失败。
+验收：20 表全量 DDL、Fake/MySQL 测试已覆盖空间隔离、内容版本、偏移反查、幂等和事务失败；本机 Java 21 根 Reactor 99 项测试通过。回归后数据库已恢复为 20 表、0 业务数据的干净起点。
 
-## 3.3 Embedding 抽象与可重建向量事实（Fake 数据流已完成）
+## 3.3 Embedding 抽象与可重建向量事实（Fake/MySQL 数据流已完成）
 
 新增 `DocumentEmbeddingClient`、确定性 Fake 和 MySQL 向量事实 Repository。仅为缺失且兼容的分片请求向量；服务端校验返回数量、维度和有限值后批量写入事实表并记录索引状态。后续若分片规模证明精确扫描不足，再单独评估 JVector 或 Qdrant，不在本阶段预埋独立服务。
 
