@@ -22,5 +22,6 @@ backend/target/
 *.db-wal
 .DS_Store
 .idea/
+.workbuddy/
 *.tsbuildinfo
 target/
