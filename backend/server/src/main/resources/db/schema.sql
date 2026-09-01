@@ -439,6 +439,72 @@ CREATE TABLE document_relation_reviews
   COLLATE = utf8mb4_unicode_ci
   COMMENT = '文档关系不可变审核历史';
 
+CREATE TABLE conversations
+(
+    id                       BIGINT       NOT NULL COMMENT '问答会话唯一标识，由应用侧 Snowflake 生成',
+    space_id                 BIGINT       NOT NULL COMMENT '所属知识空间标识，业务层校验空间归属',
+    title                    VARCHAR(512) NOT NULL COMMENT '用户可见的会话标题',
+    scope_source_document_id BIGINT                COMMENT '可选的当前文档范围标识；为空表示空间级问答',
+    status                   VARCHAR(32)  NOT NULL COMMENT '会话状态：active 或 deleted；删除采用软删除',
+    created_at               VARCHAR(40)  NOT NULL COMMENT '会话创建时间，ISO-8601 UTC 字符串',
+    updated_at               VARCHAR(40)  NOT NULL COMMENT '会话最近更新时间，ISO-8601 UTC 字符串',
+    PRIMARY KEY (id),
+    KEY idx_conversations_space_created_at (space_id, created_at DESC, id DESC)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci
+  COMMENT = '知识空间内只读问答会话';
+
+CREATE TABLE conversation_messages
+(
+    id                    BIGINT       NOT NULL COMMENT '问答消息唯一标识，由应用侧 Snowflake 生成',
+    space_id              BIGINT       NOT NULL COMMENT '所属知识空间标识，业务层校验空间归属',
+    conversation_id       BIGINT       NOT NULL COMMENT '所属问答会话标识',
+    role                  VARCHAR(32)  NOT NULL COMMENT '消息角色：user 或 assistant',
+    content               LONGTEXT     NOT NULL COMMENT '问题或最终回答正文；不保存未校验的模型中间输出',
+    status                VARCHAR(32)  NOT NULL COMMENT '消息状态：completed 或 failed',
+    grounding_status      VARCHAR(32)           COMMENT '回答证据状态：grounded、partially_grounded 或 insufficient_evidence；用户消息和失败回答为空',
+    error_category        VARCHAR(128)          COMMENT '失败错误类别；成功消息为空',
+    error_message         TEXT                  COMMENT '面向用户或运维的稳定错误摘要',
+    answer_client         VARCHAR(128)          COMMENT '生成回答的客户端实现标识',
+    prompt_version        VARCHAR(128)          COMMENT '回答生成 Prompt 版本快照',
+    schema_version        VARCHAR(128)          COMMENT '回答结构 Schema 版本快照',
+    citation_count        INT          NOT NULL DEFAULT 0 COMMENT '通过逐字反查并保留的引用数量',
+    citation_failure_count INT         NOT NULL DEFAULT 0 COMMENT '因反查失败被移除的引用数量',
+    duration_ms           BIGINT                COMMENT '回答生成耗时毫秒',
+    created_at            VARCHAR(40)  NOT NULL COMMENT '消息创建时间，ISO-8601 UTC 字符串',
+    PRIMARY KEY (id),
+    KEY idx_conversation_messages_conversation_created_at (space_id, conversation_id, created_at ASC, id ASC)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci
+  COMMENT = '只读问答会话消息与回答状态';
+
+CREATE TABLE message_citations
+(
+    id                    BIGINT       NOT NULL COMMENT '回答引用唯一标识，由应用侧 Snowflake 生成',
+    space_id              BIGINT       NOT NULL COMMENT '所属知识空间标识，业务层校验空间归属',
+    message_id            BIGINT       NOT NULL COMMENT '被引用支撑的回答消息标识',
+    source_document_id    BIGINT       NOT NULL COMMENT '引用来源资料标识',
+    document_content_hash CHAR(64)     NOT NULL COMMENT '引用生成时来源文档内容指纹，用于识别来源失效',
+    chunk_record_id       BIGINT       NOT NULL COMMENT '对应 document_chunks.id 的分片事实标识',
+    chunk_id              VARCHAR(128) NOT NULL COMMENT '文档内稳定分片标识',
+    section_path          TEXT         NOT NULL COMMENT '分片所属章节路径',
+    quote                 TEXT         NOT NULL COMMENT '可逐字反查的原文片段',
+    start_offset          INT                   COMMENT '原文起始偏移，半开区间',
+    end_offset            INT                   COMMENT '原文结束偏移，不包含该位置字符',
+    citation_order        INT          NOT NULL COMMENT '引用在回答中的顺序，从 1 开始',
+    validation_status     VARCHAR(32)  NOT NULL COMMENT '引用校验状态：verified；来源文档版本变化后读取侧标记 stale',
+    retrieval_channel     VARCHAR(64)           COMMENT '召回通道标识；切片一无真实召回时为空',
+    created_at            VARCHAR(40)  NOT NULL COMMENT '引用创建时间，ISO-8601 UTC 字符串',
+    PRIMARY KEY (id),
+    KEY idx_message_citations_message (space_id, message_id, citation_order ASC),
+    KEY idx_message_citations_source_document (space_id, source_document_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci
+  COMMENT = '回答引用与可定位来源';
+
 CREATE TABLE review_actions
 (
     id            BIGINT       NOT NULL COMMENT '审核记录唯一标识，由应用侧 Snowflake 生成',
