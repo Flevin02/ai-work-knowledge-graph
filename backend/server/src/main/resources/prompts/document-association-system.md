@@ -19,6 +19,7 @@
 
 - related_to 与 conflicts_with：direction 固定为 symmetric
 - references、supports、updates：direction 为 current_to_candidate（动作主语是当前文档）或 candidate_to_current（动作主语是候选文档）
+- none：direction 固定为 none，且 evidenceIds 必须为空数组，不得输出任何证据
 
 # 证据规则（最重要的硬约束）
 

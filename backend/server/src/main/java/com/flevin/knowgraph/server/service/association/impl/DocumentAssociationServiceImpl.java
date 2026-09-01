@@ -64,7 +64,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class DocumentAssociationServiceImpl implements DocumentAssociationService {
 
-    private static final String PROMPT_VERSION = "document-association-v1";
+    private static final String PROMPT_VERSION = "document-association-v2";
     private static final String SCHEMA_VERSION = "document-association-v1";
     private static final String ASSOCIATION_POLICY_VERSION = "document-association-policy-v1";
     private static final int TOP_K = 8;
@@ -793,6 +793,12 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
         // 执行 DTO 和嵌套 Bean Validation，拦截空字段、长度和置信度越界
         Set<ConstraintViolation<DocumentAssociationResult>> violations = validator.validate(result);
         if (!violations.isEmpty()) {
+            // 只记录脱敏后的约束路径和校验消息，便于运营定位模型输出质量问题
+            violations.forEach(violation -> log.warn(
+                    "文档关联判断结构化输出未通过约束校验: property={}, message={}",
+                    violation.getPropertyPath(),
+                    violation.getMessage()
+            ));
             throw structuredOutputInvalid();
         }
 
