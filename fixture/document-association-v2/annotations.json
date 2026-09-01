@@ -1,0 +1,255 @@
+{
+  "datasetVersion": "document-association-eval-v2",
+  "status": "frozen",
+  "frozenAt": "2026-08-31",
+  "purpose": "验证 Embedding 语义召回能否补上词面无重叠的内容漏召回正例；所有文档均为虚构内容",
+  "documents": [
+    {
+      "documentId": "v2-doc-kb-plan",
+      "path": "documents/01-青禾知识库平台建设方案.md",
+      "kind": "markdown",
+      "documentType": "general",
+      "expectedTags": []
+    },
+    {
+      "documentId": "v2-doc-archive-requirement",
+      "path": "documents/02-客户支持话术统一归档需求说明.md",
+      "kind": "markdown",
+      "documentType": "general",
+      "expectedTags": []
+    },
+    {
+      "documentId": "v2-doc-crm-integration",
+      "path": "documents/03-CRM工单对接实施方案.md",
+      "kind": "markdown",
+      "documentType": "general",
+      "expectedTags": []
+    },
+    {
+      "documentId": "v2-doc-crm-upgrade",
+      "path": "documents/04-客户关系管理平台升级立项报告.md",
+      "kind": "markdown",
+      "documentType": "general",
+      "expectedTags": []
+    },
+    {
+      "documentId": "v2-doc-october-meeting",
+      "path": "documents/05-十月运营例会速记.md",
+      "kind": "markdown",
+      "documentType": "general",
+      "expectedTags": []
+    },
+    {
+      "documentId": "v2-doc-answer-launch",
+      "path": "documents/06-智能应答上线准备清单.md",
+      "kind": "markdown",
+      "documentType": "general",
+      "expectedTags": []
+    },
+    {
+      "documentId": "v2-doc-dashboard-design",
+      "path": "documents/07-青禾数据看板设计说明书.md",
+      "kind": "markdown",
+      "documentType": "general",
+      "expectedTags": []
+    },
+    {
+      "documentId": "v2-doc-dashboard-review",
+      "path": "documents/08-青禾数据看板评审结论.md",
+      "kind": "markdown",
+      "documentType": "general",
+      "expectedTags": []
+    },
+    {
+      "documentId": "v2-doc-phase-one-acceptance",
+      "path": "documents/09-青禾一期验收报告.txt",
+      "kind": "txt",
+      "documentType": "general",
+      "expectedTags": []
+    },
+    {
+      "documentId": "v2-doc-robot-procurement",
+      "path": "documents/10-扫地机器人采购比选.md",
+      "kind": "markdown",
+      "documentType": "general",
+      "expectedTags": []
+    },
+    {
+      "documentId": "v2-doc-coffee-guide",
+      "path": "documents/11-茶水间咖啡机使用须知.txt",
+      "kind": "txt",
+      "documentType": "general",
+      "expectedTags": []
+    }
+  ],
+  "expectedRelations": [
+    {
+      "relationId": "v2-rel-kb-archive",
+      "sourceDocumentId": "v2-doc-kb-plan",
+      "targetDocumentId": "v2-doc-archive-requirement",
+      "relationType": "related_to",
+      "evidences": [
+        {
+          "documentId": "v2-doc-kb-plan",
+          "quote": "把分散在各处的项目资料和经验沉淀成可检索的企业资产"
+        },
+        {
+          "documentId": "v2-doc-archive-requirement",
+          "quote": "将各座席手里的应答话术集中到一处"
+        }
+      ]
+    },
+    {
+      "relationId": "v2-rel-crm-upgrade",
+      "sourceDocumentId": "v2-doc-crm-integration",
+      "targetDocumentId": "v2-doc-crm-upgrade",
+      "relationType": "related_to",
+      "evidences": [
+        {
+          "documentId": "v2-doc-crm-integration",
+          "quote": "本项目把两条线打通"
+        },
+        {
+          "documentId": "v2-doc-crm-upgrade",
+          "quote": "两个事业部均把该平台的改造列为年度诉求"
+        }
+      ]
+    },
+    {
+      "relationId": "v2-rel-launch-meeting",
+      "sourceDocumentId": "v2-doc-answer-launch",
+      "targetDocumentId": "v2-doc-october-meeting",
+      "relationType": "supports",
+      "evidences": [
+        {
+          "documentId": "v2-doc-answer-launch",
+          "quote": "本文档承接十月例会决策，列出智能应答能力切换前必须逐项确认的事项"
+        },
+        {
+          "documentId": "v2-doc-october-meeting",
+          "quote": "让小林牵头出一份切换前的准备材料，把要盯的指标、出问题怎么撤都说清楚"
+        }
+      ]
+    },
+    {
+      "relationId": "v2-rel-dashboard",
+      "sourceDocumentId": "v2-doc-dashboard-design",
+      "targetDocumentId": "v2-doc-dashboard-review",
+      "relationType": "related_to",
+      "evidences": [
+        {
+          "documentId": "v2-doc-dashboard-design",
+          "quote": "设计评审通过后进入开发排期"
+        },
+        {
+          "documentId": "v2-doc-dashboard-review",
+          "quote": "与会的架构组、项目办和两个业务小组对设计方案进行了逐项过审，结论如下"
+        }
+      ]
+    },
+    {
+      "relationId": "v2-rel-dashboard-refs-kb",
+      "sourceDocumentId": "v2-doc-dashboard-design",
+      "targetDocumentId": "v2-doc-kb-plan",
+      "relationType": "references",
+      "evidences": [
+        {
+          "documentId": "v2-doc-dashboard-design",
+          "quote": "本文档的二期范围界定参照《青禾知识库平台建设方案》确定的内容执行"
+        },
+        {
+          "documentId": "v2-doc-kb-plan",
+          "quote": "本项目列入青禾二期范围"
+        }
+      ]
+    }
+  ],
+  "negativePairs": [
+    {
+      "caseId": "v2-neg-robot-ambiguity",
+      "leftDocumentId": "v2-doc-october-meeting",
+      "rightDocumentId": "v2-doc-robot-procurement",
+      "expectedRelationType": "none",
+      "evidences": [],
+      "note": "两份文档共享“机器人”这一口语诱因，但例会讨论的是客服应答改造，与清洁设备采购完全无关"
+    },
+    {
+      "caseId": "v2-neg-cross-subsystem",
+      "leftDocumentId": "v2-doc-dashboard-design",
+      "rightDocumentId": "v2-doc-phase-one-acceptance",
+      "expectedRelationType": "none",
+      "evidences": [],
+      "note": "两份文档同属青禾项目词面共现，但看板是二期新建设内容，与一期考勤打卡模块的验收没有直接关系"
+    }
+  ],
+  "retrievalCases": [
+    {
+      "caseId": "v2-retrieval-kb-plan",
+      "sourceDocumentId": "v2-doc-kb-plan",
+      "expectedCandidateDocumentIds": ["v2-doc-archive-requirement", "v2-doc-dashboard-design"],
+      "hardNegativeDocumentIds": ["v2-doc-robot-procurement"],
+      "contentRecallExpectation": "partial",
+      "note": "看板设计说明书点名引用本方案（显式互引命中），同义改写的归档需求必须被内容通道漏掉"
+    },
+    {
+      "caseId": "v2-retrieval-archive-requirement",
+      "sourceDocumentId": "v2-doc-archive-requirement",
+      "expectedCandidateDocumentIds": ["v2-doc-kb-plan"],
+      "hardNegativeDocumentIds": [],
+      "contentRecallExpectation": "missed",
+      "note": "同义改写核心用例：知识库建设方案与话术归档需求语义一致但词面零重叠"
+    },
+    {
+      "caseId": "v2-retrieval-crm-integration",
+      "sourceDocumentId": "v2-doc-crm-integration",
+      "expectedCandidateDocumentIds": ["v2-doc-crm-upgrade"],
+      "hardNegativeDocumentIds": [],
+      "contentRecallExpectation": "missed",
+      "note": "英文缩写 CRM 与中文全称“客户关系管理”语义一致但词面零重叠"
+    },
+    {
+      "caseId": "v2-retrieval-crm-upgrade",
+      "sourceDocumentId": "v2-doc-crm-upgrade",
+      "expectedCandidateDocumentIds": ["v2-doc-crm-integration"],
+      "hardNegativeDocumentIds": [],
+      "contentRecallExpectation": "missed",
+      "note": "上一用例的反向召回"
+    },
+    {
+      "caseId": "v2-retrieval-october-meeting",
+      "sourceDocumentId": "v2-doc-october-meeting",
+      "expectedCandidateDocumentIds": ["v2-doc-answer-launch"],
+      "hardNegativeDocumentIds": ["v2-doc-robot-procurement"],
+      "contentRecallExpectation": "missed",
+      "note": "口语会议速记与正式执行清单语义一致但词面零重叠；扫地机器人采购是机器人歧义硬负例"
+    },
+    {
+      "caseId": "v2-retrieval-answer-launch",
+      "sourceDocumentId": "v2-doc-answer-launch",
+      "expectedCandidateDocumentIds": ["v2-doc-october-meeting"],
+      "hardNegativeDocumentIds": [],
+      "contentRecallExpectation": "missed",
+      "note": "上一用例的反向召回"
+    },
+    {
+      "caseId": "v2-retrieval-dashboard-design",
+      "sourceDocumentId": "v2-doc-dashboard-design",
+      "expectedCandidateDocumentIds": ["v2-doc-kb-plan", "v2-doc-dashboard-review"],
+      "hardNegativeDocumentIds": ["v2-doc-phase-one-acceptance"],
+      "contentRecallExpectation": "recalled",
+      "note": "对照组：显式互引与共享“数据看板”词面均应被内容通道命中；青禾一期验收是跨子系统硬负例"
+    },
+    {
+      "caseId": "v2-retrieval-isolated-coffee",
+      "sourceDocumentId": "v2-doc-coffee-guide",
+      "expectedCandidateDocumentIds": [],
+      "hardNegativeDocumentIds": ["v2-doc-kb-plan"],
+      "contentRecallExpectation": "empty",
+      "note": "孤立文档应返回空候选，语义召回也不应产生高分候选"
+    }
+  ],
+  "specialCases": {
+    "longDocumentId": "v2-doc-kb-plan",
+    "isolatedDocumentId": "v2-doc-coffee-guide"
+  }
+}
