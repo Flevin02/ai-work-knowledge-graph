@@ -12,9 +12,11 @@ import com.flevin.knowgraph.server.model.document.DocumentBatchRequest;
 import com.flevin.knowgraph.server.model.document.DocumentImportResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentContentResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentPageResponse;
+import com.flevin.knowgraph.server.model.tag.DocumentTaggingBatchResponse;
 import com.flevin.knowgraph.server.service.ai.AiExtractionEventPublisher;
 import com.flevin.knowgraph.server.service.ai.AiExtractionService;
 import com.flevin.knowgraph.server.service.document.DocumentService;
+import com.flevin.knowgraph.server.service.tag.DocumentTaggingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -49,6 +51,7 @@ public class DocumentController {
 	private final DocumentService documentService;
 	private final AiExtractionService aiExtractionService;
 	private final AiExtractionSseWriter aiExtractionSseWriter;
+	private final DocumentTaggingService documentTaggingService;
 
 	@GetMapping(value = "", name = "查询来源资料列表")
 	@Operation(summary = "查询来源资料列表", description = "分页返回来源资料及最近一次 AI 抽取摘要，默认每页 12 条。")
@@ -139,6 +142,26 @@ public class DocumentController {
     ) {
         // 将多个来源资料提交到受控后台线程池，避免浏览器维持多条 SSE 连接
         AiExtractionBatchResponse response = aiExtractionService.submitBatchExtraction(
+                spaceId,
+                request.documentIds()
+        );
+
+        // 使用统一响应结构返回已受理和因队列繁忙未受理的资料标识
+        return ApiResponse.success(response);
+    }
+
+    @PostMapping(value = "/tagging-batches", name = "创建来源资料批量标签运行")
+    @Operation(
+            summary = "创建来源资料批量标签运行",
+            description = "一次受理多份来源资料，并由服务端有界线程池并发执行独立标签运行；每份资料仍通过最近运行接口单独恢复。"
+    )
+    public ApiResponse<DocumentTaggingBatchResponse> submitBatchTagging(
+            @Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
+            @PathVariable Long spaceId,
+            @jakarta.validation.Valid @RequestBody DocumentBatchRequest request
+    ) {
+        // 将多份来源资料提交到受控后台线程池，逐份创建独立标签运行
+        DocumentTaggingBatchResponse response = documentTaggingService.submitBatchTagging(
                 spaceId,
                 request.documentIds()
         );

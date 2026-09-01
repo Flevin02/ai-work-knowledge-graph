@@ -12,6 +12,7 @@ import com.flevin.knowgraph.server.model.tag.DocumentTagEvidenceCandidate;
 import com.flevin.knowgraph.server.model.tag.DocumentTagSuggestion;
 import com.flevin.knowgraph.server.model.tag.DocumentTagSuggestionResponse;
 import com.flevin.knowgraph.server.model.tag.DocumentTaggingDocumentContext;
+import com.flevin.knowgraph.server.model.tag.DocumentTaggingBatchResponse;
 import com.flevin.knowgraph.server.model.tag.DocumentTaggingRequest;
 import com.flevin.knowgraph.server.model.tag.DocumentTaggingResult;
 import com.flevin.knowgraph.server.model.tag.DocumentTaggingRun;
@@ -32,6 +33,10 @@ import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.core.task.TaskRejectedException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -77,6 +82,8 @@ public class DocumentTaggingServiceImpl implements DocumentTaggingService {
     private final SectionAwareDocumentChunker documentChunker;
     private final ObjectProvider<DocumentTaggingClient> taggingClientProvider;
     private final Validator validator;
+    @Qualifier("aiBatchExtractionExecutor")
+    private final TaskExecutor aiBatchExtractionExecutor;
 
     /**
      * 为当前来源资料创建并同步执行一次标签运行。
@@ -225,10 +232,24 @@ public class DocumentTaggingServiceImpl implements DocumentTaggingService {
 
         int createdSuggestionCount;
         try {
-            // 在单独事务中批量物化全部标签，任一写入失败时整批回滚
-            List<DocumentTag> savedTags = persistenceService.saveAiSuggestions(suggestions);
+            List<DocumentTag> savedTags;
+            try {
+                // 在单独事务中批量物化全部标签，任一写入失败时整批回滚
+                savedTags = persistenceService.saveAiSuggestions(suggestions);
+            } catch (DuplicateKeyException exception) {
+                // 批量运行并发物化同一标签名时字典唯一键冲突：
+                // 以新事务重查并复用先落地的标签定义后整批重存，与二次运行的复用路径一致
+                log.info(
+                        "标签字典并发物化冲突，重试标签建议保存: runId={}, documentId={}",
+                        processingRun.id(),
+                        sourceDocumentId
+                );
+                savedTags = persistenceService.saveAiSuggestions(suggestions);
+            }
+            // 重赋值后的列表以 effectively final 局部变量承接，供下游 lambda 捕获
+            List<DocumentTag> persistedTags = List.copyOf(savedTags);
             createdSuggestionCount = (int) IntStream.range(0, suggestions.size())
-                    .filter(index -> savedTags.get(index).id().equals(
+                    .filter(index -> persistedTags.get(index).id().equals(
                             suggestions.get(index).documentTag().id()
                     ))
                     .count();
@@ -265,6 +286,69 @@ public class DocumentTaggingServiceImpl implements DocumentTaggingService {
                 createdSuggestionCount,
                 0,
                 1
+        );
+    }
+
+    /**
+     * 受理批量文档标签任务，由服务端有界线程池并发执行独立标签运行。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentIds 当前知识空间内待打标的来源资料标识
+     * @return 已受理和因队列繁忙未受理的资料标识
+     */
+    @Override
+    public DocumentTaggingBatchResponse submitBatchTagging(
+            Long spaceId,
+            List<Long> documentIds
+    ) {
+        // 校验当前知识空间有效，避免把后台任务提交到已删除空间
+        knowledgeSpaceRepository.findActiveById(spaceId)
+                .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "知识空间不存在"));
+
+        List<Long> normalizedDocumentIds = documentIds.stream().toList();
+        if (new HashSet<>(normalizedDocumentIds).size() != normalizedDocumentIds.size()) {
+            throw new TipsException(ErrorCode.PARAM_ERROR, "批量操作中不能重复选择同一份来源资料");
+        }
+
+        // 提交任务前确认每份资料均属于当前空间，避免后台线程延迟发现无效资料
+        List<SourceDocument> documents = normalizedDocumentIds.stream()
+                .map(documentId -> requireDocument(spaceId, documentId))
+                .toList();
+        List<Long> acceptedDocumentIds = new java.util.ArrayList<>(documents.size());
+        List<Long> rejectedDocumentIds = new java.util.ArrayList<>();
+
+        for (SourceDocument document : documents) {
+            try {
+                // 与批量 AI 抽取共享有界线程池，统一控制对模型服务的并发上限
+                aiBatchExtractionExecutor.execute(() -> {
+                    try {
+                        createRun(spaceId, document.id());
+                    } catch (RuntimeException exception) {
+                        // 单份资料的失败已在运行记录中持久化，这里只兜底避免线程静默死亡
+                        log.warn(
+                                "批量文档标签任务执行异常: spaceId={}, documentId={}",
+                                spaceId,
+                                document.id(),
+                                exception
+                        );
+                    }
+                });
+                acceptedDocumentIds.add(document.id());
+            } catch (TaskRejectedException exception) {
+                log.warn(
+                        "批量文档标签任务未受理，后台队列繁忙: spaceId={}, documentId={}",
+                        spaceId,
+                        document.id()
+                );
+                rejectedDocumentIds.add(document.id());
+            }
+        }
+
+        return new DocumentTaggingBatchResponse(
+                documents.size(),
+                acceptedDocumentIds.size(),
+                List.copyOf(acceptedDocumentIds),
+                List.copyOf(rejectedDocumentIds)
         );
     }
 

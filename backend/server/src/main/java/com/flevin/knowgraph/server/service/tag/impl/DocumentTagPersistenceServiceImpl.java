@@ -15,6 +15,8 @@ import com.flevin.knowgraph.server.repository.tag.DocumentTagReviewRepository;
 import com.flevin.knowgraph.server.service.tag.DocumentTagPersistenceService;
 import com.flevin.knowgraph.server.util.SnowflakeIdGenerator;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +34,7 @@ import java.util.regex.Pattern;
 /**
  * 文档标签持久化服务实现，统一执行轻量规范化、来源状态、版本幂等和逐字证据校验。
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistenceService {
@@ -488,9 +491,21 @@ public class DocumentTagPersistenceServiceImpl implements DocumentTagPersistence
                 updatedAt
         );
 
-        // 保存新的空间内规范化标签定义
-        documentTagRepository.saveTag(preparedTag);
-        return preparedTag;
+        // 保存新的空间内规范化标签定义；并发物化同名标签时复用先落地的一条
+        try {
+            documentTagRepository.saveTag(preparedTag);
+            return preparedTag;
+        } catch (DuplicateKeyException exception) {
+            log.warn(
+                    "标签字典并发物化冲突，复用已存在定义: spaceId={}, normalizedKey={}",
+                    documentTag.spaceId(),
+                    normalizedKey
+            );
+            return documentTagRepository.findTagByNormalizedKey(
+                    documentTag.spaceId(),
+                    normalizedKey
+            ).orElseThrow(() -> exception);
+        }
     }
 
     /**

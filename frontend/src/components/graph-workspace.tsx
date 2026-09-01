@@ -52,6 +52,7 @@ import {
     listConfirmedKnowledgeTags,
     listDocumentTags,
     reviewDocumentTags,
+    submitDocumentTaggingBatch,
 } from '@/lib/api/tags';
 import {
     nodeTypeColors,
@@ -249,6 +250,7 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
     const [selectedDocumentIds, setSelectedDocumentIds] = useState<Record<string, boolean>>({});
     const [isBatchDeleting, setIsBatchDeleting] = useState(false);
     const [isBatchExtracting, setIsBatchExtracting] = useState(false);
+    const [isBatchTagging, setIsBatchTagging] = useState(false);
     const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation | null>(null);
     const [aiRelationReviewStatuses, setAiRelationReviewStatuses] = useState<Record<string, AiRelationReviewStatus>>({});
     const [aiRelationReviewSelections, setAiRelationReviewSelections] = useState<AiRelationReviewSelection>({});
@@ -1112,6 +1114,45 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
         }
     };
 
+    const tagDocuments = async (documents: SourceDocument[]) => {
+        if (!currentSpaceId || !documents.length || isBatchTagging) return;
+        setIsBatchTagging(true);
+        setNotice(`正在向服务端提交 ${documents.length} 份来源资料的批量标签任务…`);
+        setNoticeTone('loading');
+
+        try {
+            // 只发起一次批量接口，由后端有界线程池并发执行每份资料的独立标签运行
+            const response = await submitDocumentTaggingBatch(
+                currentSpaceId,
+                documents.map((document) => document.id)
+            );
+            setSelectedDocumentIds((current) => {
+                const next = {...current};
+                response.documentIds.forEach((documentId) => delete next[documentId]);
+                return next;
+            });
+            if (!response.acceptedCount) {
+                setNotice('批量标签任务未被服务端受理，请稍后重试。');
+                setNoticeTone('warning');
+                return;
+            }
+
+            const rejectedDocumentNames = documents
+                .filter((document) => response.rejectedDocumentIds.includes(document.id))
+                .map((document) => document.name);
+            const summary = `批量标签任务已受理 ${response.acceptedCount} / ${response.requestedCount} 份资料。`;
+            setNotice(rejectedDocumentNames.length
+                ? `${summary} 以下资料未受理：${rejectedDocumentNames.join('、')}。`
+                : `${summary} 完成后可在每份资料的 AI 输出中查看标签候选并审核采纳。`);
+            setNoticeTone(rejectedDocumentNames.length ? 'warning' : 'success');
+        } catch (error) {
+            setNotice(`批量标签任务提交失败：${error instanceof Error ? error.message : '未知错误'}`);
+            setNoticeTone('error');
+        } finally {
+            setIsBatchTagging(false);
+        }
+    };
+
     const extractDocument = async (document: SourceDocument) => {
         if (!currentSpaceId) return;
 
@@ -1625,8 +1666,10 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
                         }))}
                         onBatchDelete={(documents) => setDeleteConfirmation({kind: 'documents', items: documents})}
                         onBatchExtract={(documents) => void extractDocuments(documents)}
+                        onBatchTag={(documents) => void tagDocuments(documents)}
                         isBatchDeleting={isBatchDeleting}
                         isBatchExtracting={isBatchExtracting}
+                        isBatchTagging={isBatchTagging}
                         deletingDocumentId={deletingDocumentId}
                         extractionStates={documentExtractionStates}
                         total={documentTotal}
@@ -1802,8 +1845,10 @@ function DocumentPanel({
                            onToggleSelection,
                            onBatchDelete,
                            onBatchExtract,
+                           onBatchTag,
                            isBatchDeleting,
                            isBatchExtracting,
+                           isBatchTagging,
                            deletingDocumentId,
                            extractionStates,
                            total,
@@ -1823,8 +1868,10 @@ function DocumentPanel({
     onToggleSelection: (documentId: string) => void;
     onBatchDelete: (documents: SourceDocument[]) => void;
     onBatchExtract: (documents: SourceDocument[]) => void;
+    onBatchTag: (documents: SourceDocument[]) => void;
     isBatchDeleting: boolean;
     isBatchExtracting: boolean;
+    isBatchTagging: boolean;
     deletingDocumentId: string | null;
     extractionStates: Record<string, DocumentExtractionState>;
     total: number;
@@ -1839,7 +1886,7 @@ function DocumentPanel({
     const hasProcessingSelection = selectedDocuments.some(
         (document) => extractionStates[document.id]?.status === 'processing'
     );
-    const batchActionsDisabled = isBatchDeleting || isBatchExtracting || hasProcessingSelection;
+    const batchActionsDisabled = isBatchDeleting || isBatchExtracting || isBatchTagging || hasProcessingSelection;
     const batchActionTitle = hasProcessingSelection
         ? '所选资料包含提取中的任务，请等待完成后再执行批量操作'
         : undefined;
@@ -1883,6 +1930,13 @@ function DocumentPanel({
                     disabled={!selectedDocuments.length || batchActionsDisabled}
                     onClick={() => onBatchExtract(selectedDocuments)}
                 >{isBatchExtracting ? <LoaderCircle className="spin" size={14}/> : <Sparkles size={14}/>} 批量提取</button>
+                <button
+                    className="secondary-button"
+                    type="button"
+                    title={batchActionTitle}
+                    disabled={!selectedDocuments.length || batchActionsDisabled}
+                    onClick={() => onBatchTag(selectedDocuments)}
+                >{isBatchTagging ? <LoaderCircle className="spin" size={14}/> : <Tags size={14}/>} 批量打标</button>
                 <button
                     className="secondary-button danger-button"
                     type="button"

@@ -1,6 +1,9 @@
 package com.flevin.knowgraph.server.service.tag;
 
+import com.flevin.knowgraph.server.model.tag.DocumentTaggingBatchResponse;
 import com.flevin.knowgraph.server.model.tag.DocumentTaggingRunResponse;
+
+import java.util.List;
 
 /**
  * 文档标签抽取固定 Pipeline 服务。
@@ -17,6 +20,18 @@ public interface DocumentTaggingService {
     DocumentTaggingRunResponse createRun(
             Long spaceId,
             Long sourceDocumentId
+    );
+
+    /**
+     * 受理批量文档标签任务，由服务端有界线程池并发执行独立标签运行。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentIds 当前知识空间内待打标的来源资料标识
+     * @return 已受理和因队列繁忙未受理的资料标识
+     */
+    DocumentTaggingBatchResponse submitBatchTagging(
+            Long spaceId,
+            List<Long> documentIds
     );
 
     /**

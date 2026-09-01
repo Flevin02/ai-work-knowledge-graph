@@ -66,6 +66,73 @@ class DocumentTaggingControllerIntegrationTests {
     }
 
     @Test
+    void acceptsBatchTaggingAndCompletesEveryDocumentRun() throws Exception {
+        SourceDocument first = importDocument(
+                "标签批量一.md",
+                "# 会议纪要\n2026 年星桥科技年会筹备正式启动。"
+        );
+        SourceDocument second = importDocument(
+                "标签批量二.md",
+                "# 项目周报\n本周完成知识库检索模块联调，下周进入权限分级开发。"
+        );
+
+        // 批量受理两张资料，由服务端有界线程池并发创建独立标签运行
+        mockMvc.perform(post(
+                        "/v1/spaces/{spaceId}/documents/tagging-batches",
+                        SPACE_ID
+                ).contentType("application/json")
+                .content(objectMapper.writeValueAsString(java.util.Map.of(
+                        "documentIds", List.of(first.id(), second.id())
+                ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.error").value(false))
+                .andExpect(jsonPath("$.data.requestedCount").value(2))
+                .andExpect(jsonPath("$.data.acceptedCount").value(2))
+                .andExpect(jsonPath("$.data.rejectedDocumentIds.length()").value(0));
+
+        // 后台运行由 Fake 客户端快速完成，轮询恢复每份资料的最近运行状态
+        for (SourceDocument document : List.of(first, second)) {
+            long deadline = System.currentTimeMillis() + 10_000;
+            String latestStatus = null;
+            while (System.currentTimeMillis() < deadline) {
+                var latestResult = mockMvc.perform(get(
+                                "/v1/spaces/{spaceId}/documents/{documentId}/tagging-runs/latest",
+                                SPACE_ID,
+                                document.id()
+                        ))
+                        .andReturn();
+                if (latestResult.getResponse().getStatus() == 200) {
+                    latestStatus = objectMapper.readTree(latestResult.getResponse()
+                            .getContentAsString(StandardCharsets.UTF_8))
+                            .path("data").path("status").asText();
+                    if ("completed".equals(latestStatus) || "failed".equals(latestStatus)) {
+                        break;
+                    }
+                }
+                Thread.sleep(100);
+            }
+            mockMvc.perform(get(
+                            "/v1/spaces/{spaceId}/documents/{documentId}/tagging-runs/latest",
+                            SPACE_ID,
+                            document.id()
+                    ))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.status").value("completed"))
+                    .andExpect(jsonPath("$.data.suggestions[0].name").value("年会筹备"));
+        }
+
+        // 重复提交同一份资料被参数校验拒绝
+        mockMvc.perform(post(
+                        "/v1/spaces/{spaceId}/documents/tagging-batches",
+                        SPACE_ID
+                ).contentType("application/json")
+                .content(objectMapper.writeValueAsString(java.util.Map.of(
+                        "documentIds", List.of(first.id(), first.id())
+                ))))
+                .andExpect(status().is4xxClientError());
+    }
+
+    @Test
     void createsAndRestoresTaggingRun() throws Exception {
         SourceDocument document = importDocument(
                 "标签接口.md",

@@ -17,6 +17,25 @@ export async function createDocumentTaggingRun(
   return readApiResponse<DocumentTaggingRun>(response);
 }
 
+export type DocumentTaggingBatchResponse = {
+  requestedCount: number;
+  acceptedCount: number;
+  documentIds: string[];
+  rejectedDocumentIds: string[];
+};
+
+export async function submitDocumentTaggingBatch(
+  spaceId: string,
+  documentIds: string[]
+): Promise<DocumentTaggingBatchResponse> {
+  const response = await fetch(`${backendApiUrl}/v1/spaces/${encodeURIComponent(spaceId)}/documents/tagging-batches`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({documentIds}),
+  });
+  return readApiResponse<DocumentTaggingBatchResponse>(response);
+}
+
 export async function getLatestDocumentTaggingRun(
   spaceId: string,
   documentId: string
