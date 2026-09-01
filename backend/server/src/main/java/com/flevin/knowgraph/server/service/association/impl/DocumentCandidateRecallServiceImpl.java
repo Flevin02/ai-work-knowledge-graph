@@ -324,14 +324,15 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
             );
         } catch (RuntimeException exception) {
             // 语义通道属于增强能力：向量化不可用时降级为纯内容候选，
-            // 策略版本保持内容版本，恢复端可据此区分本次运行未融合语义
+            // 但策略版本必须保持运行创建时冻结的语义增强版本——
+            // 运行快照的版本字段不可变，是否真正融合由 semanticCandidateCount 区分
             log.warn(
                     "语义候选召回失败，降级为内容候选: spaceId={}, documentId={}",
                     spaceId,
                     sourceDocumentId,
                     exception
             );
-            return contentRecall;
+            return withPolicyVersion(contentRecall, SEMANTIC_AUGMENTED_POLICY_VERSION);
         }
 
         return fuseSemanticCandidates(spaceId, contentRecall, semanticRecall, topK);
@@ -367,8 +368,10 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
         ).stream().map(ReciprocalRankFusion.FusedCandidate<Long>::documentId).toList();
 
         if (fusedRanking.equals(contentRanking.subList(0, Math.min(topK, contentRanking.size())))) {
-            // 融合未改变候选集合与顺序时保持内容策略版本，避免无意义的版本切换
-            return contentRecall;
+            // 融合未改变候选集合与顺序时仅切换策略版本：
+            // 运行快照在创建时已按开关冻结为语义增强版本，版本字段不可回退，
+            // 本次没有语义补充由 semanticCandidateCount 为 0 体现
+            return withPolicyVersion(contentRecall, SEMANTIC_AUGMENTED_POLICY_VERSION);
         }
 
         // 内容候选直接复用已有上下文；语义补充候选需要补齐摘要等展示字段
@@ -452,6 +455,30 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
                 contentRecall.sourceConfirmedTags(),
                 contentRecall.tagCandidateCount(),
                 contentRecall.keywordCandidateCount()
+        );
+    }
+
+    /**
+     * 返回仅替换策略版本的候选召回结果。
+     *
+     * @param recall 原召回结果
+     * @param policyVersion 目标策略版本
+     * @return 相同候选与统计、指定策略版本的召回结果
+     */
+    private DocumentCandidateRecall withPolicyVersion(
+            DocumentCandidateRecall recall,
+            String policyVersion
+    ) {
+        return new DocumentCandidateRecall(
+                recall.spaceId(),
+                recall.sourceDocumentId(),
+                recall.sourceContentHash(),
+                policyVersion,
+                recall.topK(),
+                recall.candidates(),
+                recall.sourceConfirmedTags(),
+                recall.tagCandidateCount(),
+                recall.keywordCandidateCount()
         );
     }
 
