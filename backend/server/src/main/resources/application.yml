@@ -37,7 +37,8 @@ app:
   upload-dir: ${UPLOAD_DIR:./backend/server/data/uploads}
 
 ai:
-  enabled: ${AI_ENABLED:false}
+  # AI 关联/抽取判断默认启用（用户 2026-09-01 确认）；测试环境由 @SpringBootTest properties 显式钉住
+  enabled: ${AI_ENABLED:true}
   provider: ${AI_PROVIDER:openai-compatible}
   model: ${AI_MODEL:gpt-5.5}
   api-key: ${AI_API_KEY:sk-1e3399cdedc11e4d5104cacc3d173ed657830b2b1ecc7fd7ca9af8dc85110a6c}
