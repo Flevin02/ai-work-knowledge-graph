@@ -1,10 +1,10 @@
 # 技术设计文档
 
-这里记录独立项目的架构、数据模型、导入流程、图谱交互和导出格式。产品范围以 `../prd/ai-work-knowledge-graph-maintainer-prd.md` 为准。
+这里记录实现级技术设计、数据模型、接口契约、调用流程和交互细节。产品范围与架构边界以 `../prd/ai-work-knowledge-graph-maintainer-prd.md` 为准；本目录不记录下一任务、提交历史或验证结论。
 
 ## AI/RAG 分片基线
 
-当前抽取链路使用“章节感知分片 + 逐片结构化抽取”，分片数量由来源资料内容决定，不固定为某个片数：
+文档处理使用“章节感知分片 + 逐片结构化抽取”，分片数量由来源资料内容决定，不固定为某个片数：
 
 - Markdown 先由确定性规则识别标题层级和章节路径；没有标题的 TXT/PDF 作为一个根章节处理。
 - 长度不超过 `maxChunkChars` 的章节整体保留，只有超长章节才继续切分。
@@ -13,11 +13,10 @@
 
 选择章节感知分片的原因是同时控制模型上下文长度、单次调用成本和证据定位难度。分片过小会增加请求次数、重复实体和跨片关系合并成本；分片过大则会增加上下文噪声、超出模型限制和证据反查复杂度。固定字符数只作为长章节的边界约束，不能替代章节、表格、列表和代码块等语义边界。
 
-当前链路仍是确定性分片后逐片直接调用模型，尚未启用 Embedding、向量索引或相似度召回，因此“分片”不能表述为已经完成 RAG。后续需要用长文档、表格、跨章节关系、重复内容和无答案样本分别评估分片完整度、证据有效率、召回效果、请求成本与延迟，再决定是否调整参数或引入混合检索。
+同一分片事实供结构化抽取、Embedding、语义候选召回和有据问答复用；MySQL 保存章节、分片、内容指纹和可重建向量事实，固定资料规模由 Java 执行精确 COSINE。分片本身不等于 RAG 完成，仍需分别评估解析、召回、上下文组装、生成和证据校验。
 
 ## 文档关联阶段 0 冻结基线
 
 - [文档关联 v1 冻结契约](./document-association-v1-contract.md)：候选召回、五种关系、Prompt、Schema、方向和证据规则。
 - `document-association-output-schema-v1.json`：阶段 1 文档关联模型输出 JSON Schema。
 - `document-tag-output-schema-v1.json`：阶段 2 可选标签模型输出 JSON Schema。
-- 阶段 1 当前已落地 `document_association_runs`、`document_relations`、`document_relation_evidences` 和 `document_relation_reviews` 的 SQLite/MyBatis 持久化基础，并完成 `document-candidate-recall-v1` 的无 Embedding 候选召回；模型判断和 HTTP API 按路线图后续实现。

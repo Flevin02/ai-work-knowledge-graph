@@ -9,11 +9,11 @@
 | 目录 | 用途 |
 |---|---|
 | `frontend/` | Next.js 页面入口、前端组件、类型和后端 API 客户端 |
-| `backend/` | Java 后端、SQLite 数据层、文件解析和 AI 能力 |
-| `docs/prd/` | 产品需求文档 |
-| `docs/design/` | 技术设计、数据模型和交互说明 |
-| `docs/decisions/` | 已确认的设计决策 |
-| `docs/tests/` | 跨模块、接口和端到端测试说明 |
+| `backend/` | Java 后端、MySQL 事实库访问、文件解析和 AI 能力 |
+| `docs/prd/` | 产品范围、架构边界和功能设计，不记录实施状态 |
+| `docs/design/` | 实现级技术设计、数据模型、接口与交互说明 |
+| `docs/decisions/` | 已确认设计决策、影响与回滚依据 |
+| `docs/tests/` | 测试方案、评估数据和验证结论 |
 | `fixture/` | 虚构、脱敏的演示资料 |
 | `scripts/` | 导入、校验和演示辅助脚本 |
 
@@ -28,7 +28,7 @@
 ## 当前文档
 
 - [产品需求文档](docs/prd/ai-work-knowledge-graph-maintainer-prd.md)
-- [参赛开发路线图](docs/roadmap.md)
+- [下一任务路线图](docs/roadmap.md)
 
 ## 本地启动
 
@@ -55,6 +55,6 @@ mvn -f backend/pom.xml -pl server -am spring-boot:run
 
 默认前端地址为 `http://localhost:3010`，默认后端地址为 `http://localhost:4010`。正式后端运行数据统一保存到 `backend/server/data/`，前后端地址和 AI 配置通过 `frontend/.env.example` 和 `backend/.env.example` 参考配置。
 
-## 计划技术栈
+## 技术栈
 
-前端使用 Next.js、React、TypeScript、Tailwind CSS 和 Cytoscape.js；后端基于 Firefly Boot 脚手架，采用 Java 21、Spring Boot 3.2.11、`common + server` 两模块、Spring JDBC、SQLite、Jackson、Apache POI 和 PDFBox。复制后的后端代码在当前仓库独立维护，不依赖原 Firefly Boot 目录；首版不引入 Neo4j、Qdrant、PostgreSQL 或微服务集群。
+前端使用 Next.js、React、TypeScript 和 Cytoscape.js；后端采用 Java 21、Spring Boot 3.2.11、`common + server` 两模块、MySQL 8.0、MyBatis-Plus/MyBatis Mapper、LangChain4j、Jackson、Apache POI 和 PDFBox。后端代码在当前仓库独立维护，不依赖原 Firefly Boot 目录；固定资料规模的语义检索使用 MySQL 可重建向量事实和 Java 精确 COSINE，没有规模证据前不引入独立向量数据库或微服务集群。

@@ -1,7 +1,5 @@
-# 测试
+# 测试与评估
 
-覆盖实体规范化、关系证据校验、关系去重、增量导入、冲突检测和关键用户流程。
+本目录只记录测试方案、固定数据集、指标口径、验证结果和未覆盖边界，不承担产品设计或下一任务规划。实现完成历史由 Git 追溯。
 
-文档内容关联专项使用 [document-association-evaluation-v1.md](./document-association-evaluation-v1.md) 和 `fixture/document-association-v1/annotations.json` 作为固定评估规程与标注答案。
-
-阶段 1 持久化基础使用 `backend/server/src/test/java/com/flevin/knowgraph/server/association/DocumentAssociationPersistenceIntegrationTests.java`，覆盖四张文档关联表、空间隔离、关系幂等、证据反查和审核状态历史。
+文档内容关联专项使用 [document-association-evaluation-v1.md](./document-association-evaluation-v1.md) 和 `fixture/document-association-v1/annotations.json` 作为固定评估规程与标注答案；其余报告分别保存对应实验的输入、单一变量、结果和失败样例。

@@ -1,10 +1,10 @@
 ---
 title: AI 知识工作智能体与工作流平台 PRD
 product_name: 知脉（暂定）
-version: v1.0-draft
+version: v1.1-draft
 status: 待评审 / 架构重构提案
 created: 2026-08-19
-updated: 2026-08-19
+updated: 2026-09-01
 scope: Agent + Workflow + RAG + Knowledge Graph 独立学习项目
 baseline: docs/prd/ai-work-knowledge-graph-maintainer-prd.md
 ---
@@ -29,25 +29,13 @@ baseline: docs/prd/ai-work-knowledge-graph-maintainer-prd.md
 
 ## 1.2 与原 PRD 的关系
 
-原 PRD `ai-work-knowledge-graph-maintainer-prd.md` 继续作为以下事实的记录：
+原 PRD `ai-work-knowledge-graph-maintainer-prd.md` 定义当前轻量产品的范围、架构和功能；本文档描述 Agent + Workflow 重构后的目标态。两份 PRD 都不记录实施状态、验证证据或下一任务，这些内容分别由 Git、`docs/tests/` 和 `docs/roadmap.md` 承担。
 
-- 原产品定位、参赛范围和历史决策。
-- 当前已实现能力及其验证证据。
-- 当前工作区的实施状态和短期代办。
-
-本文档描述重构后的目标态。在本文档被正式确认并接管路线图前：
+在本文档被正式确认前：
 
 - 不把目标态能力描述成已经实现。
-- 不删除原 PRD 的历史状态和验证边界。
 - 不因目标架构改变而直接废弃已经验证的导入、证据、图谱和审核能力。
-- 不把原 PRD 中的短期代办自动视为新架构的实施顺序。
-
-确认本 PRD 后，应再单独完成以下治理动作：
-
-1. 新增架构决策记录，确认数据库、工作流引擎和 Agent Runtime 选型。
-2. 重写 `docs/roadmap.md`，以新产品阶段替代原比赛时间线。
-3. 更新根目录 `README.md` 和 `AGENTS.md` 中的项目目标与新会话入口。
-4. 冻结当前可运行版本，明确数据迁移和回滚基线。
+- 不把本 PRD 中的迁移策略自动视为下一任务；只有 `docs/roadmap.md` 中的当前任务可以进入实施。
 
 ## 1.3 术语约定
 
@@ -1462,8 +1450,8 @@ MVP 目标不是高并发，而是稳定和可解释：
 | 非功能要求 | 扩展 | 增加恢复、幂等、审计、成本和 Prompt Injection |
 | MVP 验收 | 重写 | 按 RAG、Agent、Workflow 和业务闭环分层验收 |
 | 演示脚本 | 替换 | 展示长流程、工具、审批和知识更新 |
-| 开发计划 | 替换 | 改为架构迁移和垂直切片阶段 |
-| 当前实施状态 | 不复制 | 继续由原 PRD 记录，避免计划和事实混淆 |
+| 开发计划 | 不保留 | 下一任务只由 `docs/roadmap.md` 记录 |
+| 当前实施状态 | 不保留 | 由 Git 和专项测试/评估文档追溯，不写入 PRD |
 
 # 24. 重构与迁移策略
 
@@ -1592,14 +1580,3 @@ MVP 目标不是高并发，而是稳定和可解释：
 - [ ] 是否允许连接任何真实外部系统。
 - [ ] 真实模型是否只使用虚构/脱敏 Fixture。
 - [ ] Agent 运行日志和模型响应的保留期限。
-
-# 28. 本 PRD 的完成定义
-
-本 PRD 经用户确认后，只代表产品与架构目标确认，不代表功能实现完成。进入编码前还需：
-
-1. 为 PostgreSQL/pgvector、Workflow Engine 和 Agent Runtime 分别形成架构决策记录。
-2. 将主工作流拆成可验证的领域和接口设计。
-3. 重写路线图和新会话入口。
-4. 明确现有 staged/unstaged 修改的归属和交付状态。
-5. 冻结旧系统回滚基线。
-6. 从 Knowledge Plane 的最小可评估切片开始实施。
