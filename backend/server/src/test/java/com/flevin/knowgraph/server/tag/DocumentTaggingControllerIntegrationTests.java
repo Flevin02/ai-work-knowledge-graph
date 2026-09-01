@@ -133,6 +133,92 @@ class DocumentTaggingControllerIntegrationTests {
     }
 
     @Test
+    void reviewsSuggestedTagsAcrossDocumentsAndSkipsReviewed() throws Exception {
+        SourceDocument first = importDocument(
+                "跨文档审核一.md",
+                "# 会议纪要\n2026 年星桥科技年会筹备正式启动。"
+        );
+        SourceDocument second = importDocument(
+                "跨文档审核二.md",
+                "# 项目周报\n本周完成知识库检索模块联调，下周进入权限分级开发。"
+        );
+        SourceDocument third = importDocument(
+                "跨文档审核三.md",
+                "# 发布通告\n青禾知识库一期定于下周一正式上线全公司。"
+        );
+
+        // 先为前两份资料创建 suggested 标签，第三份保持无标签用于验证跳过
+        mockMvc.perform(post(
+                        "/v1/spaces/{spaceId}/documents/tagging-batches",
+                        SPACE_ID
+                ).contentType("application/json")
+                .content(objectMapper.writeValueAsString(java.util.Map.of(
+                        "documentIds", List.of(first.id(), second.id())
+                ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.acceptedCount").value(2));
+        for (SourceDocument document : List.of(first, second)) {
+            long deadline = System.currentTimeMillis() + 10_000;
+            while (System.currentTimeMillis() < deadline) {
+                var latestResult = mockMvc.perform(get(
+                                "/v1/spaces/{spaceId}/documents/{documentId}/tagging-runs/latest",
+                                SPACE_ID,
+                                document.id()
+                        ))
+                        .andReturn();
+                if (latestResult.getResponse().getStatus() == 200
+                        && objectMapper.readTree(latestResult.getResponse()
+                                .getContentAsString(StandardCharsets.UTF_8))
+                                .path("data").path("status").asText().equals("completed")) {
+                    break;
+                }
+                Thread.sleep(100);
+            }
+        }
+
+        // 跨文档统一采纳：两份资料各 1 条 suggested，第三份自动跳过
+        mockMvc.perform(post(
+                        "/v1/spaces/{spaceId}/documents/tag-review-batches",
+                        SPACE_ID
+                ).contentType("application/json")
+                .content(objectMapper.writeValueAsString(java.util.Map.of(
+                        "documentIds", List.of(first.id(), second.id(), third.id()),
+                        "action", "accept",
+                        "reason", "跨文档批量采纳验证"
+                ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.error").value(false))
+                .andExpect(jsonPath("$.data.requestedDocumentCount").value(3))
+                .andExpect(jsonPath("$.data.reviewedDocumentCount").value(2))
+                .andExpect(jsonPath("$.data.acceptedCount").value(2))
+                .andExpect(jsonPath("$.data.rejectedCount").value(0));
+
+        // 全部审核完成后再次执行，无 suggested 可处理
+        mockMvc.perform(post(
+                        "/v1/spaces/{spaceId}/documents/tag-review-batches",
+                        SPACE_ID
+                ).contentType("application/json")
+                .content(objectMapper.writeValueAsString(java.util.Map.of(
+                        "documentIds", List.of(first.id(), second.id()),
+                        "action", "accept"
+                ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.reviewedDocumentCount").value(0))
+                .andExpect(jsonPath("$.data.acceptedCount").value(0));
+
+        // 非法动作被参数校验拒绝
+        mockMvc.perform(post(
+                        "/v1/spaces/{spaceId}/documents/tag-review-batches",
+                        SPACE_ID
+                ).contentType("application/json")
+                .content(objectMapper.writeValueAsString(java.util.Map.of(
+                        "documentIds", List.of(first.id()),
+                        "action", "approve"
+                ))))
+                .andExpect(status().is4xxClientError());
+    }
+
+    @Test
     void createsAndRestoresTaggingRun() throws Exception {
         SourceDocument document = importDocument(
                 "标签接口.md",

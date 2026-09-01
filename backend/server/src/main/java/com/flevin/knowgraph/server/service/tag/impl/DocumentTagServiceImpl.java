@@ -3,6 +3,8 @@ package com.flevin.knowgraph.server.service.tag.impl;
 import com.flevin.knowgraph.common.enums.ErrorCode;
 import com.flevin.knowgraph.common.exception.TipsException;
 import com.flevin.knowgraph.server.model.tag.DocumentTag;
+import com.flevin.knowgraph.server.model.tag.DocumentTagBatchReviewRequest;
+import com.flevin.knowgraph.server.model.tag.DocumentTagBatchReviewResponse;
 import com.flevin.knowgraph.server.model.tag.DocumentTagEvidence;
 import com.flevin.knowgraph.server.model.tag.DocumentTagResponse;
 import com.flevin.knowgraph.server.model.tag.DocumentTagReview;
@@ -132,6 +134,64 @@ public class DocumentTagServiceImpl implements DocumentTagService {
                 acceptedCount,
                 rejectedCount,
                 toResponses(spaceId, reviewedTags)
+        );
+    }
+
+    /**
+     * 对所选资料的 suggested 标签执行统一审核动作。
+     *
+     * @param spaceId 知识空间标识
+     * @param request 跨文档批量审核请求
+     * @return 审核统计
+     */
+    @Override
+    @Transactional
+    public DocumentTagBatchReviewResponse reviewBatchAcrossDocuments(
+            Long spaceId,
+            DocumentTagBatchReviewRequest request
+    ) {
+        // 去重并校验当前空间有效；重复文档和无效空间在受理前拒绝
+        List<Long> documentIds = request.documentIds().stream().distinct().toList();
+        knowledgeSpaceRepository.findActiveById(spaceId)
+                .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "知识空间不存在"));
+
+        String action = request.action();
+        int acceptedCount = 0;
+        int rejectedCount = 0;
+        int reviewedDocumentCount = 0;
+
+        for (Long documentId : documentIds) {
+            // 逐份读取实时标签状态，只审核仍处于 suggested 的候选
+            List<DocumentTag> suggestedTags = documentTagRepository
+                    .findAllByDocument(spaceId, documentId)
+                    .stream()
+                    .filter(documentTag -> SUGGESTED_STATUS.equals(documentTag.status()))
+                    .toList();
+            if (suggestedTags.isEmpty()) {
+                continue;
+            }
+            reviewedDocumentCount++;
+            for (DocumentTag documentTag : suggestedTags) {
+                persistenceService.reviewDocumentTag(
+                        spaceId,
+                        documentTag.id(),
+                        action,
+                        request.reason(),
+                        LOCAL_OPERATOR
+                );
+                if ("accept".equals(action)) {
+                    acceptedCount++;
+                } else {
+                    rejectedCount++;
+                }
+            }
+        }
+
+        return new DocumentTagBatchReviewResponse(
+                request.documentIds().size(),
+                reviewedDocumentCount,
+                acceptedCount,
+                rejectedCount
         );
     }
 

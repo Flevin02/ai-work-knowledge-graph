@@ -52,6 +52,7 @@ import {
     listConfirmedKnowledgeTags,
     listDocumentTags,
     reviewDocumentTags,
+    reviewDocumentTagsAcrossDocuments,
     submitDocumentTaggingBatch,
 } from '@/lib/api/tags';
 import {
@@ -251,6 +252,7 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
     const [isBatchDeleting, setIsBatchDeleting] = useState(false);
     const [isBatchExtracting, setIsBatchExtracting] = useState(false);
     const [isBatchTagging, setIsBatchTagging] = useState(false);
+    const [isBatchAcceptingTags, setIsBatchAcceptingTags] = useState(false);
     const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation | null>(null);
     const [aiRelationReviewStatuses, setAiRelationReviewStatuses] = useState<Record<string, AiRelationReviewStatus>>({});
     const [aiRelationReviewSelections, setAiRelationReviewSelections] = useState<AiRelationReviewSelection>({});
@@ -1153,6 +1155,40 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
         }
     };
 
+    const acceptDocumentTags = async (documents: SourceDocument[]) => {
+        if (!currentSpaceId || !documents.length || isBatchAcceptingTags) return;
+        setIsBatchAcceptingTags(true);
+        setNotice(`正在采纳 ${documents.length} 份来源资料的待审核标签…`);
+        setNoticeTone('loading');
+
+        try {
+            // 一次请求统一采纳所选资料的全部 suggested 标签，服务端跳过已审核资料
+            const response = await reviewDocumentTagsAcrossDocuments(
+                currentSpaceId,
+                documents.map((document) => document.id),
+                'accept',
+                '跨文档批量采纳'
+            );
+            setSelectedDocumentIds((current) => {
+                const next = {...current};
+                documents.forEach((document) => delete next[document.id]);
+                return next;
+            });
+            if (!response.reviewedDocumentCount) {
+                setNotice('所选资料没有待审核的标签候选。');
+                setNoticeTone('warning');
+                return;
+            }
+            setNotice(`批量采纳完成：${response.reviewedDocumentCount} / ${response.requestedDocumentCount} 份资料共 ${response.acceptedCount} 条标签已确认，侧栏标签区已同步。`);
+            setNoticeTone('success');
+        } catch (error) {
+            setNotice(`批量采纳标签失败：${error instanceof Error ? error.message : '未知错误'}`);
+            setNoticeTone('error');
+        } finally {
+            setIsBatchAcceptingTags(false);
+        }
+    };
+
     const extractDocument = async (document: SourceDocument) => {
         if (!currentSpaceId) return;
 
@@ -1667,9 +1703,11 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
                         onBatchDelete={(documents) => setDeleteConfirmation({kind: 'documents', items: documents})}
                         onBatchExtract={(documents) => void extractDocuments(documents)}
                         onBatchTag={(documents) => void tagDocuments(documents)}
+                        onBatchAcceptTags={(documents) => void acceptDocumentTags(documents)}
                         isBatchDeleting={isBatchDeleting}
                         isBatchExtracting={isBatchExtracting}
                         isBatchTagging={isBatchTagging}
+                        isBatchAcceptingTags={isBatchAcceptingTags}
                         deletingDocumentId={deletingDocumentId}
                         extractionStates={documentExtractionStates}
                         total={documentTotal}
@@ -1846,9 +1884,11 @@ function DocumentPanel({
                            onBatchDelete,
                            onBatchExtract,
                            onBatchTag,
+                           onBatchAcceptTags,
                            isBatchDeleting,
                            isBatchExtracting,
                            isBatchTagging,
+                           isBatchAcceptingTags,
                            deletingDocumentId,
                            extractionStates,
                            total,
@@ -1869,9 +1909,11 @@ function DocumentPanel({
     onBatchDelete: (documents: SourceDocument[]) => void;
     onBatchExtract: (documents: SourceDocument[]) => void;
     onBatchTag: (documents: SourceDocument[]) => void;
+    onBatchAcceptTags: (documents: SourceDocument[]) => void;
     isBatchDeleting: boolean;
     isBatchExtracting: boolean;
     isBatchTagging: boolean;
+    isBatchAcceptingTags: boolean;
     deletingDocumentId: string | null;
     extractionStates: Record<string, DocumentExtractionState>;
     total: number;
@@ -1886,7 +1928,9 @@ function DocumentPanel({
     const hasProcessingSelection = selectedDocuments.some(
         (document) => extractionStates[document.id]?.status === 'processing'
     );
-    const batchActionsDisabled = isBatchDeleting || isBatchExtracting || isBatchTagging || hasProcessingSelection;
+    const batchActionsDisabled = isBatchDeleting || isBatchExtracting || isBatchTagging || isBatchAcceptingTags || hasProcessingSelection;
+    // 采纳待审标签是批量写操作，先内联确认再执行，避免误触直接确认全部候选
+    const [tagAcceptConfirming, setTagAcceptConfirming] = useState(false);
     const batchActionTitle = hasProcessingSelection
         ? '所选资料包含提取中的任务，请等待完成后再执行批量操作'
         : undefined;
@@ -1937,6 +1981,20 @@ function DocumentPanel({
                     disabled={!selectedDocuments.length || batchActionsDisabled}
                     onClick={() => onBatchTag(selectedDocuments)}
                 >{isBatchTagging ? <LoaderCircle className="spin" size={14}/> : <Tags size={14}/>} 批量打标</button>
+                <button
+                    className={`secondary-button${tagAcceptConfirming ? ' danger-button' : ''}`}
+                    type="button"
+                    title={tagAcceptConfirming ? '再次点击确认采纳所选资料的全部待审标签' : batchActionTitle}
+                    disabled={!selectedDocuments.length || batchActionsDisabled}
+                    onClick={() => {
+                        if (!tagAcceptConfirming) {
+                            setTagAcceptConfirming(true);
+                            return;
+                        }
+                        setTagAcceptConfirming(false);
+                        onBatchAcceptTags(selectedDocuments);
+                    }}
+                >{isBatchAcceptingTags ? <LoaderCircle className="spin" size={14}/> : <Check size={14}/>} {tagAcceptConfirming ? '确认采纳待审标签？' : '采纳待审标签'}</button>
                 <button
                     className="secondary-button danger-button"
                     type="button"

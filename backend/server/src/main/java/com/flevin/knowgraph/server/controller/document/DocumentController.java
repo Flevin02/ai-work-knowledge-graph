@@ -12,10 +12,13 @@ import com.flevin.knowgraph.server.model.document.DocumentBatchRequest;
 import com.flevin.knowgraph.server.model.document.DocumentImportResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentContentResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentPageResponse;
+import com.flevin.knowgraph.server.model.tag.DocumentTagBatchReviewRequest;
+import com.flevin.knowgraph.server.model.tag.DocumentTagBatchReviewResponse;
 import com.flevin.knowgraph.server.model.tag.DocumentTaggingBatchResponse;
 import com.flevin.knowgraph.server.service.ai.AiExtractionEventPublisher;
 import com.flevin.knowgraph.server.service.ai.AiExtractionService;
 import com.flevin.knowgraph.server.service.document.DocumentService;
+import com.flevin.knowgraph.server.service.tag.DocumentTagService;
 import com.flevin.knowgraph.server.service.tag.DocumentTaggingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -52,6 +55,7 @@ public class DocumentController {
 	private final AiExtractionService aiExtractionService;
 	private final AiExtractionSseWriter aiExtractionSseWriter;
 	private final DocumentTaggingService documentTaggingService;
+	private final DocumentTagService documentTagService;
 
 	@GetMapping(value = "", name = "查询来源资料列表")
 	@Operation(summary = "查询来源资料列表", description = "分页返回来源资料及最近一次 AI 抽取摘要，默认每页 12 条。")
@@ -167,6 +171,26 @@ public class DocumentController {
         );
 
         // 使用统一响应结构返回已受理和因队列繁忙未受理的资料标识
+        return ApiResponse.success(response);
+    }
+
+    @PostMapping(value = "/tag-review-batches", name = "跨文档批量审核文档标签")
+    @Operation(
+            summary = "跨文档批量审核文档标签",
+            description = "对所选资料的 suggested 标签执行统一采纳或拒绝动作；只处理仍处于待审核状态的候选，已完成审核的资料自动跳过。"
+    )
+    public ApiResponse<DocumentTagBatchReviewResponse> reviewTagsAcrossDocuments(
+            @Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
+            @PathVariable Long spaceId,
+            @jakarta.validation.Valid @RequestBody DocumentTagBatchReviewRequest request
+    ) {
+        // 按统一动作逐份执行 suggested 到 confirmed/rejected 的状态迁移
+        DocumentTagBatchReviewResponse response = documentTagService.reviewBatchAcrossDocuments(
+                spaceId,
+                request
+        );
+
+        // 使用统一响应结构返回本次跨文档审核统计
         return ApiResponse.success(response);
     }
 

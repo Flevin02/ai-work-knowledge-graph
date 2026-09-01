@@ -1,5 +1,7 @@
 package com.flevin.knowgraph.server.service.tag;
 
+import com.flevin.knowgraph.server.model.tag.DocumentTagBatchReviewRequest;
+import com.flevin.knowgraph.server.model.tag.DocumentTagBatchReviewResponse;
 import com.flevin.knowgraph.server.model.tag.DocumentTagResponse;
 import com.flevin.knowgraph.server.model.tag.DocumentTagReviewBatchRequest;
 import com.flevin.knowgraph.server.model.tag.DocumentTagReviewBatchResponse;
@@ -36,6 +38,18 @@ public interface DocumentTagService {
             Long spaceId,
             Long documentId,
             DocumentTagReviewBatchRequest request
+    );
+
+    /**
+     * 对所选资料的 suggested 标签执行统一审核动作。
+     *
+     * @param spaceId 知识空间标识
+     * @param request 跨文档批量审核请求
+     * @return 审核统计
+     */
+    DocumentTagBatchReviewResponse reviewBatchAcrossDocuments(
+            Long spaceId,
+            DocumentTagBatchReviewRequest request
     );
 
     /**

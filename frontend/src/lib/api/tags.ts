@@ -36,6 +36,27 @@ export async function submitDocumentTaggingBatch(
   return readApiResponse<DocumentTaggingBatchResponse>(response);
 }
 
+export type DocumentTagBatchReviewResponse = {
+  requestedDocumentCount: number;
+  reviewedDocumentCount: number;
+  acceptedCount: number;
+  rejectedCount: number;
+};
+
+export async function reviewDocumentTagsAcrossDocuments(
+  spaceId: string,
+  documentIds: string[],
+  action: 'accept' | 'reject',
+  reason?: string
+): Promise<DocumentTagBatchReviewResponse> {
+  const response = await fetch(`${backendApiUrl}/v1/spaces/${encodeURIComponent(spaceId)}/documents/tag-review-batches`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({documentIds, action, reason}),
+  });
+  return readApiResponse<DocumentTagBatchReviewResponse>(response);
+}
+
 export async function getLatestDocumentTaggingRun(
   spaceId: string,
   documentId: string
