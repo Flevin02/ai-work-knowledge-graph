@@ -22,6 +22,7 @@ backend/target/
 *.db-wal
 .DS_Store
 .idea/
+*.iml
 .workbuddy/
 *.tsbuildinfo
 target/
