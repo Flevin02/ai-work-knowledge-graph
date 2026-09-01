@@ -1555,9 +1555,27 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
                                 </div>
                                 : confirmedTags.length
                                     ? <div className="tag-navigation-list">{confirmedTags.map((tag) => <div
-                                        className="tag-navigation-row"
+                                        className={`tag-navigation-row${documentGraphTagId === tag.tagId ? ' tag-navigation-row-active' : ''}`}
                                         key={tag.tagId}
-                                        title={`${tag.name} · ${tag.documentCount} 份有效来源资料`}
+                                        role="button"
+                                        tabIndex={0}
+                                        title={`${tag.name} · ${tag.documentCount} 份有效来源资料 · 点击在文档关系图中按该标签筛选`}
+                                        onClick={() => {
+                                            // 点击侧栏标签直接进入应用了筛选的文档关系图；再次点击取消筛选
+                                            setView('graph');
+                                            setGraphMode('document');
+                                            setDocumentGraphTagId((current) => current === tag.tagId ? '' : tag.tagId);
+                                            setSelectedNodeId(null);
+                                        }}
+                                        onKeyDown={(event) => {
+                                            if (event.key === 'Enter' || event.key === ' ') {
+                                                event.preventDefault();
+                                                setView('graph');
+                                                setGraphMode('document');
+                                                setDocumentGraphTagId((current) => current === tag.tagId ? '' : tag.tagId);
+                                                setSelectedNodeId(null);
+                                            }
+                                        }}
                                     >
                                         <span><Tags size={13}/>{tag.name}</span>
                                         <strong>{tag.documentCount}</strong>
