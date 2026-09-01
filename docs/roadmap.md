@@ -4,54 +4,54 @@
 
 > 本文档只规划下一任务：保留一个当前任务和简短候选队列，不保存产品设计、技术设计、已完成历史或验证流水账。产品与架构边界见 [`docs/prd/ai-work-knowledge-graph-maintainer-prd.md`](prd/ai-work-knowledge-graph-maintainer-prd.md)，实现级设计见 `docs/design/`，验证结论见 `docs/tests/`，完成历史通过 Git 追溯。
 
-## 1. 当前任务：有据问答生产客户端最小闭环
+## 1. 当前任务：问答前端最小闭环
 
 ### 1.1 目标
 
-为现有 `ConversationAnswerClient` 增加 OpenAI-compatible 生产实现，使知识空间内的只读问答能够调用真实聊天模型生成结构化回答与引用候选，并继续由服务端完成引用逐字反查、`groundingStatus` 判定和事实持久化。
+在现有知识空间工作台接入只读问答面板，使用户能够创建或恢复当前会话、提交问题、区分回答/失败/证据不足状态，并从已验证引用打开对应来源资料。
 
 ### 1.2 进入条件
 
-会话、消息、引用表及创建/恢复/提交接口已经存在，Fake 客户端回归已经覆盖空间隔离、部分证据、无上下文、来源失效和客户端未启用降级；当前缺少生产 `ConversationAnswerClient`，因此下一切片只补供应商适配，不扩展前端或运行模型。
+会话、消息、引用事实和创建/恢复/提交/查询接口已经存在；OpenAI-compatible 生产客户端、固定 Prompt、非法输出分类及关闭降级已经形成后端边界。当前缺少 TypeScript 问答契约和用户可操作入口，因此本切片只接前端闭环，不改检索策略或引入长耗时编排。
 
 ### 1.3 实施范围
 
-1. 复用现有 OpenAI-compatible 配置和 LangChain4j 适配模式，实现生产 `ConversationAnswerClient`。
-2. 固定问答 Prompt、结构化输出 Schema 和版本标识，明确回答、引用候选及无法回答时的输出约束。
-3. 保持模型只生成候选回答和引用；空间隔离、分片归属、quote/offset 反查、`groundingStatus` 和数据库写入继续由 `ConversationService` 负责。
-4. 保留无配置或功能关闭时的 `answer_client_unavailable` 降级，不在默认测试或启动中调用真实模型。
-5. 增加生产适配器的结构化输出、非法输出和模型异常测试，并保持既有 Fake/MySQL 回归通过。
+1. 增加会话、消息和引用的 TypeScript 类型及 API 客户端，所有业务 `Long` ID 保持十进制字符串。
+2. 在当前知识空间工作台增加只读问答入口，支持创建会话、恢复已知会话、提交问题和展示用户/助手消息。
+3. 明确显示 `grounded`、`partially_grounded`、`insufficient_evidence`、`failed` 及稳定错误摘要，不把失败或无证据回答伪装成可信结论。
+4. 引用卡片展示文档名、章节路径和逐字 quote；点击后复用现有文档预览打开对应资料，并保留当前空间边界。
+5. 增加 API 映射和关键交互测试，并执行前端 typecheck、build 及浏览器关键路径验收。
 
 ### 1.4 验收标准
 
-- 未配置真实模型或功能关闭时，不产生外部调用，现有失败事实和用户消息保留语义不变。
-- 合法模型结果能够映射为回答和引用候选，引用仍需经过服务端逐字校验后才能落库。
-- 非法结构、无效引用和模型异常能够区分失败原因，不写入伪造引用，也不丢失已提交的用户消息。
-- Java 21 根 Reactor 的 Fake/MySQL 自动回归通过；测试数量和验证边界记录到对应测试报告或交付说明，不写回 PRD/Roadmap。
-- 真实 AI 烟测仅在用户单独确认外部调用、环境变量齐备并显式启用 `real-ai` Profile 后执行；未执行时如实标记为未验证。
+- 创建或恢复会话后可提交问题，页面刷新或工作台状态恢复不会把会话错误带到其他知识空间。
+- 消息顺序、提交中、成功、失败、部分证据和证据不足状态均有明确且可访问的展示。
+- 已验证引用可以打开正确来源资料并展示章节与 quote；失效来源有显式提示，不能静默指向新版本。
+- 前端不保存模型密钥，不把字符串 ID 转为 JavaScript `number`，不使用演示回答兜底真实接口失败。
+- `npm run typecheck`、`npm run build` 和浏览器关键路径通过；验证事实只写入 `docs/tests/`。
 
 ### 1.5 本任务不做
 
-- 不实现问答前端、引用跳转 UI、SSE 流式输出或断线续传。
-- 不新增会话/消息/引用表，不修改既有 HTTP 资源语义。
+- 不修改问答检索、Prompt、模型客户端、数据库表或既有 HTTP 资源语义。
+- 不实现 SSE、Token 流式输出、断线续传、后台运行队列或会话列表管理。
 - 不引入 Milvus、Qdrant、Reranker、Agent 或 Workflow 编排。
-- 不允许问答修改来源资料、标签、文档关系或图谱确认事实。
+- 不允许通过问答确认标签、采纳关系、删除文档或修改原始资料。
 
 ### 1.6 必读入口
 
 - 产品与架构边界：[`docs/prd/ai-work-knowledge-graph-maintainer-prd.md`](prd/ai-work-knowledge-graph-maintainer-prd.md)
 - 有据问答设计：[`docs/prd/document-tag-and-association-rag-prd.md` 第 13.7、16.3 节](prd/document-tag-and-association-rag-prd.md#137-有据问答-rag-链路)
-- 当前领域接口：`backend/server/src/main/java/com/flevin/knowgraph/server/service/conversation/ConversationAnswerClient.java`
-- 当前业务边界：`backend/server/src/main/java/com/flevin/knowgraph/server/service/conversation/impl/ConversationServiceImpl.java`
+- 后端资源：`backend/server/src/main/java/com/flevin/knowgraph/server/controller/conversation/ConversationController.java`
+- 前端工作台：`frontend/src/components/graph-workspace.tsx`
+- 现有文档 API 模式：`frontend/src/lib/api/documents.ts`
 
 ## 2. 候选队列
 
 当前任务完成后，再按顺序评审并只提升一项为新的当前任务：
 
-1. 问答前端最小闭环：会话恢复、问题提交、回答状态和可点击引用定位。
-2. 长耗时问答恢复：评估 SSE、运行标识、断线恢复和幂等续传。
-3. 健康检查与导出：失效来源、缺字段、冲突及 Markdown/JSON/图片导出。
-4. 受控 Agent：仅在固定 RAG 问答稳定且出现动态工具选择、暂停恢复或可回放多步任务需求时评估。
+1. 长耗时问答恢复：评估 SSE、运行标识、断线恢复和幂等续传。
+2. 健康检查与导出：失效来源、缺字段、冲突及 Markdown/JSON/图片导出。
+3. 受控 Agent：仅在固定 RAG 问答稳定且出现动态工具选择、暂停恢复或可回放多步任务需求时评估。
 
 ## 3. 维护规则
 

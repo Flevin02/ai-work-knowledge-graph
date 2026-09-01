@@ -23,6 +23,9 @@ public class ConversationAnswerClientStub implements ConversationAnswerClient {
     /** 用例预设的下一次回答结果；为 null 时客户端按不可用处理。 */
     public final AtomicReference<ConversationAnswerResult> nextResult = new AtomicReference<>();
 
+    /** 用例预设的下一次客户端异常；用于验证业务层失败类别与用户消息保留。 */
+    public final AtomicReference<RuntimeException> nextFailure = new AtomicReference<>();
+
     @Override
     public String clientId() {
         return "stub";
@@ -30,6 +33,10 @@ public class ConversationAnswerClientStub implements ConversationAnswerClient {
 
     @Override
     public ConversationAnswerResult answer(ConversationAnswerRequest request) {
+        RuntimeException failure = nextFailure.get();
+        if (failure != null) {
+            throw failure;
+        }
         ConversationAnswerResult result = nextResult.get();
         if (result == null) {
             throw new IllegalStateException("测试桩未预设回答结果");

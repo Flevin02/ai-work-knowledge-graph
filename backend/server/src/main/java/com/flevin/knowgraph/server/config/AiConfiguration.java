@@ -7,9 +7,11 @@ import com.flevin.knowgraph.server.service.ai.AiExtractionResultValidator;
 import com.flevin.knowgraph.server.service.ai.embedding.DocumentEmbeddingClient;
 import com.flevin.knowgraph.server.service.ai.embedding.OpenAiCompatibleDocumentEmbeddingClient;
 import com.flevin.knowgraph.server.service.ai.openai.OpenAiCompatibleAiExtractionClient;
+import com.flevin.knowgraph.server.service.ai.openai.OpenAiCompatibleConversationAnswerClient;
 import com.flevin.knowgraph.server.service.ai.openai.OpenAiCompatibleDocumentAssociationClient;
 import com.flevin.knowgraph.server.service.ai.openai.OpenAiCompatibleDocumentTaggingClient;
 import com.flevin.knowgraph.server.service.association.DocumentAssociationClient;
+import com.flevin.knowgraph.server.service.conversation.ConversationAnswerClient;
 import com.flevin.knowgraph.server.service.tag.DocumentTaggingClient;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -174,6 +176,20 @@ public class AiConfiguration {
     ) {
         // 标签抽取复用聊天端点；分片校验、证据反查和人工审核仍由服务端 Pipeline 负责
         return new OpenAiCompatibleDocumentTaggingClient(chatModel);
+    }
+
+    /**
+     * 创建 OpenAI-compatible 有据问答客户端，使只读问答复用真实聊天端点。
+     *
+     * @param chatModel OpenAI-compatible 聊天模型
+     * @return 领域层有据问答客户端；模型未启用时问答继续走未启用降级
+     */
+    @Bean
+    public ConversationAnswerClient conversationAnswerClient(
+            @Qualifier("openAiCompatibleChatModel") ChatModel chatModel
+    ) {
+        // 问答只复用聊天端点；分片范围、引用逐字反查和证据状态仍由服务端 Pipeline 负责
+        return new OpenAiCompatibleConversationAnswerClient(chatModel);
     }
 
     /**

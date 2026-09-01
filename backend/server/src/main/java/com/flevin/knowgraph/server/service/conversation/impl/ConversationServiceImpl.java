@@ -25,6 +25,7 @@ import com.flevin.knowgraph.server.repository.entity.ConversationMessageEntity;
 import com.flevin.knowgraph.server.repository.entity.MessageCitationEntity;
 import com.flevin.knowgraph.server.repository.space.KnowledgeSpaceRepository;
 import com.flevin.knowgraph.server.service.conversation.ConversationAnswerClient;
+import com.flevin.knowgraph.server.service.conversation.ConversationAnswerInvalidOutputException;
 import com.flevin.knowgraph.server.service.conversation.ConversationService;
 import com.flevin.knowgraph.server.util.SnowflakeIdGenerator;
 import lombok.RequiredArgsConstructor;
@@ -44,20 +45,20 @@ import java.util.stream.Collectors;
 /**
  * 知识空间内只读问答固定 Pipeline 实现。
  *
- * <p>切片一职责：会话与消息的事实持久化、空间隔离、范围文档分片上下文
- * 组装、供应商无关回答客户端调用和引用逐字反查。回答与引用的事实规则与
- * 文档关联一致：客户端只输出局部 chunkId，数据库标识、引用校验和证据
- * 状态判定始终由服务端完成；未接入生产客户端时回答记录为失败状态。</p>
+ * <p>本服务负责会话与消息的事实持久化、空间隔离、范围文档分片上下文组装、
+ * 供应商无关回答客户端调用和引用逐字反查。回答与引用的事实规则与文档关联
+ * 一致：客户端只输出局部 chunkId，数据库标识、引用校验和证据状态判定始终
+ * 由服务端完成；未启用生产客户端时回答记录为失败状态。</p>
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ConversationServiceImpl implements ConversationService {
 
-    /** 切片一固定的回答 Prompt 版本；切片二接入真实提示词资源时必须同步升级。 */
+    /** 与生产提示词资源对应的固定回答 Prompt 版本。 */
     private static final String PROMPT_VERSION = "conversation-answer-v1";
 
-    /** 切片一固定的回答结构 Schema 版本；与 Prompt 版本同步升级。 */
+    /** 与领域回答 record 对应的固定结构 Schema 版本。 */
     private static final String SCHEMA_VERSION = "conversation-answer-schema-v1";
 
     /** 未标题会话的默认标题。 */
@@ -226,7 +227,7 @@ public class ConversationServiceImpl implements ConversationService {
         Long spaceId = conversation.getSpaceId();
         Instant createdAt = Instant.now();
 
-        // 获取当前环境显式提供的问答客户端；生产尚未接入真实实现时记录失败事实
+        // 获取当前环境显式提供的问答客户端；AI 未启用或配置不足时记录失败事实
         ConversationAnswerClient answerClient = answerClientProvider.getIfAvailable();
         if (answerClient == null) {
             return persistFailedAnswer(spaceId, conversation.getId(), createdAt,
@@ -241,12 +242,22 @@ public class ConversationServiceImpl implements ConversationService {
         try {
             // 组装不包含存储路径、数据库标识或其他空间资料的安全问答请求
             result = answerClient.answer(new ConversationAnswerRequest(question, contextChunks));
-        } catch (RuntimeException exception) {
+        } catch (ConversationAnswerInvalidOutputException exception) {
+            // 结构化输出不合格时记录独立类别，日志不携带可能含模型原文的解析异常
             log.warn(
-                    "有据问答客户端调用失败: conversationId={}, spaceId={}",
+                    "有据问答模型输出无效: conversationId={}, spaceId={}",
+                    conversation.getId(),
+                    spaceId
+            );
+            return persistFailedAnswer(spaceId, conversation.getId(), createdAt,
+                    "answer_invalid_output", "有据问答服务返回无效结果");
+        } catch (RuntimeException exception) {
+            // 模型异常只记录安全类型和业务定位，不输出可能携带响应正文的异常消息
+            log.warn(
+                    "有据问答客户端调用失败: conversationId={}, spaceId={}, exceptionType={}",
                     conversation.getId(),
                     spaceId,
-                    exception
+                    exception.getClass().getSimpleName()
             );
             return persistFailedAnswer(spaceId, conversation.getId(), createdAt,
                     "answer_failed", "有据问答服务返回失败");

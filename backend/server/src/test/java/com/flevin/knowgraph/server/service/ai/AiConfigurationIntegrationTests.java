@@ -1,6 +1,7 @@
 package com.flevin.knowgraph.server.service.ai;
 
 import com.flevin.knowgraph.server.config.properties.AiProperties;
+import com.flevin.knowgraph.server.service.conversation.ConversationAnswerClient;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
@@ -42,6 +43,9 @@ class AiConfigurationIntegrationTests {
     @Autowired
     private AiExtractionClient aiExtractionClient;
 
+    @Autowired
+    private ConversationAnswerClient conversationAnswerClient;
+
     @Test
     void createsCustomOpenAiCompatibleChatClientWithoutCallingRemoteModel() {
         assertThat(aiProperties.getProvider()).isEqualTo("openai-compatible");
@@ -51,6 +55,9 @@ class AiConfigurationIntegrationTests {
         assertThat(streamingChatModel).isInstanceOf(OpenAiStreamingChatModel.class);
         assertThat(aiExtractionClient).isInstanceOf(
                 com.flevin.knowgraph.server.service.ai.openai.OpenAiCompatibleAiExtractionClient.class
+        );
+        assertThat(conversationAnswerClient).isInstanceOf(
+                com.flevin.knowgraph.server.service.ai.openai.OpenAiCompatibleConversationAnswerClient.class
         );
 
         // Embedding 需要单独确认模型权限，默认关闭时不能创建真实向量化客户端

@@ -15,6 +15,7 @@ import com.flevin.fixture.ConversationAnswerFakeConfiguration;
 import com.flevin.knowgraph.server.repository.document.DocumentChunkRepository;
 import com.flevin.knowgraph.server.repository.document.DocumentSectionRepository;
 import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
+import com.flevin.knowgraph.server.service.conversation.ConversationAnswerInvalidOutputException;
 import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.flevin.knowgraph.server.support.TestIdFixtures;
 import com.flevin.knowgraph.server.support.TestKnowledgeSpaceFixtures;
@@ -90,6 +91,7 @@ class ConversationIntegrationTests {
 
         // 每个用例开始前清除上一个用例设置的 Fake 回答
         answerClientStub.nextResult.set(null);
+        answerClientStub.nextFailure.set(null);
     }
 
     @Test
@@ -225,6 +227,58 @@ class ConversationIntegrationTests {
         // 伪造引用不得落库
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM message_citations", Integer.class)).isEqualTo(0);
+    }
+
+    @Test
+    void recordsInvalidOutputSeparatelyAndKeepsUserMessage() throws Exception {
+        Long conversationId = createConversation("非法输出会话", null);
+
+        // 模拟生产适配器已区分出的结构化输出异常
+        answerClientStub.nextFailure.set(new ConversationAnswerInvalidOutputException(
+                "有据问答模型返回结构无法解析"
+        ));
+
+        mockMvc.perform(post("/v1/spaces/{spaceId}/conversations/{conversationId}/messages",
+                        SPACE_ID, conversationId)
+                        .contentType("application/json")
+                        .content("{\"question\":\"年会地点在哪里？\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("failed"))
+                .andExpect(jsonPath("$.data.errorCategory").value("answer_invalid_output"))
+                .andExpect(jsonPath("$.data.errorMessage").value("有据问答服务返回无效结果"))
+                .andExpect(jsonPath("$.data.citationCount").value(0));
+
+        // 非法模型输出不得生成引用，已经提交的用户问题仍作为会话事实保留
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM message_citations", Integer.class)).isEqualTo(0);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM conversation_messages WHERE role = 'user' AND status = 'completed'",
+                Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void recordsModelFailureWithoutLosingUserMessage() throws Exception {
+        Long conversationId = createConversation("模型异常会话", null);
+
+        // 普通运行时异常代表模型连接、认证或供应商服务失败，不得误归类为非法结构
+        answerClientStub.nextFailure.set(new IllegalStateException("测试模型不可用"));
+
+        mockMvc.perform(post("/v1/spaces/{spaceId}/conversations/{conversationId}/messages",
+                        SPACE_ID, conversationId)
+                        .contentType("application/json")
+                        .content("{\"question\":\"年会地点在哪里？\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("failed"))
+                .andExpect(jsonPath("$.data.errorCategory").value("answer_failed"))
+                .andExpect(jsonPath("$.data.errorMessage").value("有据问答服务返回失败"))
+                .andExpect(jsonPath("$.data.citationCount").value(0));
+
+        // 模型失败不得产生引用，已经提交的用户问题仍可从会话历史恢复
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM message_citations", Integer.class)).isEqualTo(0);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM conversation_messages WHERE role = 'user' AND status = 'completed'",
+                Integer.class)).isEqualTo(1);
     }
 
     @Test
