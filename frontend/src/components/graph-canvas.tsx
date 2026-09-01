@@ -11,6 +11,8 @@ type GraphCanvasProps = {
   onSelectNode: (nodeId: string) => void;
   ariaLabel?: string;
   formatEdgeType?: (edgeType: string) => string;
+  /** 会话视口快照的存储键；提供后刷新或返回图谱时恢复缩放与平移 */
+  viewportStorageKey?: string;
 };
 
 const edgeStatusLabels: Record<GraphEdge['status'], string> = {
@@ -27,6 +29,7 @@ export default function GraphCanvas({
   onSelectNode,
   ariaLabel = '工作知识关系图谱',
   formatEdgeType,
+  viewportStorageKey,
 }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<Core | null>(null);
@@ -35,6 +38,13 @@ export default function GraphCanvas({
   const focusedNodeIdRef = useRef<string | null>(null);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   const keyboardHelpId = useId();
+  // 视口恢复：内容签名去重、节点集对照、最近视口和会话快照
+  const viewportStorageKeyRef = useRef<string | undefined>(undefined);
+  const elementsSignatureRef = useRef<string | null>(null);
+  const nodeIdsSignatureRef = useRef<string | null>(null);
+  const lastViewportRef = useRef<{ zoom: number; pan: { x: number; y: number } } | null>(null);
+  const viewportSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  viewportStorageKeyRef.current = viewportStorageKey;
 
   const updateFocusedNode = (nodeId: string | null) => {
     focusedNodeIdRef.current = nodeId;
@@ -46,7 +56,6 @@ export default function GraphCanvas({
 
     // 图谱数据切换后旧节点不再属于当前视图，清空临时交互焦点和播报状态。
     updateFocusedNode(null);
-    graphRef.current?.destroy();
 
     const elements: ElementDefinition[] = [
       ...nodes.map((node) => ({
@@ -67,6 +76,23 @@ export default function GraphCanvas({
         },
       })),
     ];
+
+    // 内容签名一致时复用现有实例：选中、父组件重渲染和无关刷新不再重置布局与视口。
+    const elementsSignature = JSON.stringify(elements);
+    if (elementsSignatureRef.current === elementsSignature) return;
+    elementsSignatureRef.current = elementsSignature;
+
+    // 节点集对照：同节点集的边/样式变化保留视野，节点集变化回退默认适配
+    const nodeIdsSignature = JSON.stringify(nodes.map((node) => node.id));
+    const sameNodeSet = nodeIdsSignatureRef.current !== null
+      && nodeIdsSignatureRef.current === nodeIdsSignature;
+    nodeIdsSignatureRef.current = nodeIdsSignature;
+
+    // 销毁前记录最近视口，供同节点集重建后恢复
+    if (graphRef.current) {
+      lastViewportRef.current = { zoom: graphRef.current.zoom(), pan: graphRef.current.pan() };
+    }
+    graphRef.current?.destroy();
 
     const graph = cytoscape({
       container: containerRef.current,
@@ -172,6 +198,52 @@ export default function GraphCanvas({
       updateFocusedNode(null);
     };
 
+    // 视口恢复仅在已有节点集上执行：空图或全新节点集仍走布局默认适配
+    const restoreViewport = (snapshot: { zoom: number; pan: { x: number; y: number } } | null) => {
+      if (!snapshot || !nodes.length) return false;
+      const clampedZoom = Math.min(Math.max(snapshot.zoom, graph.minZoom()), graph.maxZoom());
+      graph.zoom(clampedZoom);
+      graph.pan(snapshot.pan);
+      return true;
+    };
+    const syncViewportDebug = () => {
+      containerRef.current?.setAttribute('data-zoom', graph.zoom().toFixed(3));
+    };
+
+    let restored = false;
+    if (sameNodeSet) {
+      restored = restoreViewport(lastViewportRef.current);
+    }
+    if (!restored && viewportStorageKeyRef.current) {
+      try {
+        const rawSnapshot = sessionStorage.getItem(viewportStorageKeyRef.current);
+        if (rawSnapshot) {
+          restored = restoreViewport(JSON.parse(rawSnapshot) as { zoom: number; pan: { x: number; y: number } });
+        }
+      } catch {
+        // 会话快照损坏时忽略，回退布局默认视口
+      }
+    }
+    // 无论是否恢复快照，都同步一次初始视口标记
+    syncViewportDebug();
+
+    // 会话内保存最新视口：刷新或从资料视图返回图谱时按空间与图模式恢复
+    graph.on('viewport', () => {
+      const snapshot = { zoom: graph.zoom(), pan: graph.pan() };
+      lastViewportRef.current = snapshot;
+      syncViewportDebug();
+      const storageKey = viewportStorageKeyRef.current;
+      if (!storageKey) return;
+      if (viewportSaveTimerRef.current) clearTimeout(viewportSaveTimerRef.current);
+      viewportSaveTimerRef.current = setTimeout(() => {
+        try {
+          sessionStorage.setItem(storageKey, JSON.stringify(snapshot));
+        } catch {
+          // 会话存储不可用时静默降级，不影响图谱交互
+        }
+      }, 300);
+    });
+
     const focusNode = (nodeId: string) => {
       const currentNode = graph.getElementById(nodeId);
       if (!currentNode.isNode()) return;
@@ -197,6 +269,10 @@ export default function GraphCanvas({
     graphRef.current = graph;
 
     return () => {
+      if (viewportSaveTimerRef.current) clearTimeout(viewportSaveTimerRef.current);
+      viewportSaveTimerRef.current = null;
+      elementsSignatureRef.current = null;
+      nodeIdsSignatureRef.current = null;
       graph.destroy();
       graphRef.current = null;
       focusNodeRef.current = () => undefined;

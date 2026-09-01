@@ -1587,7 +1587,10 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
                                 ariaLabel={graphMode === 'document' ? '独立文档关系图' : '工作知识关系图谱'}
                                 formatEdgeType={graphMode === 'document'
                                     ? formatDocumentGraphEdgeType
-                                    : formatRelationType}/>
+                                    : formatRelationType}
+                                viewportStorageKey={currentSpaceId
+                                    ? `graph-viewport:${currentSpaceId}:${graphMode}`
+                                    : undefined}/>
                             }
                             <div className="graph-footnote">当前视图 {visibleNodes.length} 个节点
                                 / {visibleEdges.length} 条关系 · 点击节点查看证据
