@@ -41,7 +41,8 @@ import {
     listSourceDocuments,
     reviewDocumentExtractionRelations,
     submitDocumentExtractionBatch,
-    streamDocumentExtraction
+    streamDocumentExtraction,
+    updateDocumentVersion
 } from '@/lib/api/documents';
 import {getDocumentGraph, getGraph} from '@/lib/api/graph';
 import {createDocumentAssociationRun} from '@/lib/api/associations';
@@ -254,6 +255,7 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
     const [isBatchExtracting, setIsBatchExtracting] = useState(false);
     const [isBatchTagging, setIsBatchTagging] = useState(false);
     const [isBatchAcceptingTags, setIsBatchAcceptingTags] = useState(false);
+    const [isUpdatingVersion, setIsUpdatingVersion] = useState(false);
     const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation | null>(null);
     const [aiRelationReviewStatuses, setAiRelationReviewStatuses] = useState<Record<string, AiRelationReviewStatus>>({});
     const [aiRelationReviewSelections, setAiRelationReviewSelections] = useState<AiRelationReviewSelection>({});
@@ -1162,6 +1164,34 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
         }
     };
 
+    const updateVersion = async (document: SourceDocument, file: File) => {
+        if (!currentSpaceId || isUpdatingVersion) return;
+        setIsUpdatingVersion(true);
+        setNotice(`正在比对「${document.name}」的新版本内容…`);
+        setNoticeTone('loading');
+
+        try {
+            const response = await updateDocumentVersion(currentSpaceId, document.id, file);
+            if (response.status === 'unchanged') {
+                setNotice(`「${document.name}」的新版本与当前内容一致，未执行任何更新。`);
+                setNoticeTone('warning');
+                return;
+            }
+            // 内容变化后图谱事实已冻结，同步刷新实体图与文档关系图；列表刷新保留本操作结果提示
+            preservedDocumentNoticeSpaceIdRef.current = currentSpaceId;
+            setGraphRefreshKey((current) => current + 1);
+            setDocumentRefreshKey((current) => current + 1);
+            setNotice(`「${document.name}」增量导入完成：已冻结 ${response.staleTagCount} 条标签、`
+                + `${response.staleRelationCount} 条关系和 ${response.staleVectorCount} 条向量事实，请重新执行 AI 提取和标签分析。`);
+            setNoticeTone('success');
+        } catch (error) {
+            setNotice(`版本更新失败：${error instanceof Error ? error.message : '未知错误'}`);
+            setNoticeTone('error');
+        } finally {
+            setIsUpdatingVersion(false);
+        }
+    };
+
     const acceptDocumentTags = async (documents: SourceDocument[]) => {
         if (!currentSpaceId || !documents.length || isBatchAcceptingTags) return;
         setIsBatchAcceptingTags(true);
@@ -1736,6 +1766,8 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
                         onPreview={(document) => setDocumentPreview({document, initialTab: 'rendered'})}
                         onDelete={(document) => setDeleteConfirmation({kind: 'document', item: document})}
                         onExtract={(document) => void extractDocument(document)}
+                        onUpdateVersion={(document, file) => void updateVersion(document, file)}
+                        isUpdatingVersion={isUpdatingVersion}
                         selectedDocumentIds={selectedDocumentIds}
                         onToggleSelection={(documentId) => setSelectedDocumentIds((current) => ({
                             ...current,
@@ -1920,6 +1952,8 @@ function DocumentPanel({
                            onPreview,
                            onDelete,
                            onExtract,
+                           onUpdateVersion,
+                           isUpdatingVersion,
                            selectedDocumentIds,
                            onToggleSelection,
                            onBatchDelete,
@@ -1945,6 +1979,8 @@ function DocumentPanel({
     onPreview: (document: SourceDocument) => void;
     onDelete: (document: SourceDocument) => void;
     onExtract: (document: SourceDocument) => void;
+    onUpdateVersion: (document: SourceDocument, file: File) => void;
+    isUpdatingVersion: boolean;
     selectedDocumentIds: Record<string, boolean>;
     onToggleSelection: (documentId: string) => void;
     onBatchDelete: (documents: SourceDocument[]) => void;
@@ -1965,6 +2001,9 @@ function DocumentPanel({
     onRetryLoadMore: () => void;
 }) {
     const loadMoreRef = useRef<HTMLDivElement>(null);
+    // 增量导入：共享隐藏文件选择器，记录当前正在更新版本的资料
+    const versionInputRef = useRef<HTMLInputElement>(null);
+    const versionTargetRef = useRef<SourceDocument | null>(null);
     const selectedDocuments = documents.filter((document) => selectedDocumentIds[document.id]);
     const hasProcessingSelection = selectedDocuments.some(
         (document) => extractionStates[document.id]?.status === 'processing'
@@ -2114,10 +2153,24 @@ function DocumentPanel({
                             onClick={() => onExtract(document)}>{isExtracting ?
                             <LoaderCircle className="spin" size={14}/> :
                             <Sparkles size={14}/>} {extractionButtonLabel}</button>
+                        <button className="secondary-button" disabled={isUpdatingVersion || isBatchDeleting}
+                            title="上传新版本并按内容指纹增量更新"
+                            onClick={() => {
+                                versionTargetRef.current = document;
+                                versionInputRef.current?.click();
+                            }}><Upload size={14}/> 更新版本</button>
                     </div>
                 </article>;
             })}
         </div>
+        <input ref={versionInputRef} type="file" accept=".md,.markdown,.txt,.pdf" className="sr-only"
+            aria-label="选择新版本文件"
+            onChange={(event) => {
+                const file = event.target.files?.[0];
+                const target = versionTargetRef.current;
+                event.target.value = '';
+                if (file && target) onUpdateVersion(target, file);
+            }}/>
         <div ref={loadMoreRef} className="document-load-more" role="status" aria-live="polite">
             {loadMoreError ? <>
                 <span>加载更多失败：{loadMoreError}</span>

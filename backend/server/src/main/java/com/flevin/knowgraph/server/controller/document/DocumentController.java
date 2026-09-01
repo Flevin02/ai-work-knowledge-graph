@@ -12,6 +12,7 @@ import com.flevin.knowgraph.server.model.document.DocumentBatchRequest;
 import com.flevin.knowgraph.server.model.document.DocumentImportResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentContentResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentPageResponse;
+import com.flevin.knowgraph.server.model.document.DocumentVersionUpdateResponse;
 import com.flevin.knowgraph.server.model.tag.DocumentTagBatchReviewRequest;
 import com.flevin.knowgraph.server.model.tag.DocumentTagBatchReviewResponse;
 import com.flevin.knowgraph.server.model.tag.DocumentTaggingBatchResponse;
@@ -306,6 +307,33 @@ public class DocumentController {
 		// 使用统一响应结构返回批次和逐文件处理结果
 		return ApiResponse.success(response);
 	}
+
+    @PostMapping(value = "/{documentId}/versions", name = "上传来源资料新版本")
+    @Operation(
+            summary = "上传来源资料新版本（增量导入）",
+            description = "按内容指纹比对：一致时返回 unchanged；变化时原位更新事实源并冻结基于旧内容的标签、关系和向量（dryRun=true 时只做变更预览）。"
+    )
+    public ApiResponse<DocumentVersionUpdateResponse> updateDocumentVersion(
+            @Parameter(description = "知识空间标识", example = "e5d7b0da-60bd-4e0c-83df-5e7de9509327")
+            @PathVariable Long spaceId,
+            @Parameter(description = "待更新的来源资料标识")
+            @PathVariable Long documentId,
+            @Parameter(description = "新版本的 Markdown、TXT 或文本型 PDF 文件")
+            @RequestPart(value = "file") MultipartFile file,
+            @Parameter(description = "为 true 时只返回变更预览，不执行更新")
+            @RequestParam(defaultValue = "false") boolean dryRun
+    ) {
+        // 增量导入：内容指纹比对后原位更新事实源并冻结旧事实
+        DocumentVersionUpdateResponse response = documentService.updateDocumentVersion(
+                spaceId,
+                documentId,
+                file,
+                dryRun
+        );
+
+        // 使用统一响应结构返回变更预览报告
+        return ApiResponse.success(response);
+    }
 
     @PostMapping(value = "/deletion-batches", name = "创建来源资料批量删除")
     @Operation(

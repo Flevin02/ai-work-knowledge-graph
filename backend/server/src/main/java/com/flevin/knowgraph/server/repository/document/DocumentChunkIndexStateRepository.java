@@ -1,5 +1,6 @@
 package com.flevin.knowgraph.server.repository.document;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.flevin.knowgraph.server.model.ai.rag.DocumentChunkIndexStateFact;
 import com.flevin.knowgraph.server.repository.entity.DocumentChunkIndexStateEntity;
 import com.flevin.knowgraph.server.repository.mapper.DocumentChunkIndexStateMapper;
@@ -8,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 
 import static com.baomidou.mybatisplus.core.toolkit.Wrappers.lambdaQuery;
@@ -117,5 +119,54 @@ public class DocumentChunkIndexStateRepository {
 
         // 将 ORM 实体转换为领域事实，供索引服务按内容指纹判断复用
         return entities.stream().map(entityMapper::toDomain).toList();
+    }
+
+    /**
+     * 统计一份来源资料当前 ready 的向量事实数量。
+     *
+     * @param spaceId 知识空间标识
+     * @param sourceDocumentId 来源资料标识
+     * @return ready 索引状态行数
+     */
+    public long countReadyByDocument(
+            Long spaceId,
+            Long sourceDocumentId
+    ) {
+        return mapper.selectCount(
+                lambdaQuery(DocumentChunkIndexStateEntity.class)
+                        .eq(DocumentChunkIndexStateEntity::getSpaceId, spaceId)
+                        .eq(DocumentChunkIndexStateEntity::getSourceDocumentId, sourceDocumentId)
+                        .eq(DocumentChunkIndexStateEntity::getStatus, "ready")
+        );
+    }
+
+    /**
+     * 将一份来源资料的 ready 索引状态标记为 stale。
+     *
+     * <p>用于来源资料内容更新后冻结基于旧分片哈希的向量事实；
+     * 向量事实按内容哈希版本化保留，可随时追溯或重建。</p>
+     *
+     * @param spaceId 知识空间标识
+     * @param sourceDocumentId 来源资料标识
+     * @param updatedAt 失效时间
+     * @return 实际标记为 stale 的行数
+     */
+    public int markStaleByDocument(
+            Long spaceId,
+            Long sourceDocumentId,
+            Instant updatedAt
+    ) {
+        DocumentChunkIndexStateEntity entity = new DocumentChunkIndexStateEntity();
+        entity.setStatus("stale");
+        entity.setUpdatedAt(updatedAt.toString());
+
+        // 只迁移 ready 状态，failed 与已 stale 的索引状态保持不变
+        return mapper.update(
+                entity,
+                Wrappers.<DocumentChunkIndexStateEntity>lambdaUpdate()
+                        .eq(DocumentChunkIndexStateEntity::getSpaceId, spaceId)
+                        .eq(DocumentChunkIndexStateEntity::getSourceDocumentId, sourceDocumentId)
+                        .eq(DocumentChunkIndexStateEntity::getStatus, "ready")
+        );
     }
 }

@@ -8,6 +8,7 @@ import com.flevin.knowgraph.server.model.document.DocumentBatchDeleteResponse;
 import com.flevin.knowgraph.server.model.document.DocumentImportFileResult;
 import com.flevin.knowgraph.server.model.document.DocumentImportFileStatus;
 import com.flevin.knowgraph.server.model.document.DocumentImportResponse;
+import com.flevin.knowgraph.server.model.document.DocumentVersionUpdateResponse;
 import com.flevin.knowgraph.server.model.document.ImportBatch;
 import com.flevin.knowgraph.server.model.document.SourceDocument;
 import com.flevin.knowgraph.server.model.document.SourceDocumentContentResponse;
@@ -16,10 +17,13 @@ import com.flevin.knowgraph.server.model.document.SourceDocumentPage;
 import com.flevin.knowgraph.server.model.document.SourceDocumentPageResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentType;
+import com.flevin.knowgraph.server.repository.document.DocumentChunkIndexStateRepository;
 import com.flevin.knowgraph.server.repository.document.ImportBatchRepository;
 import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
 import com.flevin.knowgraph.server.repository.ai.AiExtractionRunRepository;
+import com.flevin.knowgraph.server.repository.association.DocumentRelationRepository;
 import com.flevin.knowgraph.server.repository.graph.GraphRepository;
+import com.flevin.knowgraph.server.repository.tag.DocumentTagRepository;
 import com.flevin.knowgraph.server.service.document.DocumentService;
 import com.flevin.knowgraph.server.service.document.SourceDocumentResponseMapper;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
@@ -72,6 +76,9 @@ public class DocumentServiceImpl implements DocumentService {
     private final GraphRepository graphRepository;
     private final AiExtractionRunRepository aiExtractionRunRepository;
     private final SourceDocumentResponseMapper responseMapper;
+    private final DocumentTagRepository documentTagRepository;
+    private final DocumentRelationRepository documentRelationRepository;
+    private final DocumentChunkIndexStateRepository documentChunkIndexStateRepository;
 
     /**
      * 导入一批 Markdown、TXT 或文本型 PDF 来源资料，逐文件返回成功、重复或失败结果。
@@ -277,6 +284,132 @@ public class DocumentServiceImpl implements DocumentService {
 
         // 移除该资料对图谱节点和关系的来源贡献
         graphRepository.invalidateBySourceDocument(spaceId, documentId, updatedAt);
+    }
+
+    /**
+     * 为来源资料上传新版本并执行增量更新，或以 dryRun 只做变更预览。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 待更新的来源资料标识
+     * @param file 新版本的 Markdown、TXT 或文本型 PDF 文件
+     * @param dryRun 为 true 时只做变更预览，不落库
+     * @return 变更预览报告：更新状态、新旧指纹和被冻结的旧事实数量
+     */
+    @Override
+    @Transactional
+    public DocumentVersionUpdateResponse updateDocumentVersion(
+            Long spaceId,
+            Long documentId,
+            MultipartFile file,
+            boolean dryRun
+    ) {
+        // 校验知识空间当前有效，阻断跨空间更新来源资料
+        knowledgeSpaceService.requireActive(spaceId);
+
+        // 查询当前有效来源资料并冻结旧内容指纹
+        SourceDocument document = sourceDocumentRepository.findById(spaceId, documentId)
+                .orElseThrow(() -> new TipsException(ErrorCode.NOT_FOUND, "来源资料不存在或已删除"));
+        if (!ACTIVE_STATUS.equals(document.status())) {
+            throw new TipsException(ErrorCode.NOT_FOUND, "来源资料不存在或已删除");
+        }
+
+        try {
+            byte[] contentBytes = file.getBytes();
+            String originalName = normalizeFileName(file.getOriginalFilename());
+            ParsedDocument parsedDocument = parseDocument(originalName, contentBytes);
+            String newContentHash = calculateSha256(contentBytes);
+
+            // 内容指纹一致时无需增量更新
+            if (newContentHash.equals(document.contentHash())) {
+                return new DocumentVersionUpdateResponse(
+                        "unchanged",
+                        document.contentHash(),
+                        newContentHash,
+                        0,
+                        0,
+                        0,
+                        "新文件与当前版本内容完全一致，未执行任何更新"
+                );
+            }
+
+            // 统计将被冻结的旧事实数量，dryRun 与真实更新共用同一口径
+            int staleTagCount = (int) documentTagRepository.findAllByDocument(spaceId, documentId).stream()
+                    .filter(tag -> "suggested".equals(tag.status()) || "confirmed".equals(tag.status()))
+                    .count();
+            int staleRelationCount = (int) documentRelationRepository.findAllByDocument(spaceId, documentId).stream()
+                    .filter(relation -> "suggested".equals(relation.status()) || "confirmed".equals(relation.status()))
+                    .count();
+            long staleVectorCount = documentChunkIndexStateRepository.countReadyByDocument(spaceId, documentId);
+
+            if (dryRun) {
+                return new DocumentVersionUpdateResponse(
+                        "dry-run",
+                        document.contentHash(),
+                        newContentHash,
+                        staleTagCount,
+                        staleRelationCount,
+                        (int) staleVectorCount,
+                        "变更预览：更新后将冻结 " + staleTagCount + " 条标签、"
+                                + staleRelationCount + " 条关系和 " + staleVectorCount + " 条向量事实，需重新执行 AI 分析"
+                );
+            }
+
+            // 新文件落盘后原位更新来源资料事实源，旧文件保留用于追溯
+            Path storedFile = localFileStorage.storeSourceDocument(
+                    spaceId,
+                    parsedDocument.extension(),
+                    contentBytes
+            );
+            Instant updatedAt = Instant.now();
+            int updatedRows = sourceDocumentRepository.updateVersion(
+                    spaceId,
+                    documentId,
+                    parsedDocument.kind(),
+                    newContentHash,
+                    storedFile.toString(),
+                    parsedDocument.contentText(),
+                    buildExcerpt(parsedDocument.contentText()),
+                    contentBytes.length,
+                    updatedAt
+            );
+            if (updatedRows == 0) {
+                localFileStorage.deleteOrphanFile(storedFile);
+                throw new TipsException(ErrorCode.NOT_FOUND, "来源资料不存在或已删除");
+            }
+
+            // 按内容哈希冻结旧事实：标签、关系与向量统一标 stale，实体图谱贡献同步失效
+            int appliedStaleTags = documentTagRepository.markStaleByDocument(spaceId, documentId, updatedAt);
+            int appliedStaleRelations = documentRelationRepository.markStaleByDocumentEndpoint(
+                    spaceId, documentId, updatedAt);
+            int appliedStaleVectors = documentChunkIndexStateRepository.markStaleByDocument(
+                    spaceId, documentId, updatedAt);
+            graphRepository.invalidateBySourceDocument(spaceId, documentId, updatedAt);
+            log.info(
+                    "来源资料已更新为新版本: documentId={}, oldHash={}, newHash={}, staleTags={}, staleRelations={}, staleVectors={}",
+                    documentId,
+                    document.contentHash(),
+                    newContentHash,
+                    appliedStaleTags,
+                    appliedStaleRelations,
+                    appliedStaleVectors
+            );
+
+            return new DocumentVersionUpdateResponse(
+                    "updated",
+                    document.contentHash(),
+                    newContentHash,
+                    appliedStaleTags,
+                    appliedStaleRelations,
+                    appliedStaleVectors,
+                    "来源资料已更新为新版本，旧标签、关系和向量已冻结，请重新执行 AI 提取和标签分析"
+            );
+        } catch (DocumentParseException exception) {
+            log.warn("来源资料版本更新失败: documentId={}, reason={}", documentId, exception.getMessage());
+            throw new TipsException(ErrorCode.PARAM_ERROR, exception.getMessage());
+        } catch (IOException exception) {
+            log.warn("来源资料版本更新读取失败: documentId={}", documentId, exception);
+            throw new TipsException(ErrorCode.PARAM_ERROR, "文件读取失败，请重新选择文件");
+        }
     }
 
     /**

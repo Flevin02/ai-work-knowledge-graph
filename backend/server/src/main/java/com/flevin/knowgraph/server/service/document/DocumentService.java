@@ -2,6 +2,7 @@ package com.flevin.knowgraph.server.service.document;
 
 import com.flevin.knowgraph.server.model.document.DocumentImportResponse;
 import com.flevin.knowgraph.server.model.document.DocumentBatchDeleteResponse;
+import com.flevin.knowgraph.server.model.document.DocumentVersionUpdateResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentContentResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentPageResponse;
 import com.flevin.knowgraph.server.model.document.SourceDocumentType;
@@ -41,6 +42,22 @@ public interface DocumentService {
             Long spaceId,
             String documentType,
             List<MultipartFile> files
+    );
+
+    /**
+     * 为来源资料上传新版本并执行增量更新，或以 dryRun 只做变更预览。
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 待更新的来源资料标识
+     * @param file 新版本的 Markdown、TXT 或文本型 PDF 文件
+     * @param dryRun 为 true 时只做变更预览，不落库
+     * @return 变更预览报告：更新状态、新旧指纹和被冻结的旧事实数量
+     */
+    DocumentVersionUpdateResponse updateDocumentVersion(
+            Long spaceId,
+            Long documentId,
+            MultipartFile file,
+            boolean dryRun
     );
 
     /**

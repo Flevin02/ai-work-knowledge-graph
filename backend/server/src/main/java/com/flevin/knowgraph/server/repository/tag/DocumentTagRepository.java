@@ -455,6 +455,35 @@ public class DocumentTagRepository {
      * @param tag 标签领域模型
      * @return 标签持久化实体
      */
+    /**
+     * 将一份来源资料下 suggested 和 confirmed 标签统一标记为 stale。
+     *
+     * <p>用于来源资料内容更新后冻结基于旧内容的事实：rejected 与已 stale 的
+     * 关系保持原状态，证据和审核历史继续保留用于追溯。</p>
+     *
+     * @param spaceId 知识空间标识
+     * @param sourceDocumentId 来源资料标识
+     * @param updatedAt 失效时间
+     * @return 实际标记为 stale 的行数
+     */
+    public int markStaleByDocument(
+            Long spaceId,
+            Long sourceDocumentId,
+            Instant updatedAt
+    ) {
+        DocumentTagEntity updateEntity = new DocumentTagEntity();
+        updateEntity.setStatus("stale");
+        updateEntity.setUpdatedAt(updatedAt.toString());
+
+        // 只迁移 suggested 与 confirmed，rejected 与 stale 保持不变
+        LambdaUpdateWrapper<DocumentTagEntity> updateWrapper = Wrappers.lambdaUpdate();
+        updateWrapper.eq(DocumentTagEntity::getSpaceId, spaceId)
+                .eq(DocumentTagEntity::getSourceDocumentId, sourceDocumentId)
+                .in(DocumentTagEntity::getStatus, "suggested", "confirmed");
+
+        return documentTagMapper.update(updateEntity, updateWrapper);
+    }
+
     private KnowledgeTagEntity toEntity(KnowledgeTag tag) {
         KnowledgeTagEntity entity = new KnowledgeTagEntity();
         entity.setId(tag.id());

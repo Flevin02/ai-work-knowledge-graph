@@ -172,4 +172,37 @@ public class DocumentRelationRepository {
         );
     }
 
+    /**
+     * 将一份来源资料作为任意端点的 suggested 和 confirmed 关系标记为 stale。
+     *
+     * <p>用于来源资料内容更新后冻结基于旧内容哈希的关系事实；
+     * rejected 与已 stale 的关系保持原状态。</p>
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 内容发生变化的来源资料标识
+     * @param updatedAt 失效时间
+     * @return 实际标记为 stale 的行数
+     */
+    public int markStaleByDocumentEndpoint(
+            Long spaceId,
+            Long documentId,
+            Instant updatedAt
+    ) {
+        DocumentRelationEntity entity = new DocumentRelationEntity();
+        entity.setStatus("stale");
+        entity.setUpdatedAt(updatedAt.toString());
+
+        // 关系两端任一端命中即失效，同时限定当前态为 suggested 或 confirmed
+        return mapper.update(
+                entity,
+                Wrappers.<DocumentRelationEntity>lambdaUpdate()
+                        .eq(DocumentRelationEntity::getSpaceId, spaceId)
+                        .and(wrapper -> wrapper
+                                .eq(DocumentRelationEntity::getSourceDocumentId, documentId)
+                                .or()
+                                .eq(DocumentRelationEntity::getTargetDocumentId, documentId))
+                        .in(DocumentRelationEntity::getStatus, "suggested", "confirmed")
+        );
+    }
+
 }

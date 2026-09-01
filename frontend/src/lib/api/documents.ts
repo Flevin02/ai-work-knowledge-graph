@@ -69,6 +69,32 @@ export async function importSourceDocuments(spaceId: string, files: File[]): Pro
   return readApiResponse<DocumentImportResponse>(response);
 }
 
+export type DocumentVersionUpdateResponse = {
+  status: 'unchanged' | 'dry-run' | 'updated';
+  oldContentHash: string;
+  newContentHash: string;
+  staleTagCount: number;
+  staleRelationCount: number;
+  staleVectorCount: number;
+  message: string;
+};
+
+export async function updateDocumentVersion(
+  spaceId: string,
+  documentId: string,
+  file: File,
+  dryRun = false
+): Promise<DocumentVersionUpdateResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(
+    `${backendApiUrl}/v1/spaces/${encodeURIComponent(spaceId)}/documents/${encodeURIComponent(documentId)}/versions?dryRun=${dryRun}`,
+    {method: 'POST', body: formData},
+  );
+  return readApiResponse<DocumentVersionUpdateResponse>(response);
+}
+
 export async function deleteSourceDocument(spaceId: string, documentId: string): Promise<void> {
   const response = await fetch(`${backendApiUrl}/v1/spaces/${encodeURIComponent(spaceId)}/documents/${encodeURIComponent(documentId)}`, {
     method: 'DELETE',

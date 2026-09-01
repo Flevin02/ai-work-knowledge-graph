@@ -226,4 +226,50 @@ public class SourceDocumentRepository {
         return sourceDocumentMapper.update(updateEntity, updateWrapper);
     }
 
+    /**
+     * 将来源资料更新为新版本内容，保留标识、名称、业务类型和创建时间。
+     *
+     * <p>用于增量导入：内容指纹变化后原位替换事实源内容与文件，
+     * 历史抽取、标签和关系由调用方按内容哈希冻结失效。</p>
+     *
+     * @param spaceId 知识空间标识
+     * @param documentId 来源资料标识
+     * @param kind 新内容的文件格式
+     * @param contentHash 新内容 SHA-256 指纹
+     * @param storagePath 新的原始文件存储路径
+     * @param contentText 新的解析文本
+     * @param excerpt 新的导入预览摘要
+     * @param fileSize 新文件大小（字节）
+     * @param updatedAt 更新时间
+     * @return 实际更新记录数
+     */
+    public int updateVersion(
+            Long spaceId,
+            Long documentId,
+            String kind,
+            String contentHash,
+            String storagePath,
+            String contentText,
+            String excerpt,
+            long fileSize,
+            Instant updatedAt
+    ) {
+        SourceDocumentEntity updateEntity = new SourceDocumentEntity();
+        updateEntity.setKind(kind);
+        updateEntity.setContentHash(contentHash);
+        updateEntity.setStoragePath(storagePath);
+        updateEntity.setContentText(contentText);
+        updateEntity.setExcerpt(excerpt);
+        updateEntity.setFileSize(fileSize);
+        updateEntity.setUpdatedAt(updatedAt.toString());
+
+        // 只更新仍处于 active 状态的同空间来源资料，已删除资料不允许原位更新
+        LambdaUpdateWrapper<SourceDocumentEntity> updateWrapper = Wrappers.lambdaUpdate();
+        updateWrapper.eq(SourceDocumentEntity::getSpaceId, spaceId)
+                .eq(SourceDocumentEntity::getId, documentId)
+                .eq(SourceDocumentEntity::getStatus, "active");
+
+        return sourceDocumentMapper.update(updateEntity, updateWrapper);
+    }
+
 }
