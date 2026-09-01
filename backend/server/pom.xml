@@ -154,6 +154,9 @@
         <profile>
             <id>real-ai</id>
             <properties>
+                <!-- 真实烟测仍使用 local 运行时配置；单独激活 real-ai 会关闭 local 默认 profile，
+                     必须显式补回 profile.active，否则 application.yml 中 @profile.active@ 无法被资源过滤替换 -->
+                <profile.active>local</profile.active>
                 <excluded.test.groups></excluded.test.groups>
             </properties>
         </profile>

@@ -1,8 +1,11 @@
 package com.flevin.knowgraph.server.config;
 
 import com.flevin.knowgraph.server.config.properties.AiProperties;
+import com.flevin.knowgraph.server.model.ai.embedding.EmbeddingModelDescriptor;
 import com.flevin.knowgraph.server.service.ai.AiExtractionClient;
 import com.flevin.knowgraph.server.service.ai.AiExtractionResultValidator;
+import com.flevin.knowgraph.server.service.ai.embedding.DocumentEmbeddingClient;
+import com.flevin.knowgraph.server.service.ai.embedding.OpenAiCompatibleDocumentEmbeddingClient;
 import com.flevin.knowgraph.server.service.ai.openai.OpenAiCompatibleAiExtractionClient;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -15,6 +18,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 import java.time.Duration;
 
@@ -102,10 +106,10 @@ public class AiConfiguration {
         // 校验真实 Embedding 调用需要的协议、地址、模型和密钥配置
         validateEmbeddingProperties(properties);
 
-        // 创建与聊天端点使用相同认证和 Base URL 的 Embedding 模型
+        // Embedding 允许配置独立端点；未配置独立地址或密钥时回退聊天端点配置
         return OpenAiEmbeddingModel.builder()
-                .apiKey(properties.getApiKey())
-                .baseUrl(properties.getBaseUrl())
+                .apiKey(properties.effectiveEmbeddingApiKey())
+                .baseUrl(properties.effectiveEmbeddingBaseUrl())
                 .modelName(properties.getEmbeddingModel())
                 .maxRetries(properties.getMaxRetries())
                 .timeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
@@ -137,6 +141,41 @@ public class AiConfiguration {
                 properties.getSummaryPromptVersion(),
                 properties.getSchemaVersion(),
                 properties.isJsonSchemaEnabled()
+        );
+    }
+
+    /**
+     * 创建领域层真实 Embedding 客户端，仅在显式启用 Embedding 时覆盖默认 Fake。
+     *
+     * @param embeddingModel OpenAI-compatible Embedding 模型
+     * @param properties AI 模型配置
+     * @return 领域层 Embedding 客户端；自动回归默认仍使用确定性 Fake
+     */
+    @Bean
+    @Primary
+    @ConditionalOnProperty(prefix = "ai", name = "embedding-enabled", havingValue = "true")
+    public DocumentEmbeddingClient realDocumentEmbeddingClient(
+            EmbeddingModel embeddingModel,
+            AiProperties properties
+    ) {
+        // 复用聊天端点协议校验，并要求显式可追溯的维度和实验版本
+        validateEmbeddingProperties(properties);
+        if (properties.getEmbeddingDimension() <= 0) {
+            throw new IllegalStateException("启用 Embedding 时必须配置大于零的 AI_EMBEDDING_DIMENSION");
+        }
+        if (properties.getEmbeddingVersion() == null || properties.getEmbeddingVersion().isBlank()) {
+            throw new IllegalStateException("启用 Embedding 时必须配置 AI_EMBEDDING_VERSION");
+        }
+
+        // 构建显式描述供应商、模型、版本和维度的真实客户端，供索引服务按主候选注入
+        return new OpenAiCompatibleDocumentEmbeddingClient(
+                embeddingModel,
+                new EmbeddingModelDescriptor(
+                        properties.getProvider(),
+                        properties.getEmbeddingModel(),
+                        properties.getEmbeddingVersion(),
+                        properties.getEmbeddingDimension()
+                )
         );
     }
 

@@ -9,7 +9,6 @@ import com.flevin.knowgraph.server.repository.document.DocumentChunkIndexStateRe
 import com.flevin.knowgraph.server.repository.document.DocumentChunkRepository;
 import com.flevin.knowgraph.server.service.ai.rag.DocumentRagVersionResolver;
 import com.flevin.knowgraph.server.util.SnowflakeIdGenerator;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -23,7 +22,9 @@ import java.util.stream.Collectors;
 /**
  * Fake Embedding 索引服务实现，只验证向量生成、复用、版本隔离和原子持久化数据流。
  *
- * <p>该服务当前没有 Controller，也不接入默认文档关联候选；Fake 排序结果不能代表真实语义质量。</p>
+ * <p>默认自动回归注入确定性 Fake 客户端；显式启用真实 Embedding 时由 Spring 主候选
+ * 覆盖为 OpenAI-compatible 客户端。该服务当前没有 Controller，也不接入默认文档关联候选；
+ * Fake 排序结果不能代表真实语义质量。</p>
  */
 @Service
 public class DocumentEmbeddingIndexServiceImpl implements DocumentEmbeddingIndexService {
@@ -37,7 +38,7 @@ public class DocumentEmbeddingIndexServiceImpl implements DocumentEmbeddingIndex
             DocumentChunkRepository chunkRepository,
             DocumentChunkIndexStateRepository indexStateRepository,
             DocumentRagVersionResolver versionResolver,
-            @Qualifier("fakeDocumentEmbeddingClient") DocumentEmbeddingClient embeddingClient
+            DocumentEmbeddingClient embeddingClient
     ) {
         this.chunkRepository = chunkRepository;
         this.indexStateRepository = indexStateRepository;

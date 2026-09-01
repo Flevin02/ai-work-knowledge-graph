@@ -36,6 +36,16 @@ public class AiProperties {
     private boolean embeddingEnabled;
 
     /**
+     * 真实 Embedding 模型的显式向量维度；首个返回向量必须与该值一致，不匹配时整批失败。
+     */
+    private int embeddingDimension = 1536;
+
+    /**
+     * 真实 Embedding 实验版本；更换模型或维度时必须显式升级，禁止新旧向量混用。
+     */
+    private String embeddingVersion = "openai-v1";
+
+    /**
      * 模型供应商 API Key。
      */
     private String apiKey;
@@ -44,6 +54,34 @@ public class AiProperties {
      * 可选的供应商 Base URL。
      */
     private String baseUrl = "https://api.psydo.top/v1";
+
+    /**
+     * Embedding 可选的独立 Base URL；为空时回退到聊天端点的 baseUrl。
+     */
+    private String embeddingBaseUrl;
+
+    /**
+     * Embedding 可选的独立 API Key；为空时回退到聊天端点的 apiKey。
+     */
+    private String embeddingApiKey;
+
+    /**
+     * 获取 Embedding 实际使用的 Base URL，独立配置为空时回退聊天端点。
+     *
+     * @return 非空 Embedding Base URL
+     */
+    public String effectiveEmbeddingBaseUrl() {
+        return embeddingBaseUrl == null || embeddingBaseUrl.isBlank() ? baseUrl : embeddingBaseUrl.strip();
+    }
+
+    /**
+     * 获取 Embedding 实际使用的 API Key，独立配置为空时回退聊天端点。
+     *
+     * @return 非空 Embedding API Key
+     */
+    public String effectiveEmbeddingApiKey() {
+        return embeddingApiKey == null || embeddingApiKey.isBlank() ? apiKey : embeddingApiKey.strip();
+    }
 
     /**
      * OpenAI-compatible 端点是否真实支持 JSON Schema 响应格式。

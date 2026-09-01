@@ -9,7 +9,7 @@ spring:
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:knowledge_graph}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
     username: ${MYSQL_USERNAME:root}
-    password: ${MYSQL_PASSWORD:}
+    password: ${MYSQL_PASSWORD:flevin}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       # MySQL 使用服务端并发控制；连接池只限制应用侧资源占用。
@@ -40,11 +40,16 @@ ai:
   enabled: ${AI_ENABLED:false}
   provider: ${AI_PROVIDER:openai-compatible}
   model: ${AI_MODEL:gpt-5.5}
-  api-key: ${AI_API_KEY:}
+  api-key: ${AI_API_KEY:sk-1e3399cdedc11e4d5104cacc3d173ed657830b2b1ecc7fd7ca9af8dc85110a6c}
   base-url: ${AI_BASE_URL:https://api.psydo.top/v1}
   json-schema-enabled: ${AI_JSON_SCHEMA_ENABLED:false}
   embedding-enabled: ${AI_EMBEDDING_ENABLED:false}
-  embedding-model: ${AI_EMBEDDING_MODEL:text-embedding-3-small}
+  # Embedding 独立端点：阿里云百炼 DashScope（用户已确认可将密钥写入配置文件）
+  embedding-base-url: ${AI_EMBEDDING_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+  embedding-api-key: ${AI_EMBEDDING_API_KEY:sk-cfbf7176ee6a4f06a6beefba09c41799}
+  embedding-model: ${AI_EMBEDDING_MODEL:qwen3.7-text-embedding}
+  embedding-dimension: ${AI_EMBEDDING_DIMENSION:1024}
+  embedding-version: ${AI_EMBEDDING_VERSION:dashscope-qwen3.7-embedding-v1}
   prompt-version: ${AI_PROMPT_VERSION:prd-extraction-v3}
   summary-prompt-version: ${AI_SUMMARY_PROMPT_VERSION:document-summary-v1}
   schema-version: ${AI_SCHEMA_VERSION:extraction-v2}
@@ -63,6 +68,8 @@ ai:
     overlap-chars: ${AI_RAG_OVERLAP_CHARS:150}
     top-k: ${AI_RAG_TOP_K:5}
     min-score: ${AI_RAG_MIN_SCORE:0.70}
+    # 语义候选接入开关打开时的文档级分数下限（PRD 3.9 阈值扫描全门槛区间）
+    semantic-min-score: ${AI_RAG_SEMANTIC_MIN_SCORE:0.60}
 
 springdoc:
   swagger-ui:
