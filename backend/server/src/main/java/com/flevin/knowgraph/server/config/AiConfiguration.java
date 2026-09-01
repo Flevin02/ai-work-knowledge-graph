@@ -8,7 +8,9 @@ import com.flevin.knowgraph.server.service.ai.embedding.DocumentEmbeddingClient;
 import com.flevin.knowgraph.server.service.ai.embedding.OpenAiCompatibleDocumentEmbeddingClient;
 import com.flevin.knowgraph.server.service.ai.openai.OpenAiCompatibleAiExtractionClient;
 import com.flevin.knowgraph.server.service.ai.openai.OpenAiCompatibleDocumentAssociationClient;
+import com.flevin.knowgraph.server.service.ai.openai.OpenAiCompatibleDocumentTaggingClient;
 import com.flevin.knowgraph.server.service.association.DocumentAssociationClient;
+import com.flevin.knowgraph.server.service.tag.DocumentTaggingClient;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
@@ -158,6 +160,20 @@ public class AiConfiguration {
     ) {
         // 关联判断复用聊天端点；候选校验、证据反查和人工审核仍由服务端 Pipeline 负责
         return new OpenAiCompatibleDocumentAssociationClient(chatModel);
+    }
+
+    /**
+     * 创建 OpenAI-compatible 文档标签抽取客户端，使真实环境下标签运行可端到端执行。
+     *
+     * @param chatModel OpenAI-compatible 聊天模型
+     * @return 领域层文档标签客户端；模型未启用时标签运行保持未启用状态
+     */
+    @Bean
+    public DocumentTaggingClient documentTaggingClient(
+            @Qualifier("openAiCompatibleChatModel") ChatModel chatModel
+    ) {
+        // 标签抽取复用聊天端点；分片校验、证据反查和人工审核仍由服务端 Pipeline 负责
+        return new OpenAiCompatibleDocumentTaggingClient(chatModel);
     }
 
     /**
