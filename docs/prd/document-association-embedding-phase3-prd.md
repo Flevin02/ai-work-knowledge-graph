@@ -146,6 +146,14 @@ MySQL 章节/分片事实与索引元数据
 
 验证：114 项 Fake 回归通过；前端 typecheck 与生产构建通过。真实验证边界：端到端语义关联运行还需要启用文档关联判断模型，当前仅验证了候选召回层数据流。
 
+## 3.11 真实关联判断客户端与端到端验证（已完成，2026-09-01）
+
+实现 `document-association-v1` Prompt 与 `OpenAiCompatibleDocumentAssociationClient`：AI Service 结构化输出关联判断，渲染当前文档与候选的有限分片上下文（当前文档最多 8 片、候选各 3 片），校验判断数量与候选一一对应；`AiConfiguration` 注册 Bean 后，真实环境下关联运行可端到端执行。
+
+修复语义增强召回与运行快照的版本一致性问题：运行创建时按开关冻结的 `document-candidate-recall-semantic-v1` 版本不可回退，融合不变或语义失败降级时仅切换版本，是否真正融合由 `semanticCandidateCount` 区分。
+
+real-ai 端到端验证（`DocumentAssociationRealAiEndToEndTests`）：v2 资料上从话术归档需求发起 `includeSemanticCandidates=true` 的完整关联运行——内容召回 → 真实 DashScope 语义召回 → RRF 融合 → 真实聊天判断（psydo 端点）→ 服务端证据校验 → 建议持久化，运行 completed、建议关系均带逐字证据、自关联为 0。该测试只证明链路连通和服务端校验有效，不证明真实模型判断质量。
+
 # 4. 接入门槛与回滚
 
 只有同时满足以下条件，才另行评估 `includeSemanticCandidates`：
