@@ -169,7 +169,7 @@
 
 ### 2026-09-07 ～ 2026-09-13：维护能力和文档适配
 
-- 完成增量导入和变更预览。
+- 完成增量导入和变更预览。（2026-09-01 已提前完成：`POST /v1/spaces/{spaceId}/documents/{documentId}/versions` 按内容指纹比对，unchanged/updated/dryRun 预览三态；内容变更时原位更新事实源并把 suggested/confirmed 标签、两端任一命中的关系、ready 向量统一标 stale，实体图谱贡献同步失效；集成测试与真实 API 验证通过，前端卡片更新版本按钮已接线、文件对话框交互待人工验收。）
 - 增加 DOCX 解析，并补强文本型 PDF 的复杂阅读顺序和表格边界；扫描件 OCR 继续独立评估。
 - 完成孤立、失效、缺字段和冲突检查。
 - 完成时间线和 Markdown/JSON 导出。
