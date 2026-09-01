@@ -74,9 +74,13 @@ export async function getGraph(spaceId: string): Promise<{nodes: GraphNode[]; ed
 
 /**
  * 查询独立文档关系图，只接收真实来源文档节点和已确认文档关系边。
+ *
+ * @param spaceId 知识空间标识
+ * @param tagId 可选的 confirmed 标签标识，提供时只返回含该标签的文档节点与关系
  */
-export async function getDocumentGraph(spaceId: string): Promise<DocumentGraphData> {
-  const response = await fetch(`${backendApiUrl}/v1/spaces/${encodeURIComponent(spaceId)}/document-graph`, {
+export async function getDocumentGraph(spaceId: string, tagId?: string): Promise<DocumentGraphData> {
+  const query = tagId ? `?tagId=${encodeURIComponent(tagId)}` : '';
+  const response = await fetch(`${backendApiUrl}/v1/spaces/${encodeURIComponent(spaceId)}/document-graph${query}`, {
     method: 'GET',
     cache: 'no-store',
   });

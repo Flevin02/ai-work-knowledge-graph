@@ -228,6 +228,29 @@ public class DocumentTagRepository {
     }
 
     /**
+     * 查询当前空间内拥有指定 confirmed 标签的来源资料标识。
+     *
+     * @param spaceId 知识空间标识
+     * @param tagId 标签定义标识
+     * @return 含该 confirmed 标签的来源资料标识列表
+     */
+    public List<Long> findConfirmedDocumentIdsByTag(
+            Long spaceId,
+            Long tagId
+    ) {
+        // 只读取 confirmed 关系，与文档关系图只展示已确认事实的口径一致
+        return documentTagMapper.selectList(
+                        Wrappers.<DocumentTagEntity>lambdaQuery()
+                                .eq(DocumentTagEntity::getSpaceId, spaceId)
+                                .eq(DocumentTagEntity::getTagId, tagId)
+                                .eq(DocumentTagEntity::getStatus, "confirmed")
+                ).stream()
+                .map(DocumentTagEntity::getSourceDocumentId)
+                .distinct()
+                .toList();
+    }
+
+    /**
      * 批量查询当前空间内的标签定义。
      *
      * @param spaceId 知识空间标识
@@ -237,8 +260,7 @@ public class DocumentTagRepository {
     public List<KnowledgeTag> findTagsByIds(
             Long spaceId,
             List<Long> tagIds
-    ) {
-        if (tagIds.isEmpty()) {
+    ) {        if (tagIds.isEmpty()) {
             return List.of();
         }
 

@@ -11,7 +11,8 @@ public interface DocumentGraphService {
      * 查询当前知识空间的真实来源文档节点和已确认文档关系边。
      *
      * @param spaceId 知识空间标识
+     * @param tagId 可选的 confirmed 标签定义标识；提供时只返回含该标签的文档节点与关系
      * @return 文档关系图数据；没有关系时仍返回有效来源文档节点
      */
-    DocumentGraphResponse getGraph(Long spaceId);
+    DocumentGraphResponse getGraph(Long spaceId, Long tagId);
 }

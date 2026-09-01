@@ -223,6 +223,7 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
     const [graph, setGraph] = useState(initialGraph);
     const [documentGraph, setDocumentGraph] = useState<DocumentGraphData>({nodes: [], edges: []});
     const [loadedDocumentGraphSpaceId, setLoadedDocumentGraphSpaceId] = useState<string | null>(null);
+    const [documentGraphTagId, setDocumentGraphTagId] = useState<string>('');
     const [graphMode, setGraphMode] = useState<GraphMode>(initialState?.graphMode ?? 'entity');
     const [view, setView] = useState<View>('graph');
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
@@ -594,8 +595,9 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
 
         const loadDocumentGraph = async () => {
             try {
-                // 查询独立文档关系图，节点来自 source_documents，边来自 confirmed document_relations
-                const loadedDocumentGraph = await getDocumentGraph(currentSpaceId);
+                // 查询独立文档关系图，节点来自 source_documents，边来自 confirmed document_relations；
+                // 提供标签筛选时由服务端只返回含该 confirmed 标签的文档节点与关系
+                const loadedDocumentGraph = await getDocumentGraph(currentSpaceId, documentGraphTagId || undefined);
                 if (cancelled) return;
                 setDocumentGraph(loadedDocumentGraph);
                 setLoadedDocumentGraphSpaceId(currentSpaceId);
@@ -616,7 +618,7 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
         return () => {
             cancelled = true;
         };
-    }, [currentSpaceId, graphRefreshKey]);
+    }, [currentSpaceId, graphRefreshKey, documentGraphTagId]);
 
     const currentSpace = spaces.find((space) => space.id === currentSpaceId) ?? null;
 
@@ -630,9 +632,10 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
         (relationType: string) => documentRelationTypeLabels[relationType] ?? relationType,
         []
     );
-    const hasDocumentGraphFilters = Boolean(documentTypeFilter || documentRelationTypeFilter);
+    const hasDocumentGraphFilters = Boolean(documentTypeFilter || documentRelationTypeFilter || documentGraphTagId);
     const filteredDocumentGraph = useMemo<DocumentGraphData>(() => {
-        if (!hasDocumentGraphFilters) return documentGraph;
+        const hasContentFilters = Boolean(documentTypeFilter || documentRelationTypeFilter);
+        if (!hasContentFilters && !documentGraphTagId) return documentGraph;
 
         const documentTypeMatchedNodes = documentGraph.nodes.filter((node) => !documentTypeFilter
             || node.documentType === documentTypeFilter);
@@ -648,10 +651,14 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
         ]));
 
         return {
-            nodes: documentTypeMatchedNodes.filter((node) => connectedNodeIds.has(node.id)),
+            // 类型/关系筛选只保留仍有确认关系连接的文档；
+            // 标签筛选保留全部命中节点——孤立文档本身也是筛选结果
+            nodes: hasContentFilters
+                ? documentTypeMatchedNodes.filter((node) => connectedNodeIds.has(node.id))
+                : documentTypeMatchedNodes,
             edges: filteredEdges,
         };
-    }, [documentGraph, documentRelationTypeFilter, documentTypeFilter, hasDocumentGraphFilters]);
+    }, [documentGraph, documentGraphTagId, documentRelationTypeFilter, documentTypeFilter]);
 
     useEffect(() => {
         if (
@@ -1639,10 +1646,26 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
                                         onChange={setDocumentRelationTypeFilter}
                                     />
                                 </label>
+                                <label className="document-graph-filter">知识标签
+                                    <SelectMenu
+                                        ariaLabel="知识标签"
+                                        className="document-graph-select-menu"
+                                        value={documentGraphTagId}
+                                        options={[
+                                            {value: '', label: '全部'},
+                                            ...confirmedTags.map((tag) => ({
+                                                value: tag.tagId,
+                                                label: `${tag.name} (${tag.documentCount})`
+                                            }))
+                                        ]}
+                                        onChange={setDocumentGraphTagId}
+                                    />
+                                </label>
                                 {hasDocumentGraphFilters && <button className="document-graph-filter-reset" type="button"
                                     onClick={() => {
                                         setDocumentTypeFilter('');
                                         setDocumentRelationTypeFilter('');
+                                        setDocumentGraphTagId('');
                                     }} aria-label="清除文档关系图筛选" title="清除筛选"><FilterX size={15}/></button>}
                             </div>}
                             <div className="search-box"><Search size={17}/><input value={search}

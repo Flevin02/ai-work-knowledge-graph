@@ -49,6 +49,9 @@ class DocumentGraphControllerIntegrationTests {
     @BeforeEach
     void clearData() {
         // 按外键依赖顺序清理文档关系图测试数据，不影响其他测试数据库
+        jdbcTemplate.update("DELETE FROM document_tag_evidences");
+        jdbcTemplate.update("DELETE FROM document_tags");
+        jdbcTemplate.update("DELETE FROM tags");
         jdbcTemplate.update("DELETE FROM document_relation_reviews");
         jdbcTemplate.update("DELETE FROM document_relation_evidences");
         jdbcTemplate.update("DELETE FROM document_relations");
@@ -109,6 +112,81 @@ class DocumentGraphControllerIntegrationTests {
                 .andExpect(jsonPath("$.components.schemas.DocumentGraphResponse").exists())
                 .andExpect(jsonPath("$.components.schemas.DocumentGraphNodeResponse").exists())
                 .andExpect(jsonPath("$.components.schemas.DocumentGraphEdgeResponse").exists());
+    }
+
+    @Test
+    void filtersGraphNodesAndEdgesByConfirmedTag() throws Exception {
+        SourceDocument source = importDocument(
+                "会议纪要.md",
+                "# 会议纪要\n会议依据年会方案讨论场地。"
+        );
+        SourceDocument target = importDocument(
+                "年会方案.md",
+                "# 年会方案\n方案记录场地和预算。"
+        );
+        SourceDocument unrelated = importDocument(
+                "咖啡机须知.md",
+                "# 咖啡机须知\n使用专用胶囊并定期清洁。"
+        );
+        Instant now = Instant.parse("2026-08-25T10:00:00Z");
+        Long relationId = TestIdFixtures.id("tag-filter-relation");
+        insertRelation(relationId, source, target, "confirmed", now);
+
+        // 写入标签字典和两条 confirmed 文档标签：会议纪要与年会方案持有同一标签，咖啡机须知不持有
+        Long tagId = TestIdFixtures.id("tag-filter-definition");
+        jdbcTemplate.update(
+                "INSERT INTO tags (id, space_id, name, normalized_key, status, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, ?, 'active', ?, ?)",
+                tagId, SPACE_ID, "年会方案", "年会方案", now.toString(), now.toString()
+        );
+        insertConfirmedDocumentTag(TestIdFixtures.id("tag-filter-doc-a"), source, tagId, now);
+        insertConfirmedDocumentTag(TestIdFixtures.id("tag-filter-doc-b"), target, tagId, now);
+
+        // 按标签筛选：只返回持有该标签的文档节点与两端均在集合内的关系
+        mockMvc.perform(get("/v1/spaces/{spaceId}/document-graph", SPACE_ID).param("tagId", String.valueOf(tagId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nodes.length()").value(2))
+                .andExpect(jsonPath("$.data.nodes[?(@.name == '会议纪要.md')]").isNotEmpty())
+                .andExpect(jsonPath("$.data.nodes[?(@.name == '年会方案.md')]").isNotEmpty())
+                .andExpect(jsonPath("$.data.nodes[?(@.name == '咖啡机须知.md')]").isEmpty())
+                .andExpect(jsonPath("$.data.edges.length()").value(1))
+                .andExpect(jsonPath("$.data.edges[0].id").value(relationId));
+
+        // 不带 tagId 时仍返回全量节点和关系
+        mockMvc.perform(get("/v1/spaces/{spaceId}/document-graph", SPACE_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nodes.length()").value(3))
+                .andExpect(jsonPath("$.data.edges.length()").value(1));
+
+        // 不存在的标签定义返回空图
+        mockMvc.perform(get("/v1/spaces/{spaceId}/document-graph", SPACE_ID)
+                        .param("tagId", String.valueOf(TestIdFixtures.id("tag-filter-missing"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nodes.length()").value(0))
+                .andExpect(jsonPath("$.data.edges.length()").value(0));
+    }
+
+    private void insertConfirmedDocumentTag(
+            Long id,
+            SourceDocument document,
+            Long tagId,
+            Instant createdAt
+    ) {
+        jdbcTemplate.update(
+                "INSERT INTO document_tags ("
+                        + "id, space_id, source_document_id, tag_id, source_type, status, confidence, "
+                        + "extraction_run_id, content_hash, prompt_version, schema_version, document_tag_key, "
+                        + "created_at, updated_at"
+                        + ") VALUES (?, ?, ?, ?, 'user', 'confirmed', NULL, NULL, ?, NULL, NULL, ?, ?, ?)",
+                id,
+                SPACE_ID,
+                document.id(),
+                tagId,
+                document.contentHash(),
+                "tag-filter-" + id + "-key",
+                createdAt.toString(),
+                createdAt.toString()
+        );
     }
 
     private SourceDocument importDocument(String name, String content) {

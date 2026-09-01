@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -24,12 +25,17 @@ public class DocumentGraphController {
     private final DocumentGraphService documentGraphService;
 
     @GetMapping(value = "", name = "查询文档关系图")
-    @Operation(summary = "查询文档关系图", description = "返回当前知识空间的真实来源文档节点和已确认文档关系边。")
+    @Operation(
+            summary = "查询文档关系图",
+            description = "返回当前知识空间的真实来源文档节点和已确认文档关系边；提供 tagId 时只返回含该 confirmed 标签的文档节点与关系。"
+    )
     public ApiResponse<DocumentGraphResponse> getGraph(
-            @Parameter(description = "知识空间标识") @PathVariable Long spaceId
+            @Parameter(description = "知识空间标识") @PathVariable Long spaceId,
+            @Parameter(description = "可选的 confirmed 标签定义标识，用于按标签筛选图谱")
+            @RequestParam(required = false) Long tagId
     ) {
         // 查询独立文档关系图，避免与历史实体图谱混合
-        DocumentGraphResponse response = documentGraphService.getGraph(spaceId);
+        DocumentGraphResponse response = documentGraphService.getGraph(spaceId, tagId);
 
         // 使用统一响应结构返回文档关系图
         return ApiResponse.success(response);

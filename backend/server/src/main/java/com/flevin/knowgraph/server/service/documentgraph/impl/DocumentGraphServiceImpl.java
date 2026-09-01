@@ -9,6 +9,7 @@ import com.flevin.knowgraph.server.model.documentgraph.DocumentGraphResponse;
 import com.flevin.knowgraph.server.repository.association.DocumentRelationRepository;
 import com.flevin.knowgraph.server.repository.association.DocumentRelationEvidenceRepository;
 import com.flevin.knowgraph.server.repository.document.SourceDocumentRepository;
+import com.flevin.knowgraph.server.repository.tag.DocumentTagRepository;
 import com.flevin.knowgraph.server.service.documentgraph.DocumentGraphService;
 import com.flevin.knowgraph.server.service.space.KnowledgeSpaceService;
 import lombok.RequiredArgsConstructor;
@@ -32,20 +33,32 @@ public class DocumentGraphServiceImpl implements DocumentGraphService {
     private final SourceDocumentRepository sourceDocumentRepository;
     private final DocumentRelationRepository documentRelationRepository;
     private final DocumentRelationEvidenceRepository documentRelationEvidenceRepository;
+    private final DocumentTagRepository documentTagRepository;
 
     /**
      * 查询真实来源文档和已确认关系，过滤已经软删除的关系端点。
      *
      * @param spaceId 知识空间标识
+     * @param tagId 可选的 confirmed 标签定义标识；提供时只返回含该标签的文档节点与关系
      * @return 当前知识空间的独立文档关系图
      */
     @Override
-    public DocumentGraphResponse getGraph(Long spaceId) {
+    public DocumentGraphResponse getGraph(Long spaceId, Long tagId) {
         // 校验知识空间当前有效，阻断跨空间读取文档关系图
         knowledgeSpaceService.requireActive(spaceId);
 
         // 批量查询当前空间全部有效来源文档，节点不从模型自由创建
         List<SourceDocument> documents = sourceDocumentRepository.findAll(spaceId);
+
+        // 标签筛选：节点限定为含该 confirmed 标签的文档，边随后只保留两端均在集合内的关系
+        if (tagId != null) {
+            java.util.Set<Long> documentIdsByTag = java.util.Set.copyOf(
+                    documentTagRepository.findConfirmedDocumentIdsByTag(spaceId, tagId)
+            );
+            documents = documents.stream()
+                    .filter(document -> documentIdsByTag.contains(document.id()))
+                    .toList();
+        }
         Map<Long, SourceDocument> documentById = documents.stream()
                 .collect(Collectors.toMap(SourceDocument::id, Function.identity()));
 
