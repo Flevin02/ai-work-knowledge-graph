@@ -129,15 +129,36 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
             Long sourceDocumentId,
             boolean includeConfirmedTags
     ) {
+        // 未显式提供语义开关时保持历史行为，避免既有调用方行为漂移
+        return createRun(spaceId, sourceDocumentId, includeConfirmedTags, false);
+    }
+
+    /**
+     * 为当前来源资料创建文档关联运行，并可显式开启已确认标签与语义候选补充通道。
+     *
+     * @param spaceId 知识空间标识
+     * @param sourceDocumentId 当前分析文档标识
+     * @param includeConfirmedTags 是否使用已确认标签补充候选
+     * @param includeSemanticCandidates 是否使用语义候选融合通道
+     * @return 运行状态和通过服务端校验的新建议
+     */
+    @Override
+    public DocumentAssociationRunResponse createRun(
+            Long spaceId,
+            Long sourceDocumentId,
+            boolean includeConfirmedTags,
+            boolean includeSemanticCandidates
+    ) {
         // 查询当前有效来源资料，冻结本次运行的内容指纹
         SourceDocument sourceDocument = requireDocument(spaceId, sourceDocumentId);
         Instant createdAt = Instant.now();
 
-        // 按本次标签开关冻结候选策略版本，避免后续恢复时混淆内容与标签增强运行
+        // 按本次开关组合冻结候选策略版本，避免后续恢复时混淆内容、标签与语义增强运行
         DocumentAssociationRun processingRun = newProcessingRun(
                 sourceDocument,
                 createdAt,
-                includeConfirmedTags
+                includeConfirmedTags,
+                includeSemanticCandidates
         );
 
         // 先保存 processing 运行，模型不可用或输出失败后仍可查询失败阶段
@@ -145,12 +166,13 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
 
         DocumentCandidateRecall recall;
         try {
-            // 执行冻结的 TopK=8 无 Embedding 候选召回
+            // 执行冻结的 TopK=8 候选召回；语义通道仅在开关开启时叠加
             recall = candidateRecallService.recall(
                     spaceId,
                     sourceDocumentId,
                     TOP_K,
-                    includeConfirmedTags
+                    includeConfirmedTags,
+                    includeSemanticCandidates
             );
             processingRun = withRecallStats(processingRun, recall);
         } catch (RuntimeException exception) {
@@ -482,7 +504,8 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
     private DocumentAssociationRun newProcessingRun(
             SourceDocument sourceDocument,
             Instant createdAt,
-            boolean includeConfirmedTags
+            boolean includeConfirmedTags,
+            boolean includeSemanticCandidates
     ) {
         return new DocumentAssociationRun(
                 SnowflakeIdGenerator.nextId(),
@@ -500,9 +523,11 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
                 0,
                 PROMPT_VERSION,
                 SCHEMA_VERSION,
-                includeConfirmedTags
-                        ? DocumentCandidateRecallService.CONFIRMED_TAG_THRESHOLD_POLICY_VERSION
-                        : DocumentCandidateRecallService.CONTENT_POLICY_VERSION,
+                includeSemanticCandidates
+                        ? DocumentCandidateRecallService.SEMANTIC_AUGMENTED_POLICY_VERSION
+                        : includeConfirmedTags
+                                ? DocumentCandidateRecallService.CONFIRMED_TAG_THRESHOLD_POLICY_VERSION
+                                : DocumentCandidateRecallService.CONTENT_POLICY_VERSION,
                 ASSOCIATION_POLICY_VERSION,
                 null,
                 null,
@@ -541,7 +566,9 @@ public class DocumentAssociationServiceImpl implements DocumentAssociationServic
                 run.suggestionCount(),
                 recall.tagCandidateCount(),
                 recall.keywordCandidateCount(),
-                run.semanticCandidateCount(),
+                (int) recall.candidates().stream()
+                        .filter(candidate -> candidate.matchedChannels().contains("semantic_match"))
+                        .count(),
                 run.promptVersion(),
                 run.schemaVersion(),
                 recall.candidateRecallPolicyVersion(),

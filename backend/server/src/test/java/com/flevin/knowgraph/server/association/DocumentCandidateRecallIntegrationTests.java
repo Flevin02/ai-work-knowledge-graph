@@ -119,6 +119,52 @@ class DocumentCandidateRecallIntegrationTests {
     }
 
     @Test
+    void semanticAugmentedRecallKeepsBaselineWhenDisabledAndFusesWhenEnabled() throws IOException {
+        // 导入冻结资料，使用同一批来源资料分别验证关闭与开启语义通道的行为
+        Map<String, SourceDocument> documents = importFrozenDocuments();
+        Long subjectId = documents.get("doc-kickoff-meeting").id();
+
+        // 关闭语义通道：结果与历史基线完全一致，构成回滚验证路径
+        DocumentCandidateRecall disabled = candidateRecallService.recall(
+                DEFAULT_SPACE_ID,
+                subjectId,
+                8,
+                false,
+                false
+        );
+        DocumentCandidateRecall baseline = candidateRecallService.recall(
+                DEFAULT_SPACE_ID,
+                subjectId
+        );
+        assertThat(disabled.candidateRecallPolicyVersion())
+                .isEqualTo(DocumentCandidateRecallService.CONTENT_POLICY_VERSION);
+        assertThat(disabled.candidates().size()).isEqualTo(baseline.candidates().size());
+
+        // 开启语义通道：Fake 向量参与 RRF 融合，候选仍受 TopK 约束且无自关联
+        DocumentCandidateRecall enabled = candidateRecallService.recall(
+                DEFAULT_SPACE_ID,
+                subjectId,
+                8,
+                false,
+                true
+        );
+        assertThat(enabled.candidates()).hasSizeLessThanOrEqualTo(8);
+        assertThat(enabled.candidates())
+                .extracting(candidate -> candidate.documentId())
+                .doesNotContain(subjectId);
+        assertThat(enabled.candidates())
+                .extracting(candidate -> candidate.rank())
+                .containsExactlyElementsOf(java.util.stream.IntStream.rangeClosed(1, enabled.candidates().size())
+                        .boxed()
+                        .toList());
+        // 开启开关时策略版本必须为语义增强版本或降级后的内容版本，不允许出现中间状态
+        assertThat(enabled.candidateRecallPolicyVersion()).isIn(
+                DocumentCandidateRecallService.SEMANTIC_AUGMENTED_POLICY_VERSION,
+                DocumentCandidateRecallService.CONTENT_POLICY_VERSION
+        );
+    }
+
+    @Test
     void returnsEmptyCandidatesForUnknownBusinessDocumentAndRejectsTopKOutsideBaseline() throws IOException {
         // 导入固定资料，选取与年会主题明确无关的打印机维保通知
         Map<String, SourceDocument> documents = importFrozenDocuments();

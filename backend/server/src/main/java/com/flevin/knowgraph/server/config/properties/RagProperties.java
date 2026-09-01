@@ -39,4 +39,10 @@ public class RagProperties {
      * 默认最低相似度分数，仅作为初始实验参数。
      */
     private double minScore = 0.70D;
+
+    /**
+     * 语义候选接入时的文档级分数下限；开关开启后 bestChunkScore 低于该值的候选被过滤。
+     * 0.60 来自 document-association-eval-v2 阈值扫描（PRD 3.9）的全门槛通过区间。
+     */
+    private double semanticMinScore = 0.60D;
 }

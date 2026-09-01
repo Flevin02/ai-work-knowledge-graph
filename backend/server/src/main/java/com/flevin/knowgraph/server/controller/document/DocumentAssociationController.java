@@ -38,13 +38,16 @@ public class DocumentAssociationController {
             @Parameter(description = "知识空间标识") @PathVariable Long spaceId,
             @Parameter(description = "当前分析的来源资料标识") @PathVariable Long documentId,
             @Parameter(description = "是否显式开启已确认标签补充候选，默认关闭")
-            @RequestParam(defaultValue = "false") boolean includeConfirmedTags
+            @RequestParam(defaultValue = "false") boolean includeConfirmedTags,
+            @Parameter(description = "是否显式开启语义候选融合通道，默认关闭；开启后按配置阈值融合独立语义召回候选")
+            @RequestParam(defaultValue = "false") boolean includeSemanticCandidates
     ) {
         // 为当前来源资料执行一次可恢复的固定文档关联 Pipeline
         DocumentAssociationRunResponse response = documentAssociationService.createRun(
                 spaceId,
                 documentId,
-                includeConfirmedTags
+                includeConfirmedTags,
+                includeSemanticCandidates
         );
 
         // 使用统一响应返回运行状态、失败阶段和已校验建议

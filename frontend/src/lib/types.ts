@@ -333,6 +333,8 @@ export type DocumentAssociationRun = {
   suggestionCount: number;
   tagCandidateCount: number;
   keywordCandidateCount: number;
+  semanticCandidateCount: number;
+  candidateRecallPolicyVersion: string;
 };
 
 export type KnowledgeTagSummary = {

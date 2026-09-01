@@ -13,7 +13,13 @@ import com.flevin.knowgraph.server.repository.space.KnowledgeSpaceRepository;
 import com.flevin.knowgraph.server.repository.tag.DocumentTagRepository;
 import com.flevin.knowgraph.server.service.ai.rag.PrdMarkdownSectionParser;
 import com.flevin.knowgraph.server.service.association.DocumentCandidateRecallService;
+import com.flevin.knowgraph.server.config.properties.RagProperties;
+import com.flevin.knowgraph.server.model.ai.embedding.SemanticDocumentCandidate;
+import com.flevin.knowgraph.server.model.ai.embedding.SemanticDocumentRecall;
+import com.flevin.knowgraph.server.service.ai.embedding.DocumentSemanticRecallService;
+import com.flevin.knowgraph.server.service.ai.embedding.ReciprocalRankFusion;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +42,7 @@ import java.util.stream.Collectors;
  * 用户显式开启时追加 confirmed 标签，不使用 Embedding 或模型生成结果。规则分数只用于候选排序，
  * 不能替代后续关系判断、证据校验和人工审核。</p>
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class DocumentCandidateRecallServiceImpl implements DocumentCandidateRecallService {
@@ -142,6 +149,8 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
     private final AiExtractionRunRepository aiExtractionRunRepository;
     private final PrdMarkdownSectionParser sectionParser;
     private final DocumentTagRepository documentTagRepository;
+    private final DocumentSemanticRecallService semanticRecallService;
+    private final RagProperties ragProperties;
 
     /**
      * 按冻结的 TopK=8 规则召回当前文档的关联候选。
@@ -270,6 +279,179 @@ public class DocumentCandidateRecallServiceImpl implements DocumentCandidateReca
                 confirmedTagNamesByDocument.getOrDefault(sourceDocument.id(), List.of()),
                 tagCandidateCount,
                 keywordCandidateCount
+        );
+    }
+
+    /**
+     * 按冻结策略召回候选，并允许用户显式开启语义候选融合通道。
+     *
+     * @param spaceId 知识空间标识
+     * @param sourceDocumentId 当前作为召回主体的来源资料标识
+     * @param topK 候选数量上限，取值范围为 1 到 8
+     * @param includeConfirmedTags 是否读取当前空间已确认标签作为补充召回条件
+     * @param includeSemanticCandidates 是否启用语义候选融合通道
+     * @return 候选召回结果；语义通道关闭或失败时返回内容召回结果
+     */
+    @Override
+    // 语义通道开启时会幂等补建章节、分片与向量事实，因此本方法必须使用可写事务，
+    // 只读事务内的向量写入会将事务标记为 rollback-only 并在提交时抛出 UnexpectedRollback
+    @Transactional
+    public DocumentCandidateRecall recall(
+            Long spaceId,
+            Long sourceDocumentId,
+            int topK,
+            boolean includeConfirmedTags,
+            boolean includeSemanticCandidates
+    ) {
+        // 内容候选始终是基线；语义通道只在用户显式开启后叠加
+        DocumentCandidateRecall contentRecall = recall(
+                spaceId,
+                sourceDocumentId,
+                topK,
+                includeConfirmedTags
+        );
+        if (!includeSemanticCandidates) {
+            return contentRecall;
+        }
+
+        SemanticDocumentRecall semanticRecall;
+        try {
+            // 语义召回按配置的文档级分数下限过滤，阈值来自冻结的扫描实验结论
+            semanticRecall = semanticRecallService.recall(
+                    spaceId,
+                    sourceDocumentId,
+                    ragProperties.getSemanticMinScore()
+            );
+        } catch (RuntimeException exception) {
+            // 语义通道属于增强能力：向量化不可用时降级为纯内容候选，
+            // 策略版本保持内容版本，恢复端可据此区分本次运行未融合语义
+            log.warn(
+                    "语义候选召回失败，降级为内容候选: spaceId={}, documentId={}",
+                    spaceId,
+                    sourceDocumentId,
+                    exception
+            );
+            return contentRecall;
+        }
+
+        return fuseSemanticCandidates(spaceId, contentRecall, semanticRecall, topK);
+    }
+
+    /**
+     * 将语义候选与内容候选按 RRF 融合为语义增强召回结果。
+     *
+     * @param spaceId 知识空间标识
+     * @param contentRecall 内容通道召回结果
+     * @param semanticRecall 阈值过滤后的语义召回结果
+     * @param topK 候选数量上限
+     * @return 语义增强策略版本的候选召回结果
+     */
+    private DocumentCandidateRecall fuseSemanticCandidates(
+            Long spaceId,
+            DocumentCandidateRecall contentRecall,
+            SemanticDocumentRecall semanticRecall,
+            int topK
+    ) {
+        // 内容候选按原排名参与融合，语义候选按相似度排名参与融合
+        List<Long> contentRanking = contentRecall.candidates().stream()
+                .map(DocumentCandidate::documentId)
+                .toList();
+        List<Long> semanticRanking = semanticRecall.candidates().stream()
+                .map(SemanticDocumentCandidate::sourceDocumentId)
+                .toList();
+        List<Long> fusedRanking = ReciprocalRankFusion.fuse(
+                contentRanking,
+                semanticRanking,
+                ReciprocalRankFusion.RRF_CONSTANT,
+                topK
+        ).stream().map(ReciprocalRankFusion.FusedCandidate<Long>::documentId).toList();
+
+        if (fusedRanking.equals(contentRanking.subList(0, Math.min(topK, contentRanking.size())))) {
+            // 融合未改变候选集合与顺序时保持内容策略版本，避免无意义的版本切换
+            return contentRecall;
+        }
+
+        // 内容候选直接复用已有上下文；语义补充候选需要补齐摘要等展示字段
+        Map<Long, DocumentCandidate> contentByDocumentId = contentRecall.candidates().stream()
+                .collect(Collectors.toMap(
+                        DocumentCandidate::documentId,
+                        Function.identity(),
+                        (left, right) -> left
+                ));
+        List<Long> supplementDocumentIds = fusedRanking.stream()
+                .filter(documentId -> !contentByDocumentId.containsKey(documentId))
+                .toList();
+        Map<Long, DocumentExtractionOverview> supplementOverviews = supplementDocumentIds.isEmpty()
+                ? Map.of()
+                : aiExtractionRunRepository.findLatestByDocuments(spaceId, supplementDocumentIds)
+                        .stream()
+                        .collect(Collectors.toMap(
+                                DocumentExtractionOverview::documentId,
+                                Function.identity()
+                        ));
+
+        List<DocumentCandidate> fusedCandidates = new ArrayList<>(fusedRanking.size());
+        int rank = 1;
+        for (Long documentId : fusedRanking) {
+            DocumentCandidate existing = contentByDocumentId.get(documentId);
+            if (existing != null) {
+                // 内容候选保留全部解释性通道信息，仅按融合结果重排
+                fusedCandidates.add(new DocumentCandidate(
+                        existing.documentId(),
+                        existing.name(),
+                        existing.kind(),
+                        existing.documentType(),
+                        existing.contentHash(),
+                        existing.summary(),
+                        existing.title(),
+                        existing.matchedChannels(),
+                        existing.matchedTerms(),
+                        existing.confirmedTags(),
+                        existing.score(),
+                        rank
+                ));
+            } else {
+                // 语义补充候选不使用内容命中通道，标记 semantic_match 便于前端与排查解释
+                SourceDocument supplementDocument = sourceDocumentRepository
+                        .findById(spaceId, documentId)
+                        .orElse(null);
+                if (supplementDocument == null) {
+                    continue;
+                }
+                DocumentExtractionOverview overview = supplementOverviews.get(documentId);
+                String summary = overview == null
+                        || overview.latestCompletedSummary() == null
+                        || overview.latestCompletedSummary().isBlank()
+                        ? supplementDocument.excerpt()
+                        : overview.latestCompletedSummary();
+                fusedCandidates.add(new DocumentCandidate(
+                        supplementDocument.id(),
+                        supplementDocument.name(),
+                        supplementDocument.kind(),
+                        supplementDocument.documentType(),
+                        supplementDocument.contentHash(),
+                        summary,
+                        supplementDocument.name(),
+                        List.of("semantic_match"),
+                        List.of(),
+                        List.of(),
+                        0,
+                        rank
+                ));
+            }
+            rank++;
+        }
+
+        return new DocumentCandidateRecall(
+                spaceId,
+                contentRecall.sourceDocumentId(),
+                contentRecall.sourceContentHash(),
+                SEMANTIC_AUGMENTED_POLICY_VERSION,
+                contentRecall.topK(),
+                fusedCandidates,
+                contentRecall.sourceConfirmedTags(),
+                contentRecall.tagCandidateCount(),
+                contentRecall.keywordCandidateCount()
         );
     }
 

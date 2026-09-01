@@ -2357,7 +2357,9 @@ function DocumentTagPanel({
     const [isTagging, setIsTagging] = useState(false);
     const [isReviewing, setIsReviewing] = useState(false);
     const [isAssociating, setIsAssociating] = useState(false);
+    const [isSemanticAssociating, setIsSemanticAssociating] = useState(false);
     const [associationRun, setAssociationRun] = useState<DocumentAssociationRun | null>(null);
+    const [semanticAssociationRun, setSemanticAssociationRun] = useState<DocumentAssociationRun | null>(null);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [actionError, setActionError] = useState<string | null>(null);
     const [selectedTagIds, setSelectedTagIds] = useState<Record<string, boolean>>({});
@@ -2460,6 +2462,21 @@ function DocumentTagPanel({
         }
     };
 
+    const startSemanticAssociation = async () => {
+        if (isSemanticAssociating) return;
+        setIsSemanticAssociating(true);
+        setActionError(null);
+        try {
+            // 仅在用户明确点击后开启语义候选融合通道；阈值由服务端配置决定
+            const run = await createDocumentAssociationRun(spaceId, document.id, false, true);
+            setSemanticAssociationRun(run);
+        } catch (error) {
+            setActionError(`语义补充候选失败：${error instanceof Error ? error.message : '未知错误'}`);
+        } finally {
+            setIsSemanticAssociating(false);
+        }
+    };
+
     const pendingTags = tags.filter((tag) => tag.status === 'suggested');
     const selectedPendingTagIds = pendingTags
         .map((tag) => tag.id)
@@ -2487,6 +2504,12 @@ function DocumentTagPanel({
                     onClick={() => void startConfirmedTagAssociation()}>
                     {isAssociating ? <LoaderCircle className="spin" size={14}/> : <Link2 size={14}/>}
                     {isAssociating ? '正在补充候选' : '按已确认标签补充候选'}
+                </button>
+                <button className="secondary-button" type="button"
+                    disabled={runIsProcessing || isAssociating || isSemanticAssociating}
+                    onClick={() => void startSemanticAssociation()}>
+                    {isSemanticAssociating ? <LoaderCircle className="spin" size={14}/> : <Sparkles size={14}/>}
+                    {isSemanticAssociating ? '正在融合语义候选' : '按语义相似补充候选'}
                 </button>
                 <button className="primary-button" type="button" disabled={runIsProcessing || isAssociating}
                     onClick={() => void startTagging()}>
@@ -2524,6 +2547,14 @@ function DocumentTagPanel({
         {associationRun?.status === 'failed' && <div className="document-tag-run failed"><AlertTriangle size={16}/>
             <div><strong>标签补充候选未完成</strong>
                 <span>{associationRun.errorMessage || '服务端未启用文档关联判断。'}{associationRun.failureStage ? ` · 阶段 ${associationRun.failureStage}` : ''}</span></div>
+        </div>}
+        {semanticAssociationRun?.status === 'completed' && <div className="document-tag-run completed"><Sparkles size={16}/>
+            <div><strong>语义补充候选已完成</strong>
+                <span>比较 {semanticAssociationRun.comparedCount} 份候选，新增 {semanticAssociationRun.suggestionCount} 条关系建议；语义通道命中 {semanticAssociationRun.semanticCandidateCount} 份。</span></div>
+        </div>}
+        {semanticAssociationRun?.status === 'failed' && <div className="document-tag-run failed"><AlertTriangle size={16}/>
+            <div><strong>语义补充候选未完成</strong>
+                <span>{semanticAssociationRun.errorMessage || '服务端未启用文档关联判断或向量化。'}{semanticAssociationRun.failureStage ? ` · 阶段 ${semanticAssociationRun.failureStage}` : ''}</span></div>
         </div>}
 
         <div className="document-tag-summary">

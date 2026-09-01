@@ -19,6 +19,9 @@ public interface DocumentCandidateRecallService {
     /** 共同 confirmed 标签达到分层阈值后的候选召回策略版本。 */
     String CONFIRMED_TAG_THRESHOLD_POLICY_VERSION = "document-candidate-recall-v3";
 
+    /** 语义候选接入开关开启后的候选召回策略版本。 */
+    String SEMANTIC_AUGMENTED_POLICY_VERSION = "document-candidate-recall-semantic-v1";
+
     /** 标签-only 候选必须共享的 confirmed 标签最小数量。 */
     int MIN_CONFIRMED_TAG_MATCHES = 2;
 
@@ -62,5 +65,27 @@ public interface DocumentCandidateRecallService {
             Long sourceDocumentId,
             int topK,
             boolean includeConfirmedTags
+    );
+
+    /**
+     * 按冻结策略召回候选，并允许用户显式开启语义候选融合通道。
+     *
+     * <p>语义通道使用独立语义召回服务：文档级候选先按配置的分数下限过滤，
+     * 再与内容候选做 RRF 并集融合。语义召回失败时降级为纯内容结果，
+     * 策略版本保持内容版本以便恢复端区分；融合成功时策略版本标记为语义增强版本。</p>
+     *
+     * @param spaceId 知识空间标识
+     * @param sourceDocumentId 当前作为召回主体的来源资料标识
+     * @param topK 候选数量上限，取值范围为 1 到 8
+     * @param includeConfirmedTags 是否读取当前空间已确认标签作为补充召回条件
+     * @param includeSemanticCandidates 是否启用语义候选融合通道
+     * @return 候选召回结果
+     */
+    DocumentCandidateRecall recall(
+            Long spaceId,
+            Long sourceDocumentId,
+            int topK,
+            boolean includeConfirmedTags,
+            boolean includeSemanticCandidates
     );
 }
