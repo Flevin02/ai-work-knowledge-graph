@@ -3,6 +3,7 @@
 这里记录实现级技术设计、数据模型、接口契约、调用流程和交互细节。产品范围与架构边界以 `../prd/ai-work-knowledge-graph-maintainer-prd.md` 为准；本目录不记录下一任务、提交历史或验证结论。
 
 - [有据问答生产客户端 v1](./conversation-answer-client-v1.md)：OpenAI-compatible 适配、Prompt/Schema、失败分类、配置与回滚边界。
+- [Ollama + qwen3-embedding 本地部署交接](./local-ollama-qwen3-embedding-deployment.md)：本机 Embedding 服务安装、自检、后端配置和向量版本隔离边界。
 
 ## AI/RAG 分片基线
 
