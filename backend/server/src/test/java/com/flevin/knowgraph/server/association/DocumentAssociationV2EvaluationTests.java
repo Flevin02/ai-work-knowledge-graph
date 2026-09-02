@@ -45,7 +45,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest(properties = {
         "app.upload-dir=target/test-data/document-association-v2-evaluation-uploads",
-        "ai.enabled=${TEST_REAL_EMBEDDING:false}",
+        "ai.enabled=false",
         "ai.embedding-enabled=${TEST_REAL_EMBEDDING:false}"
 })
 class DocumentAssociationV2EvaluationTests {
@@ -74,7 +74,7 @@ class DocumentAssociationV2EvaluationTests {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @Value("${ai.enabled:false}")
+    @Value("${ai.embedding-enabled:false}")
     private boolean realEmbeddingEnabled;
 
     private final ObjectMapper objectMapper = new ObjectMapper();

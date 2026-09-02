@@ -47,7 +47,7 @@ import static org.assertj.core.data.Offset.offset;
 @Tag("real-ai")
 @SpringBootTest(properties = {
         "app.upload-dir=target/test-data/document-association-v2-threshold-sweep-uploads",
-        "ai.enabled=${TEST_REAL_EMBEDDING:false}",
+        "ai.enabled=false",
         "ai.embedding-enabled=${TEST_REAL_EMBEDDING:false}"
 })
 class DocumentAssociationV2ThresholdSweepEvaluationTests {

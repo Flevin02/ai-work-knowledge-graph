@@ -4,57 +4,53 @@
 
 > 本文档只规划下一任务：保留一个当前任务和简短候选队列，不保存产品设计、技术设计、已完成历史或验证流水账。产品与架构边界见 [`docs/prd/ai-work-knowledge-graph-maintainer-prd.md`](prd/ai-work-knowledge-graph-maintainer-prd.md)，实现级设计见 `docs/design/`，验证结论见 `docs/tests/`，完成历史通过 Git 追溯。
 
-## 1. 当前任务：真实 Embedding 语义召回评估
+## 1. 当前任务：问答前端浏览器点击验收
 
 ### 1.1 目标
 
-在本地 Ollama `qwen3-embedding:latest` 已完成最小 smoke 后，使用固定虚构资料评估真实 Embedding 对文档语义召回和 RRF 融合排序的影响，判断是否具备进入默认候选链路的证据基础。
+在浏览器控制工具可用时，对有据问答前端最小闭环补齐真实可见点击验收，确认工作台入口、单文档范围、提交问题、失败态展示、会话 URL 恢复和引用打开行为在浏览器中与已通过的 HTTP/Vitest/构建证据一致。
 
 ### 1.2 进入条件
 
-本地 Ollama OpenAI-compatible `/v1/embeddings` 已可返回 4096 维向量，项目 `DocumentEmbeddingClient` 真实 smoke 已通过。下一步只允许在明确目标测试库和清理边界后运行会写入/清理 MySQL 评估数据的测试。
+`docs/tests/conversation-frontend-minimal-loop-2026-09-02.md` 已记录前端单元测试、构建、后端回归和本机 HTTP 联调证据；当前只缺真实浏览器可见点击验收。执行前需确认可用的浏览器控制工具、前后端端口、测试空间和虚构资料，不以普通 HTTP 200 替代浏览器交互证据。
 
 ### 1.3 实施范围
 
-1. 明确测试数据库、上传目录和报告文件名，避免覆盖 Fake 基线报告或误清理非测试数据。
-2. 使用以下配置运行真实 Embedding 评估：
-   - `AI_EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1`
-   - `AI_EMBEDDING_API_KEY=ollama`
-   - `AI_EMBEDDING_MODEL=qwen3-embedding:latest`
-   - `AI_EMBEDDING_DIMENSION=4096`
-   - `AI_EMBEDDING_VERSION=ollama-qwen3-embedding-latest-20260902`
-3. 只改变 Embedding 模型来源这一项变量，复用固定资料集、TopK、RRF 常数和评价口径。
-4. 将真实评估结果写入新的 `docs/tests/` 报告，不覆盖 Fake 基线。
-5. 对比内容臂、语义臂和 RRF 融合臂的 Recall@8、Precision@8、硬负例、自关联和耗时。
+1. 恢复或重新启动本机后端 `4010` 与前端 `3010`，使用虚构资料和测试空间。
+2. 在浏览器中进入工作台“有据问答”视图，选择一份来源资料作为问答范围。
+3. 提交一个可复现问题，确认 AI 关闭时展示稳定失败类别和用户可读错误，不伪装为有证据回答。
+4. 通过带 `conversationId` 的 URL 恢复会话，确认范围文档、历史消息和空间隔离未丢失。
+5. 在存在已验证引用的测试状态下点击引用，确认能打开来源资料并定位可反查原文；失效引用不得可点击。
+6. 将浏览器验收步骤、结果、未覆盖边界和必要截图/观察写入新的 `docs/tests/` 报告。
 
 ### 1.4 验收标准
 
-- 评估运行前已经获得测试库清理授权，并确认不会影响非测试资料。
-- 真实向量事实使用 `ollama-qwen3-embedding-latest-20260902` 版本隔离，不与既有模型版本混用。
-- 报告明确记录数据集版本、Embedding 模型、维度、TopK、阈值、结果指标、失败样例、结论和未覆盖边界。
-- 不能只因真实模型调用成功就判断 RAG 质量提升；必须用固定标注指标和失败样例判断。
+- 浏览器可见验证覆盖工作台入口、范围选择、问题提交、回答/失败状态、URL 恢复和引用打开。
+- 验收记录明确区分浏览器点击证据、HTTP 联调、Vitest、构建和真实 AI 未验证边界。
+- 不读取真实资料，不使用演示数据静默兜底，不把 AI 关闭失败态写成真实回答能力。
+- 若浏览器控制工具不可用，记录阻塞原因和已完成的非浏览器证据，不伪造点击验收。
 
 ### 1.5 本任务不做
 
-- 不调用聊天模型，不验证真实问答生成、标签抽取或关系判断 Prompt。
-- 不引入 Milvus、Qdrant、Reranker、Agent、SSE 或 Workflow 编排。
-- 不删除或重建生产/非测试数据，不把真实 Embedding 自动接入默认候选路径。
-- 不读取真实公司资料；只使用 `fixture/` 下的虚构或脱敏资料。
+- 不改问答后端业务规则、Prompt、Schema 或数据库结构。
+- 不启用真实聊天模型，不评估真实回答质量、模型费用或延迟。
+- 不扩展会话列表、SSE、断线续传、跨文档召回、Agent 或移动端适配。
+- 不删除或重建生产/非测试数据。
 
 ### 1.6 必读入口
 
 - 产品与架构边界：[`docs/prd/ai-work-knowledge-graph-maintainer-prd.md`](prd/ai-work-knowledge-graph-maintainer-prd.md)
 - 文档关联与 RAG 设计：[`docs/prd/document-tag-and-association-rag-prd.md`](prd/document-tag-and-association-rag-prd.md)
-- 本地 Ollama 验证记录：[`docs/tests/local-ollama-qwen3-embedding-deployment-20260902.md`](tests/local-ollama-qwen3-embedding-deployment-20260902.md)
-- 真实评估入口：`backend/server/src/test/java/com/flevin/knowgraph/server/association/DocumentSemanticRrfEvaluationTests.java`
+- 问答生产客户端设计：[`docs/design/conversation-answer-client-v1.md`](design/conversation-answer-client-v1.md)
+- 问答前端最小闭环验证：[`docs/tests/conversation-frontend-minimal-loop-2026-09-02.md`](tests/conversation-frontend-minimal-loop-2026-09-02.md)
+- 前端入口：`frontend/src/components/conversation-panel.tsx`、`frontend/src/components/graph-workspace.tsx`
 
 ## 2. 候选队列
 
 当前任务完成后，再按顺序评审并只提升一项为新的当前任务：
 
-1. 问答前端浏览器点击验收：在浏览器控制工具可用时补齐真实可见点击验证。
-2. 长耗时问答恢复：评估 SSE、运行标识、断线恢复和幂等续传。
-3. 健康检查与导出：失效来源、缺字段、冲突及 Markdown/JSON/图片导出。
+1. 长耗时问答恢复：评估 SSE、运行标识、断线恢复和幂等续传。
+2. 健康检查与导出：失效来源、缺字段、冲突及 Markdown/JSON/图片导出。
 
 ## 3. 维护规则
 

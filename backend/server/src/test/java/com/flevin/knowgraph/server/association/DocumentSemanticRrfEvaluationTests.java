@@ -44,8 +44,8 @@ import static org.assertj.core.data.Offset.offset;
  */
 @SpringBootTest(properties = {
         "app.upload-dir=target/test-data/document-semantic-rrf-evaluation-uploads",
-        // 默认关闭真实 AI；显式环境变量 TEST_REAL_EMBEDDING=true 时按 real-ai 边界启用真实 Embedding
-        "ai.enabled=${TEST_REAL_EMBEDDING:false}",
+        // 默认关闭聊天 AI；显式环境变量 TEST_REAL_EMBEDDING=true 时只启用真实 Embedding
+        "ai.enabled=false",
         "ai.embedding-enabled=${TEST_REAL_EMBEDDING:false}",
         // 报告路径相对仓库根目录；真实对照必须显式改名，避免覆盖 Fake 基线报告
         "test.semantic-rrf-report-name=${TEST_SEMANTIC_RRF_REPORT_NAME:docs/tests/document-association-semantic-rrf-evaluation-v1.md}"
@@ -57,7 +57,7 @@ class DocumentSemanticRrfEvaluationTests {
     private static final int FROZEN_TOP_K = 8;
     private static final int RRF_CONSTANT = ReciprocalRankFusion.RRF_CONSTANT;
 
-    @Value("${ai.enabled:false}")
+    @Value("${ai.embedding-enabled:false}")
     private boolean realEmbeddingEnabled;
 
     @Value("${test.semantic-rrf-report-name:docs/tests/document-association-semantic-rrf-evaluation-v1.md}")
@@ -279,6 +279,8 @@ class DocumentSemanticRrfEvaluationTests {
                 documents.get(fixture.retrievalCases().getFirst().sourceDocumentId()).id()
         ).chunkVersion();
         String descriptor = results.values().iterator().next().descriptor();
+        // 真实评估必须确认为真实客户端，避免配置缺失时把 Fake 结果写成真实报告
+        assertRealEmbeddingDescriptorWhenEnabled(descriptor);
         Path report = fixture.fixtureRoot().getParent().getParent().resolve(reportFileName);
         StringBuilder content = new StringBuilder()
                 .append("# 文档关联独立语义召回与 RRF 对照实验报告 v1\n\n")
@@ -396,6 +398,22 @@ class DocumentSemanticRrfEvaluationTests {
                     .append('\n');
         }
         return conclusion.toString();
+    }
+
+    /**
+     * 校验真实评估模式实际使用的 Embedding 客户端类型。
+     *
+     * @param descriptor 本次向量化客户端描述
+     */
+    private void assertRealEmbeddingDescriptorWhenEnabled(String descriptor) {
+        if (!realEmbeddingEnabled) {
+            return;
+        }
+
+        // 真实模式必须由 OpenAI-compatible 客户端提供，防止报告误标真实模型结果
+        assertThat(descriptor)
+                .contains("provider=openai-compatible")
+                .doesNotContain("provider=fake");
     }
 
     /**

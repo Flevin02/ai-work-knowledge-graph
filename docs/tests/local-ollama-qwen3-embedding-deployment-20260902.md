@@ -50,11 +50,8 @@
 ## 本地配置建议
 
 ```bash
-export AI_ENABLED=true
+export AI_ENABLED=false
 export AI_PROVIDER=openai-compatible
-export AI_BASE_URL=http://127.0.0.1:11434/v1
-export AI_API_KEY=ollama
-export AI_MODEL=qwen3:latest
 
 export AI_EMBEDDING_ENABLED=true
 export AI_EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1
@@ -64,4 +61,4 @@ export AI_EMBEDDING_DIMENSION=4096
 export AI_EMBEDDING_VERSION=ollama-qwen3-embedding-latest-20260902
 ```
 
-如果只验证 Embedding 客户端，不触发聊天抽取、标签或问答，可暂时不拉取 `qwen3:latest`；一旦运行会调用聊天模型的功能或 `RealAiSmokeIntegrationTests`，需要先安装对应本地聊天模型，或改用已可用的 OpenAI-compatible 聊天端点。
+如果只验证 Embedding 客户端，不触发聊天抽取、标签或问答，应保持 `AI_ENABLED=false`，暂时不拉取 `qwen3:latest`；一旦运行会调用聊天模型的功能或 `RealAiSmokeIntegrationTests`，需要先安装对应本地聊天模型，或改用已可用的 OpenAI-compatible 聊天端点。

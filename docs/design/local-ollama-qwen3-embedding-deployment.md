@@ -140,16 +140,13 @@ curl -s http://127.0.0.1:11434/v1/embeddings \
 
 ## 5. 后端本地配置建议
 
-当前项目真实 Embedding Bean 受 `ai.enabled=true`、`ai.api-key` 非空和 `ai.embedding-enabled=true` 共同影响。因此只启用本地 Embedding 时，也需要给聊天模型配置一个本地占位值或已安装的本地聊天模型。
+当前项目真实 Embedding Bean 只受 `AI_EMBEDDING_ENABLED=true` 和 Embedding 端点配置影响；聊天模型 Bean 继续由 `AI_ENABLED=true` 独立控制。只做本地 Embedding 评估时，不需要安装或启用本地聊天模型。
 
 建议安装线程先在本地 shell 或未提交的本地配置中使用：
 
 ```bash
-export AI_ENABLED=true
+export AI_ENABLED=false
 export AI_PROVIDER=openai-compatible
-export AI_BASE_URL=http://127.0.0.1:11434/v1
-export AI_API_KEY=ollama
-export AI_MODEL=qwen3:latest
 
 export AI_EMBEDDING_ENABLED=true
 export AI_EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1
@@ -161,7 +158,7 @@ export AI_EMBEDDING_VERSION=ollama-qwen3-embedding-latest-20260902
 
 注意：
 
-- 如果没有安装 `qwen3:latest` 聊天模型，单纯创建 `ChatModel` Bean 通常不会立即请求模型；但调用真实聊天抽取、标签或问答时会失败。只做 Embedding 验证时，可以先不触发聊天模型功能。
+- 只做 Embedding 验证时保持 `AI_ENABLED=false`，避免误创建聊天抽取、标签或问答客户端。
 - 如果要同时做本地聊天模型验证，需要另行 `ollama pull qwen3:latest`，这不属于本文档的最小 Embedding 交接范围。
 - `AI_EMBEDDING_VERSION` 必须随模型来源、tag、维度或运行策略变化而升级，避免把新旧向量视作同一批事实。
 

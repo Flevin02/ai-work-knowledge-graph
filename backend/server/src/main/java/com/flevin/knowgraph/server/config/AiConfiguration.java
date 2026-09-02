@@ -21,7 +21,6 @@ import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -34,8 +33,6 @@ import static dev.langchain4j.model.chat.Capability.RESPONSE_FORMAT_JSON_SCHEMA;
  * LangChain4j OpenAI-compatible 模型配置，仅在显式启用 AI 时创建真实客户端。
  */
 @Configuration
-@ConditionalOnProperty(prefix = "ai", name = "enabled", havingValue = "true")
-@ConditionalOnExpression("T(org.springframework.util.StringUtils).hasText('${ai.api-key:}')")
 public class AiConfiguration {
 
     /**
@@ -45,6 +42,7 @@ public class AiConfiguration {
      * @return LangChain4j 聊天模型
      */
     @Bean
+    @ConditionalOnProperty(prefix = "ai", name = "enabled", havingValue = "true")
     public ChatModel openAiCompatibleChatModel(AiProperties properties) {
         // 校验真实模型调用需要的协议、地址和密钥配置
         validateOpenAiCompatibleProperties(properties);
@@ -77,6 +75,7 @@ public class AiConfiguration {
      * @return LangChain4j 流式聊天模型
      */
     @Bean
+    @ConditionalOnProperty(prefix = "ai", name = "enabled", havingValue = "true")
     public StreamingChatModel openAiCompatibleStreamingChatModel(AiProperties properties) {
         // 校验流式模型调用需要的协议、地址和密钥配置
         validateOpenAiCompatibleProperties(properties);
@@ -133,6 +132,7 @@ public class AiConfiguration {
      * @return 领域层 AI 抽取客户端
      */
     @Bean
+    @ConditionalOnProperty(prefix = "ai", name = "enabled", havingValue = "true")
     public AiExtractionClient aiExtractionClient(
             @Qualifier("openAiCompatibleChatModel") ChatModel chatModel,
             @Qualifier("openAiCompatibleStreamingChatModel") StreamingChatModel streamingChatModel,
@@ -157,6 +157,7 @@ public class AiConfiguration {
      * @return 领域层文档关联判断客户端；模型未启用时关联运行保持未启用状态
      */
     @Bean
+    @ConditionalOnProperty(prefix = "ai", name = "enabled", havingValue = "true")
     public DocumentAssociationClient documentAssociationClient(
             @Qualifier("openAiCompatibleChatModel") ChatModel chatModel
     ) {
@@ -171,6 +172,7 @@ public class AiConfiguration {
      * @return 领域层文档标签客户端；模型未启用时标签运行保持未启用状态
      */
     @Bean
+    @ConditionalOnProperty(prefix = "ai", name = "enabled", havingValue = "true")
     public DocumentTaggingClient documentTaggingClient(
             @Qualifier("openAiCompatibleChatModel") ChatModel chatModel
     ) {
@@ -185,6 +187,7 @@ public class AiConfiguration {
      * @return 领域层有据问答客户端；模型未启用时问答继续走未启用降级
      */
     @Bean
+    @ConditionalOnProperty(prefix = "ai", name = "enabled", havingValue = "true")
     public ConversationAnswerClient conversationAnswerClient(
             @Qualifier("openAiCompatibleChatModel") ChatModel chatModel
     ) {
@@ -233,9 +236,9 @@ public class AiConfiguration {
      * @param properties AI 模型配置
      */
     private void validateOpenAiCompatibleProperties(AiProperties properties) {
-        if (!"openai-compatible".equalsIgnoreCase(properties.getProvider())) {
-            throw new IllegalStateException("当前真实模型适配仅支持 openai-compatible 协议");
-        }
+        // 先校验协议边界，防止聊天模型被错误供应商配置创建
+        validateOpenAiCompatibleProvider(properties);
+
         if (properties.getBaseUrl() == null || properties.getBaseUrl().isBlank()) {
             throw new IllegalStateException("启用 AI 时必须配置 AI_BASE_URL");
         }
@@ -253,11 +256,28 @@ public class AiConfiguration {
      * @param properties AI 模型配置
      */
     private void validateEmbeddingProperties(AiProperties properties) {
-        // 复用聊天端点的协议、地址和认证校验
-        validateOpenAiCompatibleProperties(properties);
+        // 先校验协议边界，Embedding-only 评估不要求聊天模型端点可用
+        validateOpenAiCompatibleProvider(properties);
 
+        if (properties.effectiveEmbeddingBaseUrl() == null || properties.effectiveEmbeddingBaseUrl().isBlank()) {
+            throw new IllegalStateException("启用 Embedding 时必须配置 AI_EMBEDDING_BASE_URL 或 AI_BASE_URL");
+        }
+        if (properties.effectiveEmbeddingApiKey() == null || properties.effectiveEmbeddingApiKey().isBlank()) {
+            throw new IllegalStateException("启用 Embedding 时必须通过 AI_EMBEDDING_API_KEY 或 AI_API_KEY 提供模型密钥");
+        }
         if (properties.getEmbeddingModel() == null || properties.getEmbeddingModel().isBlank()) {
             throw new IllegalStateException("启用 Embedding 时必须配置 AI_EMBEDDING_MODEL");
+        }
+    }
+
+    /**
+     * 校验当前真实模型适配使用受支持的 OpenAI-compatible 协议。
+     *
+     * @param properties AI 模型配置
+     */
+    private void validateOpenAiCompatibleProvider(AiProperties properties) {
+        if (!"openai-compatible".equalsIgnoreCase(properties.getProvider())) {
+            throw new IllegalStateException("当前真实模型适配仅支持 openai-compatible 协议");
         }
     }
 }
