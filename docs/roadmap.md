@@ -4,54 +4,57 @@
 
 > 本文档只规划下一任务：保留一个当前任务和简短候选队列，不保存产品设计、技术设计、已完成历史或验证流水账。产品与架构边界见 [`docs/prd/ai-work-knowledge-graph-maintainer-prd.md`](prd/ai-work-knowledge-graph-maintainer-prd.md)，实现级设计见 `docs/design/`，验证结论见 `docs/tests/`，完成历史通过 Git 追溯。
 
-## 1. 当前任务：问答前端最小闭环
+## 1. 当前任务：真实 Embedding 语义召回评估
 
 ### 1.1 目标
 
-在现有知识空间工作台接入只读问答面板，使用户能够创建或恢复当前会话、提交问题、区分回答/失败/证据不足状态，并从已验证引用打开对应来源资料。
+在本地 Ollama `qwen3-embedding:latest` 已完成最小 smoke 后，使用固定虚构资料评估真实 Embedding 对文档语义召回和 RRF 融合排序的影响，判断是否具备进入默认候选链路的证据基础。
 
 ### 1.2 进入条件
 
-会话、消息、引用事实和创建/恢复/提交/查询接口已经存在；OpenAI-compatible 生产客户端、固定 Prompt、非法输出分类及关闭降级已经形成后端边界。当前缺少 TypeScript 问答契约和用户可操作入口，因此本切片只接前端闭环，不改检索策略或引入长耗时编排。
+本地 Ollama OpenAI-compatible `/v1/embeddings` 已可返回 4096 维向量，项目 `DocumentEmbeddingClient` 真实 smoke 已通过。下一步只允许在明确目标测试库和清理边界后运行会写入/清理 MySQL 评估数据的测试。
 
 ### 1.3 实施范围
 
-1. 增加会话、消息和引用的 TypeScript 类型及 API 客户端，所有业务 `Long` ID 保持十进制字符串。
-2. 在当前知识空间工作台增加只读问答入口，支持创建会话、恢复已知会话、提交问题和展示用户/助手消息。
-3. 明确显示 `grounded`、`partially_grounded`、`insufficient_evidence`、`failed` 及稳定错误摘要，不把失败或无证据回答伪装成可信结论。
-4. 引用卡片展示文档名、章节路径和逐字 quote；点击后复用现有文档预览打开对应资料，并保留当前空间边界。
-5. 增加 API 映射和关键交互测试，并执行前端 typecheck、build 及浏览器关键路径验收。
+1. 明确测试数据库、上传目录和报告文件名，避免覆盖 Fake 基线报告或误清理非测试数据。
+2. 使用以下配置运行真实 Embedding 评估：
+   - `AI_EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1`
+   - `AI_EMBEDDING_API_KEY=ollama`
+   - `AI_EMBEDDING_MODEL=qwen3-embedding:latest`
+   - `AI_EMBEDDING_DIMENSION=4096`
+   - `AI_EMBEDDING_VERSION=ollama-qwen3-embedding-latest-20260902`
+3. 只改变 Embedding 模型来源这一项变量，复用固定资料集、TopK、RRF 常数和评价口径。
+4. 将真实评估结果写入新的 `docs/tests/` 报告，不覆盖 Fake 基线。
+5. 对比内容臂、语义臂和 RRF 融合臂的 Recall@8、Precision@8、硬负例、自关联和耗时。
 
 ### 1.4 验收标准
 
-- 创建或恢复会话后可提交问题，页面刷新或工作台状态恢复不会把会话错误带到其他知识空间。
-- 消息顺序、提交中、成功、失败、部分证据和证据不足状态均有明确且可访问的展示。
-- 已验证引用可以打开正确来源资料并展示章节与 quote；失效来源有显式提示，不能静默指向新版本。
-- 前端不保存模型密钥，不把字符串 ID 转为 JavaScript `number`，不使用演示回答兜底真实接口失败。
-- `npm run typecheck`、`npm run build` 和浏览器关键路径通过；验证事实只写入 `docs/tests/`。
+- 评估运行前已经获得测试库清理授权，并确认不会影响非测试资料。
+- 真实向量事实使用 `ollama-qwen3-embedding-latest-20260902` 版本隔离，不与既有模型版本混用。
+- 报告明确记录数据集版本、Embedding 模型、维度、TopK、阈值、结果指标、失败样例、结论和未覆盖边界。
+- 不能只因真实模型调用成功就判断 RAG 质量提升；必须用固定标注指标和失败样例判断。
 
 ### 1.5 本任务不做
 
-- 不修改问答检索、Prompt、模型客户端、数据库表或既有 HTTP 资源语义。
-- 不实现 SSE、Token 流式输出、断线续传、后台运行队列或会话列表管理。
-- 不引入或切换 Embedding、Ollama、Milvus、Qdrant、Reranker、Agent 或 Workflow 编排。
-- 不允许通过问答确认标签、采纳关系、删除文档或修改原始资料。
+- 不调用聊天模型，不验证真实问答生成、标签抽取或关系判断 Prompt。
+- 不引入 Milvus、Qdrant、Reranker、Agent、SSE 或 Workflow 编排。
+- 不删除或重建生产/非测试数据，不把真实 Embedding 自动接入默认候选路径。
+- 不读取真实公司资料；只使用 `fixture/` 下的虚构或脱敏资料。
 
 ### 1.6 必读入口
 
 - 产品与架构边界：[`docs/prd/ai-work-knowledge-graph-maintainer-prd.md`](prd/ai-work-knowledge-graph-maintainer-prd.md)
-- 有据问答设计：[`docs/prd/document-tag-and-association-rag-prd.md` 第 13.7、16.3 节](prd/document-tag-and-association-rag-prd.md#137-有据问答-rag-链路)
-- 后端资源：`backend/server/src/main/java/com/flevin/knowgraph/server/controller/conversation/ConversationController.java`
-- 前端工作台：`frontend/src/components/graph-workspace.tsx`
-- 现有文档 API 模式：`frontend/src/lib/api/documents.ts`
+- 文档关联与 RAG 设计：[`docs/prd/document-tag-and-association-rag-prd.md`](prd/document-tag-and-association-rag-prd.md)
+- 本地 Ollama 验证记录：[`docs/tests/local-ollama-qwen3-embedding-deployment-20260902.md`](tests/local-ollama-qwen3-embedding-deployment-20260902.md)
+- 真实评估入口：`backend/server/src/test/java/com/flevin/knowgraph/server/association/DocumentSemanticRrfEvaluationTests.java`
 
 ## 2. 候选队列
 
 当前任务完成后，再按顺序评审并只提升一项为新的当前任务：
 
-1. 长耗时问答恢复：评估 SSE、运行标识、断线恢复和幂等续传。
-2. 健康检查与导出：失效来源、缺字段、冲突及 Markdown/JSON/图片导出。
-3. 受控 Agent：仅在固定 RAG 问答稳定且出现动态工具选择、暂停恢复或可回放多步任务需求时评估。
+1. 问答前端浏览器点击验收：在浏览器控制工具可用时补齐真实可见点击验证。
+2. 长耗时问答恢复：评估 SSE、运行标识、断线恢复和幂等续传。
+3. 健康检查与导出：失效来源、缺字段、冲突及 Markdown/JSON/图片导出。
 
 ## 3. 维护规则
 

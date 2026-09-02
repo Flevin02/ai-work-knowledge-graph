@@ -38,6 +38,7 @@
 - 客户端描述：`EmbeddingModelDescriptor[provider=openai-compatible, model=qwen3-embedding:latest, version=ollama-qwen3-embedding-latest-20260902, dimension=4096]`
 - 项目客户端返回：`vector_count=2`，`dimensions=[4096, 4096]`，`all_finite=true`
 - 单元测试：通过，`mvn -q -pl server -Dtest=OpenAiCompatibleDocumentEmbeddingClientTests test`
+- 项目 Embedding-only 真实 smoke：通过，`mvn -pl server -Preal-ai -Dtest=LocalOllamaDocumentEmbeddingSmokeTests test`，1 项测试，0 失败，0 错误；该测试不加载 Spring 上下文、不调用聊天模型、不连接 MySQL
 
 ## 未覆盖边界
 
