@@ -142,19 +142,25 @@ curl -s http://127.0.0.1:11434/v1/embeddings \
 
 当前项目真实 Embedding Bean 只受 `AI_EMBEDDING_ENABLED=true` 和 Embedding 端点配置影响；聊天模型 Bean 继续由 `AI_ENABLED=true` 独立控制。只做本地 Embedding 评估时，不需要安装或启用本地聊天模型。
 
-建议安装线程先在本地 shell 或未提交的本地配置中使用：
+主配置 `application.yml` 已将以下非敏感参数设为本地默认值：
+
+```text
+AI_PROVIDER=openai-compatible
+AI_EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1
+AI_EMBEDDING_API_KEY=ollama
+AI_EMBEDDING_MODEL=qwen3-embedding:latest
+AI_EMBEDDING_DIMENSION=4096
+AI_EMBEDDING_VERSION=ollama-qwen3-embedding-latest-20260902
+```
+
+其中 `ollama` 只是本地无鉴权端点要求的非敏感客户端占位值。默认配置仍保持聊天模型和真实 Embedding 关闭；只启用本地 Embedding 时仅需：
 
 ```bash
 export AI_ENABLED=false
-export AI_PROVIDER=openai-compatible
-
 export AI_EMBEDDING_ENABLED=true
-export AI_EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1
-export AI_EMBEDDING_API_KEY=ollama
-export AI_EMBEDDING_MODEL=qwen3-embedding:latest
-export AI_EMBEDDING_DIMENSION=<用 curl 实测的维度>
-export AI_EMBEDDING_VERSION=ollama-qwen3-embedding-latest-20260902
 ```
+
+切换端点、模型 tag、实测维度或版本时，继续通过对应环境变量覆盖 YAML 默认值；真实远程服务密钥不得写入配置文件。
 
 注意：
 

@@ -1,9 +1,9 @@
 ---
 title: AI 工作知识图谱维护助手 PRD
-version: v0.46
+version: v0.47
 status: 生效中
 created: 2026-08-17
-updated: 2026-09-01
+updated: 2026-09-02
 scope: 参赛项目 / 独立轻量应用
 ---
 
@@ -272,8 +272,13 @@ AI_MODEL=gpt-5.4-mini
 AI_API_KEY=仅服务端环境变量配置
 AI_JSON_SCHEMA_ENABLED=false
 AI_EMBEDDING_ENABLED=false
-AI_EMBEDDING_MODEL=text-embedding-3-small
+AI_EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1
+AI_EMBEDDING_MODEL=qwen3-embedding:latest
+AI_EMBEDDING_DIMENSION=4096
+AI_EMBEDDING_VERSION=ollama-qwen3-embedding-latest-20260902
 ```
+
+聊天模型与 Embedding 独立启用。项目默认的 Embedding 配置指向本地 Ollama OpenAI-compatible 端点，避免向第三方上传分片；真实向量调用仍默认关闭，只有显式开启后才参与向量化实验。模型 tag、维度或运行策略变化时必须同步升级 Embedding 版本，禁止混用旧向量。
 
 ### 选择 LangChain4j 和 OpenAI-compatible 协议的原因
 

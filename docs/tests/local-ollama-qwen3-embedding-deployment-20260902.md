@@ -47,18 +47,17 @@
 - 未验证 Milvus、本地接口链路、真实业务资料、生产环境或并发压力。
 - 本次只证明本机 Ollama Embedding 服务、OpenAI-compatible 协议、项目 Java 客户端封装和基础向量约束可用，不证明 RAG 召回质量。
 
-## 本地配置建议
+## 项目 YAML 配置验证
+
+主配置已默认写入本机 Ollama 的非敏感端点、占位 Key、模型、4096 维度和版本；`AI_ENABLED` 与 `AI_EMBEDDING_ENABLED` 均继续默认关闭。执行：
 
 ```bash
-export AI_ENABLED=false
-export AI_PROVIDER=openai-compatible
-
-export AI_EMBEDDING_ENABLED=true
-export AI_EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1
-export AI_EMBEDDING_API_KEY=ollama
-export AI_EMBEDDING_MODEL=qwen3-embedding:latest
-export AI_EMBEDDING_DIMENSION=4096
-export AI_EMBEDDING_VERSION=ollama-qwen3-embedding-latest-20260902
+cd backend
+kg_java_home=$(/usr/libexec/java_home -v 21)
+JAVA_HOME="$kg_java_home" PATH="$kg_java_home/bin:$PATH" \
+  mvn -pl server -Dtest=AiApplicationYamlTests,AiConfigurationUnitTests test
 ```
 
-如果只验证 Embedding 客户端，不触发聊天抽取、标签或问答，应保持 `AI_ENABLED=false`，暂时不拉取 `qwen3:latest`；一旦运行会调用聊天模型的功能或 `RealAiSmokeIntegrationTests`，需要先安装对应本地聊天模型，或改用已可用的 OpenAI-compatible 聊天端点。
+结果：3 项测试通过，0 失败，0 错误。该验证只证明 YAML 默认值可被 Spring 属性环境解析、Embedding-only 客户端仍可独立创建；没有发起新的真实 Embedding 请求。
+
+本地实际启用只需设置 `AI_EMBEDDING_ENABLED=true`。如果只验证 Embedding 客户端，不触发聊天抽取、标签或问答，应保持 `AI_ENABLED=false`，暂时不拉取 `qwen3:latest`；一旦运行会调用聊天模型的功能或 `RealAiSmokeIntegrationTests`，需要先安装对应本地聊天模型，或改用已可用的 OpenAI-compatible 聊天端点。

@@ -45,12 +45,13 @@ ai:
   base-url: ${AI_BASE_URL:https://api.psydo.top/v1}
   json-schema-enabled: ${AI_JSON_SCHEMA_ENABLED:false}
   embedding-enabled: ${AI_EMBEDDING_ENABLED:false}
-  # Embedding 独立端点通过环境变量注入，避免把供应商密钥写入仓库
-  embedding-base-url: ${AI_EMBEDDING_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
-  embedding-api-key: ${AI_EMBEDDING_API_KEY:}
-  embedding-model: ${AI_EMBEDDING_MODEL:qwen3.7-text-embedding}
-  embedding-dimension: ${AI_EMBEDDING_DIMENSION:1024}
-  embedding-version: ${AI_EMBEDDING_VERSION:dashscope-qwen3.7-embedding-v1}
+  # 本地默认使用 Ollama OpenAI-compatible 端点；开关仍默认关闭，避免自动回归触发真实向量调用
+  embedding-base-url: ${AI_EMBEDDING_BASE_URL:http://127.0.0.1:11434/v1}
+  # Ollama 本地端点不校验密钥，该非敏感占位值仅满足 OpenAI-compatible 客户端参数要求
+  embedding-api-key: ${AI_EMBEDDING_API_KEY:ollama}
+  embedding-model: ${AI_EMBEDDING_MODEL:qwen3-embedding:latest}
+  embedding-dimension: ${AI_EMBEDDING_DIMENSION:4096}
+  embedding-version: ${AI_EMBEDDING_VERSION:ollama-qwen3-embedding-latest-20260902}
   prompt-version: ${AI_PROMPT_VERSION:prd-extraction-v3}
   summary-prompt-version: ${AI_SUMMARY_PROMPT_VERSION:document-summary-v1}
   schema-version: ${AI_SCHEMA_VERSION:extraction-v2}
