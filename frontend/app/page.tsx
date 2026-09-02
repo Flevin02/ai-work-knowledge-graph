@@ -18,11 +18,14 @@ function firstValue(value: string | string[] | undefined) {
 export default async function HomePage({searchParams}: HomePageProps) {
   const query = await searchParams;
   const graphMode = firstValue(query.graphMode) === 'document' ? 'document' : 'entity';
+  const view = firstValue(query.view) === 'conversation' ? 'conversation' : undefined;
 
   return <GraphWorkspace
     initialGraph={emptyGraph}
     initialState={{
       spaceId: firstValue(query.spaceId),
+      view,
+      conversationId: firstValue(query.conversationId),
       graphMode,
       selectedNodeId: firstValue(query.selectedNodeId),
       graphSearch: firstValue(query.graphSearch),

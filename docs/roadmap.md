@@ -1,6 +1,6 @@
 # 下一任务路线图
 
-更新时间：2026-09-01
+更新时间：2026-09-02
 
 > 本文档只规划下一任务：保留一个当前任务和简短候选队列，不保存产品设计、技术设计、已完成历史或验证流水账。产品与架构边界见 [`docs/prd/ai-work-knowledge-graph-maintainer-prd.md`](prd/ai-work-knowledge-graph-maintainer-prd.md)，实现级设计见 `docs/design/`，验证结论见 `docs/tests/`，完成历史通过 Git 追溯。
 
@@ -34,7 +34,7 @@
 
 - 不修改问答检索、Prompt、模型客户端、数据库表或既有 HTTP 资源语义。
 - 不实现 SSE、Token 流式输出、断线续传、后台运行队列或会话列表管理。
-- 不引入 Milvus、Qdrant、Reranker、Agent 或 Workflow 编排。
+- 不引入或切换 Embedding、Ollama、Milvus、Qdrant、Reranker、Agent 或 Workflow 编排。
 - 不允许通过问答确认标签、采纳关系、删除文档或修改原始资料。
 
 ### 1.6 必读入口

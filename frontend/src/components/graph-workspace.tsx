@@ -18,6 +18,7 @@ import {
     Link2,
     LoaderCircle,
     MapPin,
+    MessageSquare,
     Search,
     ShieldCheck,
     Sparkles,
@@ -27,6 +28,7 @@ import {
     X,
 } from 'lucide-react';
 import GraphCanvas from './graph-canvas';
+import ConversationPanel from './conversation-panel';
 import DocumentGraphSidebar from './document-graph-sidebar';
 import SelectMenu from './select-menu';
 import ReactMarkdown from 'react-markdown';
@@ -74,14 +76,18 @@ import {
     type GraphNode,
     type KnowledgeSpace,
     type KnowledgeTagSummary,
+    type MessageCitation,
     type SourceDocument,
     type SourceDocumentContent,
     type SourceDocumentKind,
 } from '@/lib/types';
 
 type GraphMode = 'entity' | 'document';
+type View = 'graph' | 'documents' | 'conversation' | 'health';
 export type GraphWorkspaceInitialState = {
     spaceId?: string;
+    view?: View;
+    conversationId?: string;
     graphMode?: GraphMode;
     selectedNodeId?: string;
     graphSearch?: string;
@@ -94,7 +100,6 @@ type GraphWorkspaceProps = {
     initialGraph: GraphData;
     initialState?: GraphWorkspaceInitialState;
 };
-type View = 'graph' | 'documents' | 'health';
 type NoticeTone = 'success' | 'warning' | 'error' | 'loading';
 type DocumentPreviewTab = 'rendered' | 'source' | 'ai';
 type DocumentPreviewSelection = {
@@ -226,7 +231,7 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
     const [loadedDocumentGraphSpaceId, setLoadedDocumentGraphSpaceId] = useState<string | null>(null);
     const [documentGraphTagId, setDocumentGraphTagId] = useState<string>('');
     const [graphMode, setGraphMode] = useState<GraphMode>(initialState?.graphMode ?? 'entity');
-    const [view, setView] = useState<View>('graph');
+    const [view, setView] = useState<View>(initialState?.view ?? 'graph');
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
         initialState?.selectedNodeId ?? initialGraph.nodes[0]?.id ?? null
     );
@@ -747,6 +752,46 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
         // 将文档详情写入可复制和可刷新的 URL，路由页继续复用当前工作台与详情弹窗
         router.push(`/spaces/${encodeURIComponent(currentSpaceId)}/documents/${encodeURIComponent(documentId)}${suffix}`);
     }, [currentSpaceId, documentRelationTypeFilter, documentTypeFilter, router, search]);
+
+    const handleConversationReady = useCallback((conversationId: string) => {
+        if (!currentSpaceId) return;
+        const query = new URLSearchParams({
+            spaceId: currentSpaceId,
+            view: 'conversation',
+            conversationId,
+        });
+
+        // 会话创建或恢复后写入可刷新的 URL，避免跨知识空间误恢复旧会话
+        router.replace(`/?${query.toString()}`);
+    }, [currentSpaceId, router]);
+
+    const openConversationCitation = useCallback((citation: MessageCitation) => {
+        if (citation.sourceStale || citation.validationStatus !== 'verified') return;
+        const sourceDocument = persistedDocuments.find((document) => document.id === citation.sourceDocumentId);
+        setDocumentPreview({
+            document: sourceDocument ?? {
+                id: citation.sourceDocumentId,
+                name: citation.sourceDocumentName,
+                kind: 'markdown',
+                contentHash: '',
+                excerpt: citation.quote,
+                status: 'active',
+                importedAt: '',
+                updatedAt: '',
+            },
+            initialTab: 'source',
+            evidence: {
+                id: citation.citationId,
+                sourceDocumentId: citation.sourceDocumentId,
+                chunkId: citation.chunkId,
+                sectionPath: citation.sectionPath,
+                quote: citation.quote,
+                startOffset: citation.startOffset,
+                endOffset: citation.endOffset,
+                evidenceRole: 'answer_citation',
+            },
+        });
+    }, [persistedDocuments]);
 
     useEffect(() => {
         if (
@@ -1479,12 +1524,16 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
         ? '工作图谱'
         : view === 'documents'
             ? '来源资料'
-            : '知识健康检查';
+            : view === 'conversation'
+                ? '有据问答'
+                : '知识健康检查';
     const pageDescription = view === 'graph'
         ? currentSpaceId ? '从项目、任务、人员和资料之间的关系中找到工作上下文。' : '先创建知识空间，再导入文档并生成图谱。'
         : view === 'documents'
             ? currentSpaceId ? '查看当前知识空间中已保存的来源文件、解析状态和文本预览。' : '先创建知识空间，再管理来源资料。'
-            : currentSpaceId ? '先处理会影响知识可信度的问题，再继续扩展图谱。' : '创建知识空间后，这里会显示知识健康检查结果。';
+            : view === 'conversation'
+                ? currentSpaceId ? '限定一份来源资料提问，并从服务端返回的已验证引用打开原文。' : '创建知识空间并导入资料后才能发起问答。'
+                : currentSpaceId ? '先处理会影响知识可信度的问题，再继续扩展图谱。' : '创建知识空间后，这里会显示知识健康检查结果。';
 
     return (
         <main className="app-shell">
@@ -1554,6 +1603,9 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
                         <button className={view === 'documents' ? 'nav-item active' : 'nav-item'}
                             onClick={() => setView('documents')}><FileText
                             size={17}/> 来源资料 <span>{documentTotal}</span></button>
+                        <button className={view === 'conversation' ? 'nav-item active' : 'nav-item'}
+                            onClick={() => setView('conversation')}><MessageSquare
+                            size={17}/> 有据问答 <span>{persistedDocuments.length}</span></button>
                         <button className={view === 'health' ? 'nav-item active' : 'nav-item'}
                             onClick={() => setView('health')}><ShieldCheck size={17}/> 知识健康 <span
                             className="warning-count">{issueCount(graph)}</span></button>
@@ -1790,6 +1842,15 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
                         onLoadMore={loadMoreDocuments}
                         onRetryLoadMore={retryLoadMoreDocuments}
                     />}
+                    {view === 'conversation' && <ConversationPanel
+                        spaceId={currentSpaceId}
+                        documents={persistedDocuments}
+                        initialConversationId={currentSpaceId === initialState?.spaceId
+                            ? initialState.conversationId
+                            : undefined}
+                        onConversationReady={handleConversationReady}
+                        onOpenCitation={openConversationCitation}
+                    />}
                     {view === 'health' && <HealthPanel graph={graph} onSelectNode={(id) => {
                         setSelectedNodeId(id);
                         setView('graph');
@@ -1802,6 +1863,8 @@ export default function GraphWorkspace({initialGraph, initialState}: GraphWorksp
                         ? <div className="empty-detail"><Archive size={28}/><p>创建知识空间后即可开始导入文档</p></div>
                         : view === 'documents'
                         ? <DocumentSidebar documents={persistedDocuments} space={currentSpace}/>
+                        : view === 'conversation'
+                        ? <ConversationSidebar documentCount={persistedDocuments.length}/>
                         : graphMode === 'document'
                             ? <DocumentGraphSidebar
                                 graph={filteredDocumentGraph}
@@ -3218,6 +3281,24 @@ function AiExtractionPreviewPanel({
             <button className="primary-button" disabled={!reviewComplete} onClick={onClose}><Check size={15}/>
                 {reviewComplete ? '完成审核并关闭' : '完成审核'}</button>
         </footer>
+    </div>;
+}
+
+function ConversationSidebar({documentCount}: { documentCount: number }) {
+    return <div className="detail-content">
+        <div className="detail-kicker"><MessageSquare size={16}/> 只读问答</div>
+        <h2>有据问答</h2>
+        <p className="detail-summary">
+            当前问答限定一份来源资料作为范围。回答只展示服务端返回的状态和通过逐字反查的引用，失效引用不会跳转到新版本。
+        </p>
+        <div className="document-summary-grid">
+            <div><strong>{documentCount}</strong><span>已加载资料</span></div>
+            <div><strong>1</strong><span>单文档范围</span></div>
+        </div>
+        <div className="boundary-list">
+            <span>状态：证据充分、部分证据、资料不足、回答失败。</span>
+            <span>范围：不修改图谱关系、标签、来源资料或向量索引。</span>
+        </div>
     </div>;
 }
 

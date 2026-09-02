@@ -89,6 +89,61 @@ export type SourceDocumentContent = {
   updatedAt: string;
 };
 
+export type ConversationGroundingStatus =
+  | 'grounded'
+  | 'partially_grounded'
+  | 'insufficient_evidence';
+
+export type Conversation = {
+  conversationId: string;
+  spaceId: string;
+  title: string;
+  scopeDocumentId: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MessageCitation = {
+  citationId: string;
+  messageId: string;
+  sourceDocumentId: string;
+  sourceDocumentName: string;
+  sourceStale: boolean;
+  chunkRecordId: string;
+  chunkId: string;
+  sectionPath: string;
+  quote: string;
+  startOffset: number | null;
+  endOffset: number | null;
+  citationOrder: number;
+  validationStatus: 'verified' | 'stale';
+};
+
+export type ConversationMessage = {
+  messageId: string;
+  conversationId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  status: 'completed' | 'failed';
+  groundingStatus: ConversationGroundingStatus | null;
+  errorCategory: string | null;
+  errorMessage: string | null;
+  answerClient: string | null;
+  promptVersion: string | null;
+  schemaVersion: string | null;
+  citationCount: number;
+  citationFailureCount: number;
+  durationMs: number | null;
+  createdAt: string;
+  citations: MessageCitation[];
+};
+
+export type ConversationDetail = {
+  conversation: Conversation;
+  messages: ConversationMessage[];
+};
+
 export type AiEntityCandidate = {
   candidateId: string;
   type: string;
